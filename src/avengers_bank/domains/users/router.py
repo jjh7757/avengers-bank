@@ -11,6 +11,7 @@ from avengers_bank.domains.users.schemas import (
     UserCreate,
     UserLogin,
     UserResponse,
+    UserUpdate,
 )
 from avengers_bank.domains.users.service import user_service
 
@@ -49,4 +50,15 @@ async def get_me(current_user: Annotated[UserResponse, Depends(get_current_user)
     return SuccessResponse[UserResponse](data=current_user)
 
 
-# TODO: PATCH /users/me — 내 정보 수정
+@router.patch(
+    "/me",
+    response_model=SuccessResponse[UserResponse],
+    responses=error_responses(400, 401),
+)
+async def update_me(
+    data: UserUpdate,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: Annotated[UserResponse, Depends(get_current_user)],
+):
+    user = await user_service.update_me(db, current_user.user_id, data)
+    return SuccessResponse[UserResponse](data=user, message="내 정보가 수정되었습니다.")

@@ -1,0 +1,46 @@
+{
+  "account_products": [
+    {
+      "type": "CHECKING",
+      "name": "어벤져스 자유입출금통장",
+      "description": "수수료 없이 언제든 입출금할 수 있는 기본 통장입니다. 이체·카드 결제 계좌로 사용합니다.",
+      "interest_rate": "0.10"
+    },
+    {
+      "type": "DEPOSIT",
+      "name": "아이언 정기예금",
+      "description": "목돈을 한 번에 맡기고 만기에 이자를 받는 정기예금입니다. 가입 기간 6~36개월.",
+      "interest_rate": "3.20"
+    },
+    {
+      "type": "DEPOSIT",
+      "name": "쉴드 안심예금",
+      "description": "예금자보호 한도 안에서 운용하는 단기 예금입니다. 가입 기간 1~12개월.",
+      "interest_rate": "2.80"
+    },
+    {
+      "type": "SAVINGS",
+      "name": "캡틴 꾸준적금",
+      "description": "매월 정해진 날 정해진 금액을 납입하는 정기적금입니다. 가입 기간 12~36개월.",
+      "interest_rate": "3.80"
+    },
+    {
+      "type": "SAVINGS",
+      "name": "토르 청년도약적금",
+      "description": "만 19~34세 청년을 위한 우대금리 적금입니다. 월 최대 70만원, 가입 기간 12~60개월.",
+      "interest_rate": "4.50"
+    }
+  ],
+  "card_products": [
+    {
+      "type": "CREDIT",
+      "name": "어벤져스 플래티넘 신용카드",
+      "description": "국내 가맹점 0.7% 적립, 대중교통·통신비 10% 할인. 매월 지정한 결제일에 결제 계좌에서 출금됩니다."
+    },
+    {
+      "type": "DEBIT",
+      "name": "어벤져스 데일리 체크카드",
+      "description": "연결된 입출금 계좌에서 즉시 출금되는 체크카드. 편의점·카페 5% 캐시백."
+    }
+  ]
+}

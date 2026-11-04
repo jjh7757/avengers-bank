@@ -1,9 +1,23 @@
 from datetime import date, datetime
+from enum import StrEnum
 
 from sqlalchemy import BigInteger, Date, DateTime, ForeignKey, SmallInteger, String, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from avengers_bank.core.database import Base
+
+
+class HistoryType(StrEnum):
+    """거래내역 type 컬럼 값 (PROJECT_PLAN.md 8절)"""
+
+    DEPOSIT = "DEPOSIT"  # 예금·적금 계좌에 돈이 들어옴
+    WITHDRAW = "WITHDRAW"
+    TRANSFER_IN = "TRANSFER_IN"
+    TRANSFER_OUT = "TRANSFER_OUT"
+    CARD_PAYMENT = "CARD_PAYMENT"  # 체크카드 결제로 입출금 계좌에서 출금
+    SAVINGS_PAYMENT = "SAVINGS_PAYMENT"  # 입출금 → 적금 납입 (입출금 쪽 기록)
+    DEPOSIT_PAYMENT = "DEPOSIT_PAYMENT"  # 입출금 → 예금 입금 (입출금 쪽 기록)
+    INTEREST = "INTEREST"
 
 
 class CheckingAccount(Base):
@@ -80,10 +94,10 @@ class CheckingAccountHistory(Base):
     date: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
-    change_amount: Mapped[int] = mapped_column(BigInteger, nullable=False)
-    type: Mapped[str] = mapped_column(String(20), nullable=False)  # 입금/출금/이체/카드결제 등
-    from_account: Mapped[str | None] = mapped_column(String(20))
-    sending_account: Mapped[str | None] = mapped_column(String(20))
+    change_amount: Mapped[int] = mapped_column(BigInteger, nullable=False)  # 입금 +, 출금 -
+    type: Mapped[str] = mapped_column(String(20), nullable=False)  # HistoryType
+    from_account: Mapped[str | None] = mapped_column(String(20))  # 돈이 나간 계좌번호
+    sending_account: Mapped[str | None] = mapped_column(String(20))  # 돈이 들어간 계좌번호
 
 
 class DepositAccountHistory(Base):

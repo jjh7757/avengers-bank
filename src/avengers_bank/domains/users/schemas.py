@@ -12,6 +12,14 @@ class UserCreate(BaseModel):
     phone: str = Field(min_length=9, max_length=20)
 
 
+class UserUpdate(BaseModel):
+    """PATCH /users/me — 보낸 필드만 바꾼다. nick_name은 null로 지울 수 있다."""
+
+    name: str | None = Field(default=None, min_length=1, max_length=50)
+    nick_name: str | None = Field(default=None, max_length=50)
+    phone: str | None = Field(default=None, min_length=9, max_length=20)
+
+
 class UserLogin(BaseModel):
     login_id: str = Field(min_length=1, max_length=50)
     password: str = Field(min_length=1, max_length=128, repr=False)

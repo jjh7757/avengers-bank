@@ -1,7 +1,11 @@
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.concurrency import run_in_threadpool
 
-from avengers_bank.core.exceptions import ConflictException, UnauthorizedException
+from avengers_bank.core.exceptions import (
+    BadRequestException,
+    ConflictException,
+    UnauthorizedException,
+)
 from avengers_bank.core.security import (
     create_access_token,
     decode_access_token,
@@ -10,7 +14,7 @@ from avengers_bank.core.security import (
 )
 from avengers_bank.domains.users.models import User
 from avengers_bank.domains.users.repository import user_repository
-from avengers_bank.domains.users.schemas import UserCreate, UserLogin
+from avengers_bank.domains.users.schemas import UserCreate, UserLogin, UserUpdate
 
 
 class UserService:
@@ -58,7 +62,23 @@ class UserService:
             )
         return user
 
-    # TODO: PATCH /users/me — 이름, 닉네임, 전화번호 수정
+    async def update_me(self, db: AsyncSession, user_id: int, data: UserUpdate) -> User:
+        changes = data.model_dump(exclude_unset=True)
+        async with db.begin():
+            user = await user_repository.find_by_id(db, user_id)
+            if user is None:
+                raise UnauthorizedException(
+                    message="유효하지 않거나 만료된 토큰입니다.", code="INVALID_TOKEN"
+                )
+            for field in ("name", "phone"):
+                if field in changes and changes[field] is None:
+                    raise BadRequestException(
+                        code="REQUIRED_FIELD", message="이름과 전화번호는 비울 수 없습니다."
+                    )
+            for field, value in changes.items():
+                setattr(user, field, value)
+            await db.flush()
+        return user
 
 
 user_service = UserService()

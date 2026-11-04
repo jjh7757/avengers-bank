@@ -25,6 +25,7 @@ from avengers_bank.domains.cards.models import (  # noqa: F401
     DebitCardHistory,
 )
 from avengers_bank.domains.products.models import AccountProduct, CardProduct  # noqa: F401
+from avengers_bank.domains.recipients.models import Recipient  # noqa: F401
 from avengers_bank.domains.users.models import User  # noqa: F401
 
 config = context.config

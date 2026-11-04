@@ -1,8 +1,25 @@
-from pydantic import BaseModel, ConfigDict
+from datetime import datetime
+from typing import Literal
 
-# TODO: 발급 요청 스키마 — CreditCardCreate, DebitCardCreate (checking_account_id 필수)
-# TODO: 상세 응답 스키마 — 카드 종류별 Response, 사용내역 Response
-# TODO: CardPaymentCreate — place_of_use, used_amount
+from pydantic import BaseModel, ConfigDict, Field
+
+CardType = Literal["credit", "debit"]
+
+
+class CreditCardCreate(BaseModel):
+    product_id: int
+    checking_account_id: int = Field(description="결제 계좌 (본인 입출금 계좌)")
+    payment_date: int = Field(ge=1, le=31, description="매월 결제일")
+
+
+class DebitCardCreate(BaseModel):
+    product_id: int
+    checking_account_id: int = Field(description="출금 계좌 (본인 입출금 계좌)")
+
+
+class CardPaymentCreate(BaseModel):
+    place_of_use: str = Field(min_length=1, max_length=100)
+    used_amount: int = Field(gt=0)
 
 
 class CardSummaryResponse(BaseModel):
@@ -15,3 +32,25 @@ class CardSummaryResponse(BaseModel):
     accumulated_amount: int
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class CardDetailResponse(CardSummaryResponse):
+    product_id: int
+    payment_date: int | None = None  # credit
+
+
+class CardHistoryResponse(BaseModel):
+    history_id: int
+    place_of_use: str
+    used_amount: int
+    time: datetime
+
+
+class CardPaymentResponse(BaseModel):
+    card_type: str
+    card_id: int
+    place_of_use: str
+    used_amount: int
+    accumulated_amount: int
+    account_balance_after: int | None = None  # 체크카드: 연결 계좌의 결제 후 잔액
+    paid_at: datetime

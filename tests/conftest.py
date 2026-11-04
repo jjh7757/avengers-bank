@@ -6,12 +6,23 @@ os.environ["JWT_SECRET_KEY"] = "test-secret-key-test-secret-key-0000"
 
 import pytest
 from httpx import ASGITransport, AsyncClient
+from sqlalchemy import update
 
 import avengers_bank.domains.accounts.models  # noqa: F401  모든 테이블을 Base에 등록
 import avengers_bank.domains.cards.models  # noqa: F401
 import avengers_bank.domains.products.models  # noqa: F401
-from avengers_bank.core.database import Base, engine
+import avengers_bank.domains.recipients.models  # noqa: F401
+from avengers_bank.core.database import Base, SessionLocal, engine
+from avengers_bank.domains.accounts.models import CheckingAccount
+from avengers_bank.domains.products.seed import seed_products
 from avengers_bank.main import app
+
+# data/seed/products.json 순서대로 product_id가 1부터 붙는다.
+CHECKING_PRODUCT = 1
+DEPOSIT_PRODUCT = 2
+SAVINGS_PRODUCT = 4
+CREDIT_PRODUCT = 1
+DEBIT_PRODUCT = 2
 
 
 @pytest.fixture
@@ -24,5 +35,51 @@ async def client():
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.drop_all)
         await conn.run_sync(Base.metadata.create_all)
+    async with SessionLocal() as db, db.begin():
+        await seed_products(db)
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
         yield ac
+
+
+async def signup_and_login(client: AsyncClient, login_id: str, name: str = "테스트") -> dict:
+    """회원가입 후 Authorization 헤더를 돌려준다."""
+    await client.post(
+        "/users/signup",
+        json={"login_id": login_id, "password": "password1234", "name": name, "phone": "010-0000-0000"},
+    )
+    response = await client.post(
+        "/users/login", json={"login_id": login_id, "password": "password1234"}
+    )
+    return {"Authorization": f"Bearer {response.json()['data']['access_token']}"}
+
+
+async def open_checking(client: AsyncClient, headers: dict, balance: int = 0, **extra) -> dict:
+    """입출금 계좌를 열고, API로는 입금할 방법이 없으므로 잔액은 DB에 직접 넣는다."""
+    response = await client.post(
+        "/accounts/checking", headers=headers, json={"product_id": CHECKING_PRODUCT, **extra}
+    )
+    assert response.status_code == 201, response.text
+    account = response.json()["data"]
+    if balance:
+        await set_balance(account["account_id"], balance)
+        account["balance"] = balance
+    return account
+
+
+async def set_balance(checking_account_id: int, balance: int) -> None:
+    async with SessionLocal() as db, db.begin():
+        await db.execute(
+            update(CheckingAccount)
+            .where(CheckingAccount.checking_account_id == checking_account_id)
+            .values(balance=balance)
+        )
+
+
+@pytest.fixture
+async def user(client):
+    return await signup_and_login(client, "ironman", "토니 스타크")
+
+
+@pytest.fixture
+async def other_user(client):
+    return await signup_and_login(client, "hulk", "브루스 배너")
