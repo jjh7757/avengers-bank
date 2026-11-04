@@ -11,6 +11,7 @@ import type {
   ChatMessage,
   FdsLog,
   Product,
+  UiContext,
   TransferResult,
   User,
   VoiceProfile,
@@ -51,10 +52,10 @@ export const productApi = {
 export const chatApi = {
   createSession: () => api<{ session_id: string; created_at: string }>('/chat/sessions', { method: 'POST' }),
   messages: (sessionId: string) => api<ChatMessage[]>(`/chat/sessions/${sessionId}/messages`),
-  send: (sessionId: string, text: string, inputMode: 'text' | 'voice') =>
+  send: (sessionId: string, text: string, inputMode: 'text' | 'voice', uiContext?: UiContext) =>
     api<{ user_message: ChatMessage; assistant_message: ChatMessage }>(`/chat/sessions/${sessionId}/messages`, {
       method: 'POST',
-      body: { text, input_mode: inputMode },
+      body: { text, input_mode: inputMode, ui_context: uiContext },
     }),
 }
 

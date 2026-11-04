@@ -324,6 +324,48 @@ def test_screen_for_tools():
     assert screen_for("find_recipient", {"nickname": "엄마"}, {}) is None
 
 
+async def test_ui_context_reaches_agent_but_not_history(client, user, bank, classify, chat_model):
+    """모아 화면이 보낸 "지금 화면"은 에이전트에게만 붙고, 대화 기록에는 사용자가 쓴 글만 남는다"""
+    classify.next(intent="product")
+    model = chat_model(AIMessage("어벤져스 데일리 체크카드를 만들어 드릴까요?"))
+    ui = {
+        "screen": "products", "screen_params": {"kind": "card"},
+        "visible": ["어벤져스 플래티넘 신용카드", "어벤져스 데일리 체크카드"],
+        "selected": {"kind": "product", "label": "어벤져스 데일리 체크카드", "product_kind": "card", "product_id": 2},
+    }
+    await say(client, user, bank["session_id"], "이거 가입해줘", ui_context=ui)
+
+    sent = model.calls[0][-1].content
+    assert sent.startswith("이거 가입해줘\n\n[지금 사용자 화면")
+    assert "상품 목록 (kind=card)" in sent
+    assert "2. 어벤져스 데일리 체크카드" in sent
+    assert 'product "어벤져스 데일리 체크카드" product_kind=card, product_id=2' in sent
+
+    messages = (await client.get(f"/chat/sessions/{bank['session_id']}/messages", headers=user)).json()["data"]
+    assert messages[0]["content"] == "이거 가입해줘"
+
+    # 화면 정보가 없으면 붙이지 않는다 (채팅 화면)
+    classify.next(intent="general")
+    model = chat_model(AIMessage("네, 말씀하세요."))
+    await say(client, user, bank["session_id"], "안녕")
+    assert model.calls[0][-1].content == "안녕"
+
+
+async def test_ui_context_is_validated(client, user, bank):
+    """클라이언트가 보내는 값이므로 모양·길이를 막는다"""
+    path = f"/chat/sessions/{bank['session_id']}/messages"
+    bad = [
+        {"screen": "admin"},
+        {"visible": ["x"] * 11},
+        {"visible": ["가" * 61]},
+        {"selected": {"kind": "product", "label": "x", "product_id": "1; drop"}},
+        {"screen_params": {f"k{i}": i for i in range(6)}},
+    ]
+    for ui in bad:
+        response = await client.post(path, headers=user, json={"text": "이거", "ui_context": ui})
+        assert response.status_code == 422, ui
+
+
 async def test_others_session_is_hidden(client, user, bank):
     stranger = await signup_and_login(client, "thor", "토르")
     response = await client.get(f"/chat/sessions/{bank['session_id']}/messages", headers=stranger)

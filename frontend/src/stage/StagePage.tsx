@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom'
 
 import { ApiError } from '../api/client'
 import { chatApi } from '../api/endpoints'
-import type { AccountType, CardType, ChatMessage, Screen } from '../api/types'
+import type { AccountType, CardType, ChatMessage, Screen, UiContext, UiSelected } from '../api/types'
 import { useAuth } from '../auth/useAuth'
 import TransferCard, { type Status } from '../components/TransferCard'
 import { useChatSession } from '../hooks/useChatSession'
@@ -20,6 +20,7 @@ import {
   ProductsPanel,
   type ProductFilter,
 } from './panels'
+import { selectionKey, type Pick } from './selection'
 import './stage.css'
 
 /**
@@ -84,6 +85,8 @@ export default function StagePage() {
   const [autoVoiceFor, setAutoVoiceFor] = useState<number | null>(null)
   const [showLog, setShowLog] = useState(false)
   const [showMenu, setShowMenu] = useState(false)
+  const [selected, setSelected] = useState<UiSelected | null>(null) // 눌러서 고른 항목 ("이거")
+  const panelRef = useRef<HTMLElement>(null)
   const timers = useRef<number[]>([])
   const requestRef = useRef(0) // 새 요청이 오면 이전 요청의 늦게 끝난 콜백은 무시한다
 
@@ -102,17 +105,47 @@ export default function StagePage() {
   const target = screenTarget(shownMessage?.screen_params ?? {})
   const bubbleText = bubble ?? lastAssistant?.content ?? GREETING
 
+  const pick: Pick = {
+    selectedKey: selected && selectionKey(selected),
+    onSelect: (item) => {
+      const same = selected && selectionKey(selected) === selectionKey(item)
+      setSelected(same ? null : item)
+      setBubble(same ? null : `"${item.label}" 골랐어요. 무엇을 도와드릴까요?`)
+    },
+  }
+
+  /** 지금 보고 있는 화면. "이거", "이 계좌", "두 번째 거"를 에이전트가 풀 수 있게 메시지와 함께 보낸다 */
+  function currentUi(): UiContext {
+    // 화면에 보이는 항목은 패널이 data-ui-label로 표시해 둔 것을 위에서부터 모은다
+    const labels = [...(panelRef.current?.querySelectorAll<HTMLElement>('[data-ui-label]') ?? [])]
+      .map((element) => (element.dataset.uiLabel ?? '').slice(0, 60))
+      .filter(Boolean)
+      .slice(0, 10)
+    return {
+      screen: shown.screen,
+      screen_params: shownMessage?.screen_params ?? {},
+      selected: selected && { ...selected, label: selected.label.slice(0, 60) },
+      visible: labels,
+    }
+  }
+
   /** 답변을 말한다. 음성 안내가 꺼져 있어도 말하는 표정은 글 길이만큼 보여 준다 */
   function talk(message: ChatMessage, request: number) {
     setBubble(null)
     setMood('speaking')
-    const started = Date.now()
-    const minMs = Math.min(3500, Math.max(1200, message.content.length * 60))
+    // 음성이 끝나고 최소 표시 시간도 지나야 말하는 표정을 거둔다
+    let spoke = false
+    let waited = false
+    const finish = () => {
+      if (spoke && waited && requestRef.current === request) setMood((m) => (m === 'speaking' ? 'idle' : m))
+    }
+    later(Math.min(3500, Math.max(1200, message.content.length * 60)), () => {
+      waited = true
+      finish()
+    })
     const done = () => {
-      if (requestRef.current !== request) return
-      later(Math.max(0, minMs - (Date.now() - started)), () => {
-        if (requestRef.current === request) setMood((m) => (m === 'speaking' ? 'idle' : m))
-      })
+      spoke = true
+      finish()
     }
     const card = message.card
     if (card?.type === 'transfer_confirmation') {
@@ -131,6 +164,7 @@ export default function StagePage() {
     const trimmed = text.trim()
     if (!trimmed || !sessionId || busy) return
     const request = ++requestRef.current
+    const ui = currentUi()
     timers.current.forEach(clearTimeout)
     timers.current = []
     setBusy(true)
@@ -143,12 +177,13 @@ export default function StagePage() {
     setMood('thinking')
     speech.cancelSpeech()
     try {
-      const { user_message, assistant_message } = await chatApi.send(sessionId, trimmed, inputMode)
+      const { user_message, assistant_message } = await chatApi.send(sessionId, trimmed, inputMode, ui)
       if (requestRef.current !== request) return
       setMessages((prev) => [...prev, user_message, assistant_message])
       setPendingText(null)
       const screen = assistant_message.screen
       if (screen) {
+        setSelected(null) // 새 화면이 오면 고른 항목은 풀린다
         setMood('bringing')
         setView((v) => ({ screen, msgId: assistant_message.msg_id, key: (v?.key ?? 0) + 1 }))
         later(BRING_MS, () => {
@@ -206,6 +241,7 @@ export default function StagePage() {
     await startNewSession()
     setView(null)
     setBubble(null)
+    setSelected(null)
     setMood('idle')
     setAutoVoiceFor(null)
   }
@@ -271,16 +307,17 @@ export default function StagePage() {
           {userLine && <p className="stage-user-line">나: {userLine}</p>}
           <section
             key={shown.key}
+            ref={panelRef}
             className={`stage-panel ${shown.key ? 'arrive' : ''} panel-${transferMessage ? 'transfer' : shown.screen}`}
             inert={arriving || busy}
             aria-busy={arriving || busy}
           >
             {shown.key > 0 && <span className="stage-grip" aria-hidden="true" />}
-            {(shown.screen === 'accounts' || (shown.screen === 'account' && !target.account)) && <AccountsPanel />}
+            {(shown.screen === 'accounts' || (shown.screen === 'account' && !target.account)) && <AccountsPanel pick={pick} />}
             {shown.screen === 'account' && target.account && <AccountPanel {...target.account} />}
-            {(shown.screen === 'cards' || (shown.screen === 'card' && !target.card)) && <CardsPanel />}
+            {(shown.screen === 'cards' || (shown.screen === 'card' && !target.card)) && <CardsPanel pick={pick} />}
             {shown.screen === 'card' && target.card && <CardPanel {...target.card} />}
-            {shown.screen === 'products' && <ProductsPanel reply={shownMessage?.content ?? ''} {...target.products} />}
+            {shown.screen === 'products' && <ProductsPanel reply={shownMessage?.content ?? ''} pick={pick} {...target.products} />}
             {shown.screen === 'fds' && <FdsPanel />}
             {shown.screen === 'transfer' && transferMessage?.card?.type === 'transfer_confirmation' && sessionId ? (
               <TransferCard

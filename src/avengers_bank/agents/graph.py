@@ -19,6 +19,7 @@ from avengers_bank.agents import llm
 from avengers_bank.agents.mcp_client import BankMcpClient
 from avengers_bank.agents.prompts import SYSTEM_PROMPT
 from avengers_bank.agents.state import AgentState, PendingTransfer, Screen
+from avengers_bank.agents.ui_context import with_ui
 from avengers_bank.domains.chat.amount import format_korean_amount, normalize_amount
 
 MAX_TOOL_ROUNDS = 4
@@ -183,7 +184,8 @@ def build_graph(ctx: AgentContext):
 
     async def agent_node(state: AgentState) -> dict:
         messages = state.get("messages") or [
-            SystemMessage(SYSTEM_PROMPT), *state.get("history", []), HumanMessage(state["user_text"])
+            SystemMessage(SYSTEM_PROMPT), *state.get("history", []),
+            HumanMessage(with_ui(state["user_text"], state.get("ui_context"))),
         ]
         response = await llm.get_chat_llm().bind_tools(await ctx.tools()).ainvoke(messages)
         update = {"messages": [*messages, response], "new_pending": state.get("pending")}

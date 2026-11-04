@@ -425,8 +425,39 @@
   gap: 0.1rem;
 }
 
-.stage-product.picked {
+.stage-product.recommended {
   border: 2px solid var(--primary);
+}
+
+/* 눌러서 고른 항목: "이거", "이 계좌"가 가리키는 대상 */
+.stage-pick {
+  position: relative;
+  width: 100%;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.stage-pick.selected {
+  outline: 3px solid var(--caution);
+  outline-offset: 2px;
+}
+
+.stage-pick.selected::after {
+  content: '✓ 고름';
+  position: absolute;
+  top: -0.7rem;
+  right: 0.75rem;
+  padding: 0 0.4rem;
+  border-radius: 999px;
+  background: var(--caution-bg);
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--caution);
+}
+
+.stage-card-face.stage-pick {
+  border: none;
 }
 
 .stage-product > span:first-child .small {

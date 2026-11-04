@@ -1,8 +1,8 @@
-import { useCallback, useState } from 'react'
+import { useCallback, useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 
 import { accountApi, cardApi, fdsApi, productApi } from '../api/endpoints'
-import type { AccountDetail, AccountType, CardType } from '../api/types'
+import type { AccountDetail, AccountType, CardType, UiSelected } from '../api/types'
 import TransferLimitForm from '../components/TransferLimitForm'
 import { useLoad } from '../hooks/useLoad'
 import {
@@ -15,8 +15,38 @@ import {
   signedWon,
   won,
 } from '../lib/format'
+import { selectionKey, type Pick } from './selection'
 
-/** 도우미가 무대로 가져오는 화면들. 가져올 때마다 새로 마운트되므로 항상 최신 데이터를 불러온다. */
+/**
+ * 도우미가 무대로 가져오는 화면들. 가져올 때마다 새로 마운트되므로 항상 최신 데이터를 불러온다.
+ * 목록 항목은 눌러서 고를 수 있고("이거 가입해줘"), data-ui-label을 단 항목은 "화면에 보이는 항목"으로
+ * 메시지와 함께 에이전트에게 간다 (StagePage가 보낼 때 모은다).
+ */
+
+function PickButton({
+  pick,
+  selected,
+  className = 'list-item',
+  children,
+}: {
+  pick: Pick
+  selected: UiSelected
+  className?: string
+  children: ReactNode
+}) {
+  const on = pick.selectedKey === selectionKey(selected)
+  return (
+    <button
+      type="button"
+      className={`${className} stage-pick ${on ? 'selected' : ''}`}
+      aria-pressed={on}
+      data-ui-label={selected.label}
+      onClick={() => pick.onSelect(selected)}
+    >
+      {children}
+    </button>
+  )
+}
 
 function Loading({ loading, error }: { loading: boolean; error: string | null }) {
   if (loading) return <p className="muted">불러오는 중…</p>
@@ -33,7 +63,7 @@ export function HomePanel({ name }: { name: string | undefined }) {
   )
 }
 
-export function AccountsPanel() {
+export function AccountsPanel({ pick }: { pick: Pick }) {
   const { data, error, loading } = useLoad(useCallback(() => accountApi.list(), []))
   return (
     <>
@@ -45,14 +75,22 @@ export function AccountsPanel() {
           <ul className="list">
             {data.map((a) => (
               <li key={`${a.account_type}-${a.account_id}`}>
-                <Link className="list-item" to={`/accounts/${a.account_type}/${a.account_id}`}>
+                <PickButton
+                  pick={pick}
+                  selected={{
+                    kind: 'account',
+                    label: a.nickname ?? `${ACCOUNT_TYPE_LABEL[a.account_type]} 계좌`,
+                    account_type: a.account_type,
+                    account_id: a.account_id,
+                  }}
+                >
                   <span>
                     <span className="badge">{ACCOUNT_TYPE_LABEL[a.account_type]}</span>
                     <strong>{a.nickname ?? `${ACCOUNT_TYPE_LABEL[a.account_type]} 계좌`}</strong>
                     <span className="muted small">{maskAccount(a.account_num)}</span>
                   </span>
                   <span className="amount">{won(a.balance)}</span>
-                </Link>
+                </PickButton>
               </li>
             ))}
           </ul>
@@ -151,7 +189,7 @@ export function CardPanel({ type, id }: { type: CardType; id: number }) {
   )
 }
 
-export function CardsPanel() {
+export function CardsPanel({ pick }: { pick: Pick }) {
   const { data, error, loading } = useLoad(useCallback(() => cardApi.list(), []))
   return (
     <>
@@ -160,11 +198,21 @@ export function CardsPanel() {
       {data && data.length === 0 && <p className="muted">아직 카드가 없어요.</p>}
       <div className="stage-cards">
         {data?.map((c) => (
-          <Link key={`${c.card_type}-${c.card_id}`} className="stage-card-face" to={`/cards/${c.card_type}/${c.card_id}`}>
+          <PickButton
+            key={`${c.card_type}-${c.card_id}`}
+            pick={pick}
+            className="stage-card-face"
+            selected={{
+              kind: 'card',
+              label: `${CARD_TYPE_LABEL[c.card_type]} 끝자리 ${c.card_num.slice(-4)}`,
+              card_type: c.card_type,
+              card_id: c.card_id,
+            }}
+          >
             <span>{CARD_TYPE_LABEL[c.card_type]}</span>
             <span className="stage-card-num">**** **** **** {c.card_num.slice(-4)}</span>
             <span className="small">이번 달 {won(c.accumulated_amount)}</span>
-          </Link>
+          </PickButton>
         ))}
       </div>
     </>
@@ -181,7 +229,13 @@ export interface ProductFilter {
  * 상품 목록. kind로 계좌/카드 상품만 보여 주고, 모아가 찾은 상품(product_id·키워드)과
  * 답변에 이름이 나온 상품(추천한 상품)을 맨 위로 올린다.
  */
-export function ProductsPanel({ reply, kind = 'all', keyword, productId }: { reply: string } & ProductFilter) {
+export function ProductsPanel({
+  reply,
+  kind = 'all',
+  keyword,
+  productId,
+  pick,
+}: { reply: string; pick: Pick } & ProductFilter) {
   const load = useCallback(async () => {
     const [accounts, cards] = await Promise.all([
       kind === 'card' ? [] : productApi.accounts(),
@@ -190,27 +244,38 @@ export function ProductsPanel({ reply, kind = 'all', keyword, productId }: { rep
     return [...accounts, ...cards]
   }, [kind])
   const { data: all, error, loading } = useLoad(load)
-  const picked = (p: { product_id: number; name: string; description: string }) =>
+  const recommended = (p: { product_id: number; name: string; description: string }) =>
     p.product_id === productId ||
     reply.includes(p.name) ||
     (!!keyword && (p.name.includes(keyword) || p.description.includes(keyword)))
-  const data = all && [...all.filter(picked), ...all.filter((p) => !picked(p))]
+  const data = all && [...all.filter(recommended), ...all.filter((p) => !recommended(p))]
   return (
     <>
       <p className="stage-panel-title">{kind === 'account' ? '계좌 상품' : kind === 'card' ? '카드 상품' : '상품'}</p>
       <Loading loading={loading} error={error} />
       <ul className="list">
         {data?.map((p) => (
-          <li key={`${p.type}-${p.product_id}`} className={`list-item stage-product ${picked(p) ? 'picked' : ''}`}>
-            <span>
-              <span className="badge">
-                {PRODUCT_TYPE_LABEL[p.type]}
-                {picked(p) && ' · 모아 추천'}
+          <li key={`${p.type}-${p.product_id}`}>
+            <PickButton
+              pick={pick}
+              className={`list-item stage-product ${recommended(p) ? 'recommended' : ''}`}
+              selected={{
+                kind: 'product',
+                label: p.name,
+                product_kind: p.type === 'CREDIT' || p.type === 'DEBIT' ? 'card' : 'account',
+                product_id: p.product_id,
+              }}
+            >
+              <span>
+                <span className="badge">
+                  {PRODUCT_TYPE_LABEL[p.type]}
+                  {recommended(p) && ' · 모아 추천'}
+                </span>
+                <strong>{p.name}</strong>
+                <span className="muted small">{p.description}</span>
               </span>
-              <strong>{p.name}</strong>
-              <span className="muted small">{p.description}</span>
-            </span>
-            {p.interest_rate && Number(p.interest_rate) > 0 && <span className="amount">연 {Number(p.interest_rate)}%</span>}
+              {p.interest_rate && Number(p.interest_rate) > 0 && <span className="amount">연 {Number(p.interest_rate)}%</span>}
+            </PickButton>
           </li>
         ))}
       </ul>

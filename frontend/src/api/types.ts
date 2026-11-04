@@ -98,6 +98,26 @@ export type ChatCard = TransferConfirmationCard | AccountSummaryCard
 /** 도우미 화면(/stage)에서 답변과 함께 가져올 화면. null이면 지금 화면 유지 */
 export type Screen = 'home' | 'accounts' | 'account' | 'cards' | 'card' | 'products' | 'fds' | 'transfer'
 
+/** 모아 화면에서 눌러 고른 항목 (백엔드 chat/schemas.UiSelected) */
+export interface UiSelected {
+  kind: 'account' | 'card' | 'product'
+  label: string
+  account_type?: AccountType
+  account_id?: number
+  card_type?: CardType
+  card_id?: number
+  product_kind?: 'account' | 'card'
+  product_id?: number
+}
+
+/** 지금 사용자가 보고 있는 화면. 모아 화면이 메시지와 함께 보낸다 ("이거", "이 계좌"를 풀기 위해) */
+export interface UiContext {
+  screen: Screen | null
+  screen_params: Record<string, unknown>
+  selected: UiSelected | null
+  visible: string[]
+}
+
 export interface ChatMessage {
   msg_id: number
   role: 'user' | 'assistant'

@@ -4,6 +4,7 @@ import uuid
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from avengers_bank.agents import ui_context
 from avengers_bank.agents.graph import AgentContext, build_graph
 from avengers_bank.agents.llm import LlmUnavailableException
 from avengers_bank.agents.state import PendingTransfer
@@ -63,6 +64,7 @@ class ChatService:
         try:
             result = await build_graph(ctx).ainvoke({
                 "user_text": data.text,
+                "ui_context": ui_context.describe(data.ui_context),
                 "history": history,
                 "pending": PendingTransfer.model_validate(pending_raw) if pending_raw else None,
             })

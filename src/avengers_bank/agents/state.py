@@ -31,6 +31,7 @@ class PendingTransfer(BaseModel):
 
 class AgentState(TypedDict, total=False):
     user_text: str
+    ui_context: str | None  # 지금 사용자 화면 (agents/ui_context.py가 만든 글)
     history: list[BaseMessage]  # 이번 메시지 이전 대화
     pending: PendingTransfer | None
     extraction: Extraction

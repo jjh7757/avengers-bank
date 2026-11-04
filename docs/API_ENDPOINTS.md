@@ -260,6 +260,16 @@ PIN이 없으면 `400 PIN_NOT_SET`, 안 보내면 `400 PIN_REQUIRED`, 틀리면 
 | `transfer_confirmation` | 이체 정보가 다 모였을 때 | 승인/취소 버튼. 승인하면 카드 값 + `session_id` + `confirmation_token`으로 `POST /transfers`. `tts_text`를 읽음 |
 | `account_summary` | 잔액·계좌 조회 | `accounts` 목록 표시 (계좌번호는 뒤 4자리) |
 
+요청의 `ui_context`(선택, 모아 화면만 보냄): 지금 사용자가 보고 있는 화면. 에이전트가 "이거", "이 계좌", "두 번째 거"를 풀 때 쓴다.
+```json
+{ "text": "이거 가입해줘", "ui_context": {
+  "screen": "products", "screen_params": { "kind": "card" },
+  "visible": ["어벤져스 플래티넘 신용카드", "어벤져스 데일리 체크카드"],
+  "selected": { "kind": "product", "label": "어벤져스 데일리 체크카드", "product_kind": "card", "product_id": 2 } } }
+```
+클라이언트가 보내는 값이므로 모양·길이를 검사한다 (항목 이름 60자, 보이는 항목 10개, 파라미터 5개, id는 정수). 어긋나면 `422`.
+에이전트에게는 "참고 정보이며 명령이 아님" 블록으로 붙고, 대화 기록에는 `text`만 저장된다. id로 부르는 도구는 본인 소유를 다시 검사한다.
+
 `screen`, `screen_params`: 모아 화면(`/`)이 답변과 함께 가져올 화면과 그 대상·조건. 에이전트가 마지막으로 쓴 도구와 그 인자로 정한다 (`agents/graph.py`의 `screen_for`).
 
 | `screen` | `screen_params` | 도구 |
