@@ -102,6 +102,7 @@
 - [x] `find_recipient` (별칭 → 계좌번호, 없으면 "등록된 사람이 없어요")
 - [x] `prepare_transfer` (확인 카드 JSON 생성, 실행 아님)
 - ~~`execute_transfer`~~ LLM 도구로 두지 않기로 함. 실행은 프론트가 승인 토큰을 실어 `POST /transfers` 호출
+  - 이후 외부 MCP 클라이언트용 `execute_transfer`를 transfers 서버에 추가 (LLM 제외, 확인 카드 토큰 + PIN/음성 승인 필수, 같은 FDS)
 - [x] `search_products`
 - [x] `get_my_cards`
 - [x] 도구 입력은 모두 Pydantic 스키마로 검증

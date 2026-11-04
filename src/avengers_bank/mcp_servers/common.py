@@ -1,7 +1,8 @@
 """MCP 서버 공통: 사용자 인증, DB 세션, 오류를 도구 결과로 바꾸기.
 
 도구는 HTTP 헤더 `Authorization: Bearer <JWT>`로 누구의 요청인지 안다 (REST API와 같은 JWT).
-service가 던진 ApiException은 {"error": code, "message": ...}로 돌려준다. 에이전트(LLM)가 그 메시지를 보고 사용자에게 설명한다.
+service가 던진 ApiException은 {"error": code, "message": ..., "extra": ...}로 돌려준다. 에이전트(LLM)가 그 메시지를 보고 사용자에게 설명한다.
+extra는 FDS 차단 사유처럼 오류에 딸린 정보가 있을 때만 붙는다.
 """
 
 import functools
@@ -65,7 +66,7 @@ def bank_tool(server: FastMCP, **tool_kwargs):
                     await db.rollback()  # 인증 조회로 열린 트랜잭션을 닫아야 service가 자기 트랜잭션을 연다
                     return await fn(db, user, *args, **kwargs)
             except ApiException as e:
-                return {"error": e.code, "message": e.message}
+                return {"error": e.code, "message": e.message, **({"extra": e.extra} if e.extra else {})}
 
         wrapper.__signature__ = inspect.Signature(params, return_annotation=inspect.signature(fn).return_annotation)
         wrapper.__annotations__ = {**{p.name: p.annotation for p in params}, "return": dict}

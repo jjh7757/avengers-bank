@@ -19,6 +19,7 @@ BASE_URL = "http://127.0.0.1:8000"  # Host 검사용 이름. 실제로는 ASGITr
 # MCP 서버에는 있지만 LLM에게는 주지 않는 도구
 LLM_EXCLUDED = {
     "prepare_transfer",  # 이체 카드는 금액 재검증을 거친 이체 노드만 만든다
+    "execute_transfer",  # 돈은 사용자가 확인 카드에서 승인할 때만 움직인다 (앱이 POST /transfers)
     "register_recipient",  # 수취인 등록 = FDS "처음 보내는 계좌" 검사를 건너뜀. 붙여넣은 글에 속아 등록하지 않게
     "rename_recipient",  # "엄마"를 다른 계좌로 바꿔치기하지 않게
     "delete_recipient",

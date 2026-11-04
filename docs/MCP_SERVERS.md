@@ -17,11 +17,11 @@ React ── REST ──▶ FastAPI ─┬─ /users /accounts /transfers ... (R
 - 에이전트는 `langchain-mcp-adapters`의 `MultiServerMCPClient`로 붙는다. 같은 프로세스이므로 `httpx.ASGITransport`로 네트워크 없이 호출한다 (`agents/mcp_client.py`).
 - 외부 MCP 클라이언트(Claude Desktop, 다른 에이전트)도 `http://127.0.0.1:8000/mcp/{서버}/mcp`에 붙을 수 있다.
 - 인증: `Authorization: Bearer <JWT>` (REST 로그인 토큰과 같다). 에이전트는 대화를 처리하는 동안 그 사용자의 토큰을 새로 만들어 쓴다.
-- 도구는 service를 그대로 호출하므로 본인 소유 검사, 잔액·한도, 트랜잭션 규칙이 REST API와 같다. service 오류는 `{"error": 코드, "message": ...}`로 돌려준다.
-- 계좌·카드번호는 뒤 4자리만 돌려준다 (`****6789`). 예외: `prepare_transfer`의 확인 카드(앱이 이체 요청에 그대로 써야 함).
+- 도구는 service를 그대로 호출하므로 본인 소유 검사, 잔액·한도, 트랜잭션 규칙이 REST API와 같다. service 오류는 `{"error": 코드, "message": ...}`로 돌려준다. FDS 차단처럼 딸린 정보가 있으면 `extra`도 붙인다.
+- 계좌·카드번호는 뒤 4자리만 돌려준다 (`****6789`). 예외: `prepare_transfer`의 확인 카드(이체 요청에 그대로 써야 함). `execute_transfer` 결과는 다시 가린다.
 - Host 검사(DNS rebinding 방지): `127.0.0.1`, `localhost`만 허용. 배포할 때 `mcp_servers/common.py`의 `ALLOWED_HOSTS`에 실제 호스트를 더한다.
 
-## 서버와 도구 (23개)
+## 서버와 도구 (24개)
 
 | 서버 | 도구 | 종류 | LLM |
 |---|---|---|---|
@@ -29,7 +29,8 @@ React ── REST ──▶ FastAPI ─┬─ /users /accounts /transfers ... (R
 | | `open_checking_account`, `open_deposit_account`, `open_savings_account`, `rename_account` | 변경 (사용자 동의 후) | ✅ |
 | | `lower_transfer_limits` | 변경. **낮추기만** 가능 (`LIMIT_RAISE_NOT_ALLOWED`) | ✅ |
 | **transfers** 이체 | `list_recipients`, `find_recipient`, `find_account_holder` | 조회 | ✅ |
-| | `prepare_transfer` | 확인 카드 + 승인 토큰 (**실행 아님**) | ❌ 이체 노드만 |
+| | `prepare_transfer` | 확인 카드 + 승인 토큰 (**실행 아님**). `session_id`를 비우면 새 대화를 만든다 | ❌ 이체 노드만 |
+| | `execute_transfer` | 이체 실행. 카드 값 + 승인 토큰 + **이체 PIN 또는 음성 승인 토큰 필수** | ❌ 외부 클라이언트만 |
 | | `register_recipient`, `rename_recipient`, `delete_recipient` | 변경 | ❌ 앱 화면·외부 클라이언트만 |
 | **products** 상품 | `search_products`, `get_product` | 조회 | ✅ |
 | **cards** 카드 | `get_my_cards`, `get_card_histories` | 조회 | ✅ |
@@ -40,7 +41,8 @@ React ── REST ──▶ FastAPI ─┬─ /users /accounts /transfers ... (R
 
 | 기능 | 이유 |
 |---|---|
-| 이체 실행, 적금 납입·예금 입금 | 돈이 움직인다. 확인 카드 → 사용자 승인(버튼·음성·PIN) → `POST /transfers` + FDS로만 실행 |
+| `execute_transfer`를 LLM에게 | 돈이 움직인다. 우리 에이전트는 확인 카드 → 사용자 승인(버튼·음성·PIN) → 앱이 `POST /transfers`로 실행 |
+| 적금 납입·예금 입금 | 돈이 움직인다. 앱 화면에서만 |
 | `prepare_transfer`를 LLM에게 | 이체 카드는 금액 재검증(정규식)과 수취인 조회를 거친 이체 노드만 만든다 |
 | 수취인 등록·변경·삭제를 LLM에게 | 등록된 수취인은 FDS "처음 보내는 계좌" 검사를 건너뛴다. 붙여넣은 문자에 속아 사기 계좌를 "엄마"로 등록하는 것을 막는다 |
 | 이체 한도 높이기 | 계정 탈취·보이스피싱 때 한도를 올려 빼 가는 경로. 앱 화면에서만 |
@@ -48,6 +50,17 @@ React ── REST ──▶ FastAPI ─┬─ /users /accounts /transfers ... (R
 | 목소리 등록·삭제 | 녹음 파일과 비밀번호가 필요한 앱 화면 기능 |
 
 변경 도구(계좌 개설, 카드 발급, 별칭 변경, 한도 낮추기)는 시스템 프롬프트에서 "무엇을 할지 말하고 사용자가 '네'라고 한 뒤에만 부른다"고 정했다. 실제 Gemini로 "체크카드 만들어줘" → "발급해 드릴까요?" → "네" → 발급 순서를 확인했다. 프롬프트 규칙이라 LLM이 어길 가능성은 남는다. 돈이 움직이는 도구는 이 규칙에 기대지 않고 아예 주지 않는다.
+
+## 외부 클라이언트의 이체: prepare_transfer → execute_transfer
+
+1. `prepare_transfer` (session_id 없이) → 확인 카드. 카드의 `session_id`, `confirmation_token`과 받는 사람·금액·출금 계좌를 받는다.
+2. 클라이언트는 카드 내용을 **사용자에게 보여 주고**, 사용자가 직접 입력한 이체 PIN을 받는다.
+3. `execute_transfer`에 카드 값 + 토큰 + PIN → `POST /transfers`와 같은 `transfer_service.transfer()`를 거친다
+   (카드 내용과 같은지, 카드 1회 사용, 잔액·한도, FDS, 목소리 등록자의 음성 승인/PIN).
+
+- **확인 카드 토큰만으로는 실행하지 않는다** (`PIN_REQUIRED`). 외부 AI가 두 도구를 사람 없이 연달아 부르지 못하게 하려는 것이다.
+- FDS가 막으면 `{"error": "FDS_BLOCKED", "extra": {"rule_hits", "warning", ...}}`. 클라이언트는 경고 문구를 사용자에게 보여 줘야 한다.
+- 한계: PIN이 외부 클라이언트(와 그 LLM의 대화 기록)를 거친다. PIN 시도 횟수 제한은 아직 없다 (REST와 같음).
 
 ## 외부 MCP 클라이언트로 붙기
 
@@ -66,4 +79,4 @@ MCP 클라이언트 설정 예 (streamable HTTP):
 
 ## 테스트
 
-`tests/test_mcp.py`: 에이전트와 같은 방법으로 붙어서 인증, 본인 소유 검사, 번호 가리기, 한도 낮추기만 허용, 계좌 개설·카드 발급, 확인 카드 → 이체 승인, 남의 대화 거절, Host 검사를 확인한다. `tests/test_chat.py`는 LLM을 가짜로 바꾸고 MCP 도구는 실제로 부른다.
+`tests/test_mcp.py`: 에이전트와 같은 방법으로 붙어서 인증, 본인 소유 검사, 번호 가리기, 한도 낮추기만 허용, 계좌 개설·카드 발급, 확인 카드 → 이체 승인, `execute_transfer`(PIN 필수, 카드 1회, FDS 차단 사유), 남의 대화 거절, Host 검사를 확인한다. `tests/test_chat.py`는 LLM을 가짜로 바꾸고 MCP 도구는 실제로 부른다.

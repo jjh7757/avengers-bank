@@ -121,3 +121,58 @@ async def test_prepare_transfer_rejects_others_session(client, user, other_user)
         "to_account_num": target["account_num"],
     })
     assert result["error"] == "CHAT_SESSION_NOT_FOUND"
+
+
+async def set_pin(client, headers, pin="123456"):
+    response = await client.put("/users/me/pin", headers=headers, json={"password": "password1234", "pin": pin})
+    assert response.status_code == 200
+
+
+async def test_execute_transfer_needs_pin_and_runs_once(client, user, other_user):
+    """외부 MCP 클라이언트: 대화 없이 카드를 만들고, 사용자가 입력한 PIN으로만 실행한다"""
+    mine = await open_checking(client, user, balance=100_000)
+    target = await open_checking(client, other_user)
+    mcp = await mcp_for(client, user)
+    assert "execute_transfer" in LLM_EXCLUDED  # 우리 에이전트 LLM에는 주지 않는다
+
+    card = await mcp.call("transfers", "prepare_transfer", {
+        "from_checking_account_id": mine["account_id"], "amount": 30_000, "to_account_num": target["account_num"],
+    })
+    args = {k: card[k] for k in ("session_id", "confirmation_token", "from_checking_account_id", "to_account_num", "amount")}
+    assert len(card["session_id"]) == 32  # 대화가 없으면 새로 만든다
+
+    assert (await mcp.call("transfers", "execute_transfer", args))["error"] == "PIN_REQUIRED"  # 토큰만으로는 실행하지 않는다
+    assert (await mcp.call("transfers", "execute_transfer", {**args, "pin": "123456"}))["error"] == "PIN_NOT_SET"
+    await set_pin(client, user)
+    assert (await mcp.call("transfers", "execute_transfer", {**args, "pin": "000000"}))["error"] == "INVALID_PIN"
+    assert (await mcp.call("transfers", "execute_transfer", {**args, "amount": 90_000, "pin": "123456"}))["error"] == "CONFIRMATION_MISMATCH"
+
+    result = await mcp.call("transfers", "execute_transfer", {**args, "pin": "123456"})
+    assert result["balance_after"] == 70_000
+    assert result["to_account_num"] == "****" + target["account_num"].replace("-", "")[-4:]
+    assert result["to_holder_name"] == "브루스 배너"
+
+    assert (await mcp.call("transfers", "execute_transfer", {**args, "pin": "123456"}))["error"] == "CONFIRMATION_USED"
+    logs = (await client.get("/fds/logs", headers=user)).json()["data"]
+    assert logs[0]["decision"] == "PASS"  # POST /transfers와 같은 FDS 기록이 남는다
+
+
+async def test_execute_transfer_blocked_by_fds_returns_reasons(client, user, other_user, ml_score):
+    mine = await open_checking(client, user, balance=100_000)
+    target = await open_checking(client, other_user)
+    await set_pin(client, user)
+    mcp = await mcp_for(client, user)
+    card = await mcp.call("transfers", "prepare_transfer", {
+        "from_checking_account_id": mine["account_id"], "amount": 30_000, "to_account_num": target["account_num"],
+    })
+
+    ml_score.value = 0.99
+    result = await mcp.call("transfers", "execute_transfer", {
+        **{k: card[k] for k in ("session_id", "confirmation_token", "from_checking_account_id", "to_account_num", "amount")},
+        "pin": "123456",
+    })
+    assert result["error"] == "FDS_BLOCKED"
+    assert result["extra"]["risk_level"] == "HIGH"
+    assert "송금을 요구하지 않습니다" in result["extra"]["warning"]
+    balance = (await client.get(f"/accounts/checking/{mine['account_id']}", headers=user)).json()["data"]["balance"]
+    assert balance == 100_000
