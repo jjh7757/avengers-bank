@@ -17,6 +17,7 @@ avengers-bank/
 ├── data/seed/products.json # 상품 시드 데이터
 ├── scripts/seed_products.py # 시드 데이터를 DB에 넣기
 ├── fds_training/           # FDS 합성 데이터 생성(generate_data.py), 학습(train.py), 모델(model/), 결과(results.md)
+├── frontend/               # React + Vite 화면 (frontend/README.md)
 ├── tests/                  # pytest (SQLite로 실행, DB 서버 불필요)
 │   ├── conftest.py         # client·user fixture, 계좌 개설 헬퍼
 │   └── test_<도메인>.py

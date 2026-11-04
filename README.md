@@ -31,6 +31,16 @@ uv run fastapi dev
 
 API 문서: http://127.0.0.1:8000/docs
 
+프론트엔드는 다른 터미널에서 실행합니다 (Node 24 이상).
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+화면: http://localhost:5173 (음성 입력은 Chrome·Edge)
+
 ## 테스트
 
 ```bash
@@ -57,4 +67,5 @@ uv run --group fds python fds_training/train.py           # 모델·임계값·r
 | users, products, accounts, transfers, cards, recipients | ✅ 1단계 백엔드 API 완료 ([API_ENDPOINTS.md](docs/API_ENDPOINTS.md)) |
 | fds | ✅ 2단계 규칙 엔진 + LightGBM, 이체에 연결 ([results.md](fds_training/results.md)) |
 | chat(에이전트) | ✅ 3단계 LangGraph + Gemini, 확인 카드 승인 후 이체 |
-| frontend | 📝 [TODO.md](docs/TODO.md) 4단계부터 |
+| frontend | ✅ 4단계 채팅·확인 카드·FDS 안내·계좌·카드·음성 입력/안내 ([frontend/README.md](frontend/README.md)) |
+| 음성 승인(화자 인증) | 📝 [TODO.md](docs/TODO.md) 4-4 |

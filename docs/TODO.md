@@ -126,29 +126,31 @@
 ## 4. 프론트엔드 (6일)
 
 ### 4-1. 기반
-- [ ] `frontend/` Vite + React + TypeScript 생성
-- [ ] API 클라이언트 (axios/fetch), JWT 저장·헤더 첨부, 401 시 로그인으로
-- [ ] 라우팅: 로그인 / 회원가입 / 채팅 홈 / 내 계좌 / 내 카드
+- [x] `frontend/` Vite + React + TypeScript 생성 (React 19, Vite 8, TS 7)
+- [x] API 클라이언트 (fetch), JWT 저장·헤더 첨부, 401 시 로그인으로. 개발 서버가 `/api`를 8000번으로 프록시
+- [x] 라우팅: 로그인 / 회원가입 / 채팅 홈 / 내 계좌 / 내 카드 / 설정(PIN 등록) / FDS 기록
 
 ### 4-2. 화면
-- [ ] 로그인·회원가입 폼
-- [ ] 채팅 홈: 메시지 목록, 입력창, 전송
-- [ ] 메시지 안 카드 렌더링: 계좌 요약 카드, 이체 확인 카드
-- [ ] 이체 확인 카드: 받는 사람·금액·출금 계좌 + 승인/취소. `ADDITIONAL_AUTH_REQUIRED`면 PIN 입력 필드 표시 후 재요청
-- [ ] 차단 안내: `FDS_BLOCKED` 응답 시 규칙 이름과 경고 문구 표시
-- [ ] 내 계좌 / 내 카드 목록, 거래내역
-- [ ] device fingerprint 생성(간단한 브라우저 정보 해시) → 이체 요청에 포함
+- [x] 로그인·회원가입 폼
+- [x] 채팅 홈: 메시지 목록, 입력창, 전송
+- [x] 메시지 안 카드 렌더링: 계좌 요약 카드, 이체 확인 카드
+- [x] 이체 확인 카드: 받는 사람·금액·출금 계좌 + 승인/취소. `ADDITIONAL_AUTH_REQUIRED`면 PIN 입력 필드 표시 후 재요청
+- [x] 차단 안내: `FDS_BLOCKED` 응답 시 규칙 이름과 경고 문구 표시
+- [x] 내 계좌 / 내 카드 목록, 거래내역
+- [x] device fingerprint 생성(간단한 브라우저 정보 해시) → 이체 요청에 포함
 
 ### 4-3. 음성 (STT/TTS, 2일)
-- [ ] `src/hooks/useSpeech.ts`: `SpeechRecognition`(ko-KR) push-to-talk, `SpeechSynthesis` 래퍼
-- [ ] 마이크 버튼: 누르는 동안 녹음, 인식 결과를 입력창에 표시
-- [ ] 음성 확인: 인식 결과를 TTS로 되읽고 "확인"이라고 답하면 전송, "아니"·"취소"면 다시 듣기, 무응답이면 입력창에 남김
-- [ ] 메시지 전송 시 `input_mode: "voice"` 전달
-- [ ] TTS 토글 (기본 켜짐): 에이전트 응답 읽기, 확인 카드는 "OOO님께 5만원을 보냅니다. 승인하시겠어요?"만 읽기, 계좌번호 제외
-- [ ] FDS MEDIUM·HIGH 메시지는 토글과 무관하게 TTS 재생
-- [ ] 마이크 버튼 누르면 재생 중인 TTS 중단
-- [ ] ko-KR 보이스 없을 때 토글 비활성화 + 안내
-- [ ] Chrome에서 "엄마한테 오만원 보내줘" 음성 → 확인 카드 도달 확인
+- [x] `src/hooks/useSpeech.ts`: `SpeechRecognition`(ko-KR) push-to-talk, `SpeechSynthesis` 래퍼
+- [x] 마이크 버튼: 누르는 동안 녹음, 인식 결과를 입력창에 표시
+- [x] 음성 확인: 인식 결과를 TTS로 되읽고 "확인"이라고 답하면 전송, "아니"·"취소"면 다시 듣기, 무응답이면 입력창에 남김
+- [x] 메시지 전송 시 `input_mode: "voice"` 전달
+- [x] TTS 토글 (기본 켜짐): 에이전트 응답 읽기, 확인 카드는 "OOO님께 5만원을 보냅니다. 승인하시겠어요?"만 읽기, 계좌번호 제외
+- [x] FDS MEDIUM·HIGH 메시지는 토글과 무관하게 TTS 재생
+- [x] 마이크 버튼 누르면 재생 중인 TTS 중단
+- [x] ko-KR 보이스 없을 때 토글 비활성화 + 안내
+- [ ] Chrome에서 "엄마한테 오만원 보내줘" 음성 → 확인 카드 도달 확인 (실제 마이크·스피커로 직접 확인 필요)
+
+브라우저로 확인한 것 (텍스트 입력): 정상 이체 → 완료, 잔액 90% 이체 → PIN 요구 → 틀린 PIN 거부 → 맞는 PIN 후 완료, 보이스피싱 대화 + 처음 보는 계좌 + 잔액 소진 → 차단 안내(규칙 3개 + AI 근거), 375px 폭, 라이트·다크 모드
 
 ### 4-4. 음성 승인 (화자 인증, 3일)
 설계: [PROJECT_PLAN.md](PROJECT_PLAN.md) 3.5절 "음성 승인 (화자 인증)"
@@ -191,7 +193,7 @@
 
 - [ ] RAG: `rag/` 폴더, 상품 설명·약관 → Chroma, `search_products`에 연결
 - [ ] LLM 기반 대화 위험 판별 (키워드 규칙의 상위 버전)
-- [ ] FDS 대시보드 화면 (`fds_logs` 표)
+- [x] FDS 대시보드 화면 (`fds_logs` 표) → 4단계에서 `/fds`로 구현
 - [ ] `domains/speech`: `POST /speech/stt` (MediaRecorder webm → Gemini), `POST /speech/tts` (Google Cloud TTS)
 - [ ] 브라우저 미지원 시 서버 STT 폴백 연결
 - [ ] 서버 STT와 브라우저 STT 인식 정확도 비교표
