@@ -84,7 +84,7 @@ export default function ChatPage() {
           <button className="button small" onClick={() => startNewSession()} disabled={busy}>
             새 대화
           </button>
-          <Link className="button small" to="/stage">
+          <Link className="button small" to="/">
             모아 화면
           </Link>
         </div>

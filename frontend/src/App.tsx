@@ -27,9 +27,9 @@ export default function App() {
     <Routes>
       <Route path="/login" element={<LoginPage />} />
       <Route path="/signup" element={<SignupPage />} />
-      {/* 도우미 화면: 넓은 무대를 쓰므로 하단 탭(Layout) 없이 연다 */}
+      {/* 첫 화면 = 도우미 화면(모아). 넓은 무대를 쓰므로 하단 탭(Layout) 없이 연다 */}
       <Route
-        path="/stage"
+        path="/"
         element={
           <RequireAuth>
             <StagePage />
@@ -43,7 +43,7 @@ export default function App() {
           </RequireAuth>
         }
       >
-        <Route path="/" element={<ChatPage />} />
+        <Route path="/chat" element={<ChatPage />} />
         <Route path="/accounts" element={<AccountsPage />} />
         <Route path="/accounts/:type/:id" element={<AccountDetailPage />} />
         <Route path="/cards" element={<CardsPage />} />
@@ -51,6 +51,7 @@ export default function App() {
         <Route path="/settings" element={<SettingsPage />} />
         <Route path="/fds" element={<FdsLogsPage />} />
       </Route>
+      <Route path="/stage" element={<Navigate to="/" replace />} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   )

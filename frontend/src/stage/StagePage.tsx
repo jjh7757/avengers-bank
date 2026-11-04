@@ -14,8 +14,8 @@ import { AccountsPanel, CardsPanel, FdsPanel, HomePanel, ProductsPanel } from '.
 import './stage.css'
 
 /**
- * 도우미 화면: 채팅 목록 대신 캐릭터 "모아"가 필요한 화면을 무대로 끌어온다.
- * 채팅 화면(/)과 같은 대화 세션·API를 쓰고, 어떤 화면을 가져올지는 답변의 screen(백엔드가 쓴 도구로 정함)을 따른다.
+ * 첫 화면(/): 채팅 목록 대신 캐릭터 "모아"가 필요한 화면을 무대로 끌어온다.
+ * 채팅 화면(/chat)과 같은 대화 세션·API를 쓰고, 어떤 화면을 가져올지는 답변의 screen(백엔드가 쓴 도구로 정함)을 따른다.
  */
 
 const SUGGESTIONS = ['내 잔액 알려줘', '엄마한테 5만원 보내줘', '내 카드 보여줘', '적금 상품 추천해줘']
@@ -50,6 +50,7 @@ export default function StagePage() {
   const [pendingText, setPendingText] = useState<string | null>(null)
   const [autoVoiceFor, setAutoVoiceFor] = useState<number | null>(null)
   const [showLog, setShowLog] = useState(false)
+  const [showMenu, setShowMenu] = useState(false)
   const timers = useRef<number[]>([])
   const requestRef = useRef(0) // 새 요청이 오면 이전 요청의 늦게 끝난 콜백은 무시한다
 
@@ -203,10 +204,19 @@ export default function StagePage() {
           <button className="button small" onClick={() => setShowLog((v) => !v)} aria-expanded={showLog}>
             <span className="stage-wide-only">대화 </span>기록
           </button>
-          <Link className="button small" to="/">
-            채팅<span className="stage-wide-only"> 화면</span>
-          </Link>
+          <button className="button small" onClick={() => setShowMenu((v) => !v)} aria-expanded={showMenu}>
+            메뉴
+          </button>
         </span>
+        {showMenu && (
+          <nav className="stage-menu" aria-label="전체 메뉴">
+            {MENU.map((item) => (
+              <Link key={item.to} to={item.to}>
+                <span aria-hidden="true">{item.icon}</span> {item.label}
+              </Link>
+            ))}
+          </nav>
+        )}
       </header>
 
       <div className="stage-body">
@@ -313,6 +323,15 @@ export default function StagePage() {
     </div>
   )
 }
+
+/** 모아에게 말하지 않고 직접 가고 싶을 때 (기존 화면들) */
+const MENU = [
+  { to: '/chat', label: '대화 기록 (채팅으로 보기)', icon: '💬' },
+  { to: '/accounts', label: '내 계좌', icon: '🏦' },
+  { to: '/cards', label: '내 카드', icon: '💳' },
+  { to: '/fds', label: '이상거래 기록', icon: '🛡️' },
+  { to: '/settings', label: '설정 (PIN·목소리 등록)', icon: '⚙️' },
+]
 
 const MOOD_LABEL: Record<Mood, string> = {
   idle: '모아',

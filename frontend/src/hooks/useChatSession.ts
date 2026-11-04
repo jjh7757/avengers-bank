@@ -10,7 +10,7 @@ function sessionKey(userId: number) {
 
 /**
  * 대화 세션: 새로고침해도 같은 대화를 이어 간다 (탭을 닫으면 새 대화).
- * 채팅 화면(/)과 도우미 화면(/stage)이 같은 세션을 쓴다.
+ * 도우미 화면(/)과 채팅 화면(/chat)이 같은 세션을 쓴다.
  */
 export function useChatSession() {
   const { user } = useAuth()

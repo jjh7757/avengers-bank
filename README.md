@@ -43,7 +43,7 @@ npm install
 npm run dev
 ```
 
-화면: http://localhost:5173 (음성 입력은 Chrome·Edge)
+화면: http://localhost:5173 (음성 입력은 Chrome·Edge). 첫 화면은 도우미 "모아"가 필요한 화면을 가져오는 화면이고, 채팅 목록은 `/chat`
 
 ## 시연
 

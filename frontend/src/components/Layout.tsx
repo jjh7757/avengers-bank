@@ -3,7 +3,8 @@ import { NavLink, Outlet } from 'react-router-dom'
 import DemoClockBadge from './DemoClockBadge'
 
 const NAV = [
-  { to: '/', label: '대화', icon: '💬', end: true },
+  { to: '/', label: '모아', icon: '🐷', end: true }, // 첫 화면: 도우미가 화면을 가져온다
+  { to: '/chat', label: '대화', icon: '💬', end: false },
   { to: '/accounts', label: '계좌', icon: '🏦', end: false },
   { to: '/cards', label: '카드', icon: '💳', end: false },
   { to: '/settings', label: '설정', icon: '⚙️', end: false },
