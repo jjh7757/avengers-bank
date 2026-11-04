@@ -18,7 +18,7 @@
 - [x] PostgreSQL에 `uv run alembic upgrade head` → `uv run python scripts/seed_products.py` (상품 7건)
 - [x] `uv run fastapi dev` → `http://127.0.0.1:8000/docs` 접속 확인
 - [x] 상위 폴더 `AvengersBankDiagram_fixed.drawio`와 `docs/AvengersBankDiagram.drawio`가 같은지 확인 (동일함)
-- [ ] 첫 커밋 (계획서, TODO)
+- [x] 첫 커밋 (계획서, TODO) → `feature/backend-api` 브랜치
 
 ## 1. 백엔드 API (5일)
 
