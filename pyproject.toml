@@ -1,0 +1,36 @@
+[project]
+name = "avengers-bank"
+version = "0.1.0"
+description = "AvengersBank 비동기 FastAPI 백엔드"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "alembic>=1.16,<2",
+    "fastapi[standard]>=0.162.0",
+    "psycopg[binary]>=3.2,<4",
+    "pydantic-settings>=2.0,<3",
+    "pwdlib[argon2]>=0.3.1,<1",
+    "pyjwt>=2.10,<3",
+    "python-dotenv>=1.2,<2",
+    "sqlalchemy[asyncio]>=2.0,<2.1",
+]
+
+[dependency-groups]
+dev = [
+    "aiosqlite>=0.20,<1",
+    "httpx>=0.28,<1",
+    "pytest>=8,<10",
+]
+
+[tool.uv.build-backend]
+module-name = "avengers_bank"
+
+[tool.fastapi]
+entrypoint = "avengers_bank.main:app"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[build-system]
+requires = ["uv_build>=0.13.6,<0.14.0"]
+build-backend = "uv_build"
