@@ -31,6 +31,7 @@ avengers-bank/
     │   ├── exceptions.py   # BadRequest/Unauthorized/Forbidden/NotFound/Conflict
     │   ├── exception_handlers.py
     │   └── responses.py    # SuccessResponse, ErrorResponse 형식
+    ├── agents/             # LangGraph 에이전트: graph(흐름), tools(도구), prompts, state, llm(Gemini)
     └── domains/
         ├── users/          # 회원가입, 로그인, 내 정보 수정
         ├── products/       # 계좌·카드 상품 조회 (+ seed.py)
@@ -38,7 +39,8 @@ avengers-bank/
         ├── transfers/      # 이체, 적금 납입, 예금 입금 (테이블 없음)
         ├── cards/          # 신용·체크카드, 사용내역, 결제
         ├── recipients/     # 자주 보내는 수취인 (별칭 → 계좌번호)
-        └── fds/            # 이상거래 탐지: features(학습과 공용) → rules + scorer(LightGBM) → service
+        ├── fds/            # 이상거래 탐지: features(학습과 공용) → rules + scorer(LightGBM) → service
+        └── chat/           # 대화 API, 금액 정규화(amount.py), 이체 확인 토큰(confirmation.py)
 ```
 
 ## 도메인 안의 5개 파일

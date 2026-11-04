@@ -15,7 +15,13 @@ class TransferCreate(BaseModel):
         description="FDS가 ADDITIONAL_AUTH_REQUIRED를 돌려준 뒤 다시 보낼 때 넣는 이체 PIN",
     )
     device_fingerprint: str | None = Field(default=None, max_length=128)
-    session_id: str | None = Field(default=None, max_length=64, description="채팅 세션 ID")
+    session_id: str | None = Field(
+        default=None, max_length=64,
+        description="채팅에서 온 이체면 대화 ID. 이 값이 있으면 confirmation_token이 반드시 필요하다",
+    )
+    confirmation_token: str | None = Field(
+        default=None, max_length=2000, repr=False, description="에이전트 확인 카드의 승인 토큰"
+    )
     input_mode: Literal["text", "voice"] = "text"
 
 

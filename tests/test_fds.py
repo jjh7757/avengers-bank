@@ -12,7 +12,7 @@ from avengers_bank.domains.fds.features import (
 )
 from avengers_bank.domains.fds.rules import RiskLevel, evaluate_rules, rule_level
 from avengers_bank.domains.fds.scorer import FdsScorer
-from tests.conftest import open_checking
+from tests.conftest import confirmed, new_chat_session, open_checking
 
 pytestmark = pytest.mark.anyio
 
@@ -194,21 +194,21 @@ async def test_medium_ml_score(client, user, other_user, ml_score):
 
 async def test_repeated_attempt_after_block(client, user, other_user, ml_score):
     _, _, body = await setup_transfer(client, user, other_user)
-    body = {**body, "session_id": "chat-1"}
+    chat_1, chat_2 = await new_chat_session(client, user), await new_chat_session(client, user)
 
     ml_score.value = 0.95
-    response = await client.post("/transfers", headers=user, json={**body, "amount": 1_000_000})
+    response = await client.post("/transfers", headers=user, json=await confirmed({**body, "amount": 1_000_000}, chat_1))
     assert response.json()["error"]["code"] == "FDS_BLOCKED"
 
     # 같은 세션에서 금액만 바꿔 재시도: 모델 점수가 낮아도 REPEATED_ATTEMPT로 차단
     ml_score.value = 0.01
-    response = await client.post("/transfers", headers=user, json={**body, "amount": 90_000})
+    response = await client.post("/transfers", headers=user, json=await confirmed({**body, "amount": 90_000}, chat_1))
     error = response.json()["error"]
     assert error["code"] == "FDS_BLOCKED"
     assert "REPEATED_ATTEMPT" in [h["code"] for h in error["extra"]["rule_hits"]]
 
     # 다른 세션이면 통과
-    response = await client.post("/transfers", headers=user, json={**body, "session_id": "chat-2", "amount": 90_000})
+    response = await client.post("/transfers", headers=user, json=await confirmed({**body, "amount": 90_000}, chat_2))
     assert response.status_code == 200
 
 

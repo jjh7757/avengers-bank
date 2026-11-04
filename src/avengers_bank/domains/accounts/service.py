@@ -34,6 +34,7 @@ from avengers_bank.domains.accounts.schemas import (
     SavingsAccountCreate,
 )
 from avengers_bank.domains.products.service import product_service
+from avengers_bank.domains.users.repository import user_repository
 from avengers_bank.domains.users.schemas import UserResponse
 
 # 계좌번호 형식: 110-XXX-XXXXXX (입출금), 220-… (예금), 330-… (적금)
@@ -194,6 +195,15 @@ class AccountService:
                 )
             await db.flush()
             return to_detail(account_type, account)
+
+    async def find_checking_holder(self, db: AsyncSession, account_num: str) -> str:
+        """입출금 계좌번호 → 예금주 이름. 에이전트가 계좌번호로 직접 보낼 때 확인 카드에 쓴다."""
+        async with db.begin():
+            account = await account_repository.find_checking_by_account_num(db, account_num)
+            if account is None:
+                raise NotFoundException(code="ACCOUNT_NOT_FOUND", message="계좌를 찾을 수 없습니다.")
+            holder = await user_repository.find_by_id(db, account.user_id)
+            return holder.name
 
     # ---- 다른 도메인(transfers, cards, recipients)이 열어 둔 트랜잭션 안에서 쓰는 메서드 ----
 

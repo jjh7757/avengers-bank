@@ -21,7 +21,7 @@ uv sync
 cp .env.example .env
 ```
 
-`.env`에 `DATABASE_URL`과 `JWT_SECRET_KEY`(32자 이상)를 채웁니다.
+`.env`에 `DATABASE_URL`과 `JWT_SECRET_KEY`(32자 이상)를 채웁니다. 채팅 에이전트를 쓰려면 `GEMINI_API_KEY`도 필요합니다 (없으면 채팅 API만 503).
 
 ```bash
 uv run alembic upgrade head
@@ -56,4 +56,5 @@ uv run --group fds python fds_training/train.py           # 모델·임계값·r
 |---|---|
 | users, products, accounts, transfers, cards, recipients | ✅ 1단계 백엔드 API 완료 ([API_ENDPOINTS.md](docs/API_ENDPOINTS.md)) |
 | fds | ✅ 2단계 규칙 엔진 + LightGBM, 이체에 연결 ([results.md](fds_training/results.md)) |
-| chat(에이전트), frontend | 📝 [TODO.md](docs/TODO.md) 3단계부터 |
+| chat(에이전트) | ✅ 3단계 LangGraph + Gemini, 확인 카드 승인 후 이체 |
+| frontend | 📝 [TODO.md](docs/TODO.md) 4단계부터 |

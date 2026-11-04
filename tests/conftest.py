@@ -10,11 +10,14 @@ from sqlalchemy import update
 
 import avengers_bank.domains.accounts.models  # noqa: F401  모든 테이블을 Base에 등록
 import avengers_bank.domains.cards.models  # noqa: F401
+import avengers_bank.domains.chat.models  # noqa: F401
 import avengers_bank.domains.fds.models  # noqa: F401
 import avengers_bank.domains.products.models  # noqa: F401
 import avengers_bank.domains.recipients.models  # noqa: F401
 from avengers_bank.core.database import Base, SessionLocal, engine
 from avengers_bank.domains.accounts.models import CheckingAccount
+from avengers_bank.domains.chat.confirmation import create_confirmation_token
+from avengers_bank.domains.chat.models import ChatSession
 from avengers_bank.domains.fds.scorer import Score, fds_scorer
 from avengers_bank.domains.products.seed import seed_products
 from avengers_bank.main import app
@@ -87,6 +90,27 @@ async def set_balance(checking_account_id: int, balance: int) -> None:
             .where(CheckingAccount.checking_account_id == checking_account_id)
             .values(balance=balance)
         )
+
+
+async def new_chat_session(client: AsyncClient, headers: dict) -> str:
+    response = await client.post("/chat/sessions", headers=headers)
+    assert response.status_code == 201
+    return response.json()["data"]["session_id"]
+
+
+async def confirmed(body: dict, session_id: str, user_id: int = 1) -> dict:
+    """에이전트 확인 카드를 거친 것처럼 승인 토큰을 만들어 이체 요청 body에 붙인다."""
+    token, jti, _ = create_confirmation_token(
+        user_id=user_id,
+        session_id=session_id,
+        from_checking_account_id=body["from_checking_account_id"],
+        to_account_num=body["to_account_num"],
+        amount=body["amount"],
+    )
+    async with SessionLocal() as db, db.begin():
+        session = await db.get(ChatSession, session_id)
+        session.state = {**session.state, "confirmation_jti": jti}
+    return {**body, "session_id": session_id, "confirmation_token": token}
 
 
 @pytest.fixture

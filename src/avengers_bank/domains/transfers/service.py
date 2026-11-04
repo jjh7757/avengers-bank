@@ -13,6 +13,9 @@ from avengers_bank.domains.accounts.models import (
 )
 from avengers_bank.domains.accounts.repository import account_repository
 from avengers_bank.domains.accounts.service import account_service
+from avengers_bank.domains.chat.confirmation import decode_confirmation_token
+from avengers_bank.domains.chat.models import ChatSession
+from avengers_bank.domains.chat.repository import chat_repository
 from avengers_bank.domains.fds.models import FdsDecision
 from avengers_bank.domains.fds.rules import RiskLevel
 from avengers_bank.domains.fds.service import FdsResult, fds_service
@@ -56,6 +59,9 @@ class TransferService:
     ) -> TransferResponse:
         rejection: FdsDecision | None = None
         async with db.begin():
+            # 0. 채팅에서 온 이체면 확인 카드 승인 토큰 검사
+            chat_session = await self._check_confirmation(db, data, current_user.user_id)
+
             # 1. 보내는 계좌가 본인 것인지 확인
             source = await account_service.get_owned_account(
                 db, "checking", data.from_checking_account_id, current_user.user_id
@@ -101,7 +107,9 @@ class TransferService:
                 session_id=data.session_id,
                 device_fingerprint=data.device_fingerprint,
                 input_mode=data.input_mode,
-                session_texts=[],  # TODO(3단계): chat_messages에서 이 세션의 사용자 메시지
+                session_texts=(
+                    await chat_repository.find_user_texts(db, chat_session.session_id) if chat_session else []
+                ),
             )
             decision = await self._decide(fds, user, data.pin)
             log_fields = {
@@ -150,9 +158,13 @@ class TransferService:
                 await recipient_repository.touch_last_sent_at(
                     db, current_user.user_id, target.account_num, now
                 )
-                # 7. FDS 기록, 이체에 성공한 기기 등록
+                # 7. FDS 기록, 이체에 성공한 기기 등록, 확인 카드는 한 번 쓰면 끝
                 await fds_service.save_log(db, **log_fields)
                 await fds_service.register_device(db, user.user_id, data.device_fingerprint, client_ip)
+                if chat_session is not None:
+                    chat_session.state = {
+                        **(chat_session.state or {}), "confirmation_jti": None, "pending_transfer": None
+                    }
                 holder = await user_repository.find_by_id(db, target.user_id)
 
                 return TransferResponse(
@@ -171,6 +183,39 @@ class TransferService:
                 log, fds, has_pin=None if rejection == FdsDecision.BLOCKED else user.has_pin
             )
         raise BadRequestException(**REJECTION_ERRORS[rejection], extra=extra)
+
+    async def _check_confirmation(
+        self, db: AsyncSession, data: TransferCreate, user_id: int
+    ) -> ChatSession | None:
+        """session_id가 있으면(채팅에서 온 이체) 확인 카드 토큰이 있어야 하고, 카드 내용과 요청이 같아야 한다.
+        PIN 재요청에도 같은 토큰을 쓰도록, 토큰은 이체가 실제로 성공했을 때만 소모한다."""
+        if data.session_id is None:
+            if data.confirmation_token is not None:
+                raise BadRequestException(
+                    code="CONFIRMATION_MISMATCH", message="확인 카드와 요청 내용이 다릅니다."
+                )
+            return None
+        session = await chat_repository.find_session(db, data.session_id, for_update=True)
+        if session is None or session.user_id != user_id:
+            raise NotFoundException(code="CHAT_SESSION_NOT_FOUND", message="대화를 찾을 수 없습니다.")
+        if data.confirmation_token is None:
+            raise BadRequestException(
+                code="CONFIRMATION_REQUIRED", message="확인 카드에서 승인한 이체만 실행할 수 있습니다."
+            )
+        confirmation = decode_confirmation_token(data.confirmation_token)
+        if (
+            confirmation.user_id != user_id
+            or confirmation.session_id != data.session_id
+            or confirmation.from_checking_account_id != data.from_checking_account_id
+            or confirmation.to_account_num != data.to_account_num
+            or confirmation.amount != data.amount
+        ):
+            raise BadRequestException(code="CONFIRMATION_MISMATCH", message="확인 카드와 요청 내용이 다릅니다.")
+        if (session.state or {}).get("confirmation_jti") != confirmation.jti:
+            raise BadRequestException(
+                code="CONFIRMATION_USED", message="이미 처리했거나 바뀐 확인 카드입니다. 다시 요청해 주세요."
+            )
+        return session
 
     async def _decide(self, fds: FdsResult, user: User, pin: str | None) -> FdsDecision:
         if fds.risk_level == RiskLevel.HIGH:

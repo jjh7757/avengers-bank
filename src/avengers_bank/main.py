@@ -8,6 +8,7 @@ from avengers_bank.core.exception_handlers import register_exception_handlers
 from avengers_bank.core.responses import SuccessResponse, error_responses
 from avengers_bank.domains.accounts.router import router as account_router
 from avengers_bank.domains.cards.router import router as card_router
+from avengers_bank.domains.chat.router import router as chat_router
 from avengers_bank.domains.fds.router import router as fds_router
 from avengers_bank.domains.fds.scorer import fds_scorer
 from avengers_bank.domains.products.router import router as product_router
@@ -40,6 +41,7 @@ app.include_router(transfer_router)
 app.include_router(card_router)
 app.include_router(recipient_router)
 app.include_router(fds_router)
+app.include_router(chat_router)
 
 
 @app.get("/", response_model=SuccessResponse[dict[str, str]])

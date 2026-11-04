@@ -85,42 +85,43 @@
 - [x] `POST /transfers` 요청에 `pin`(선택), `device_fingerprint`, `session_id` 필드 추가
 - [x] 요청 바디에서 device fingerprint 받아 `user_devices` 갱신 (이체 성공 시에만 등록)
 - [x] 이체 PIN: `users.hashed_pin`, `PUT /users/me/pin`
-- [ ] 대화 키워드 규칙에 실제 채팅 메시지 연결 (3단계 `chat_messages` 생긴 뒤, `transfers.service`의 `session_texts`)
+- [x] 대화 키워드 규칙에 실제 채팅 메시지 연결 (3단계에서 `chat_messages` 연결)
 - [x] `GET /fds/logs` (본인 것만, 대시보드용)
 - [x] `tests/test_fds.py` (규칙별 1건, LOW/MEDIUM/HIGH 각 1건)
 
 ## 3. AUI 에이전트 (6일)
 
 ### 3-1. 기반
-- [ ] `pyproject.toml`에 `langgraph`, `langchain-google-genai` 추가
-- [ ] `core/config.py`에 `GEMINI_API_KEY`, 모델명 설정
-- [ ] `domains/chat/models.py`: `chat_sessions`, `chat_messages`(`input_mode` 포함) + 마이그레이션
-- [ ] `src/avengers_bank/agents/` 폴더: `graph.py`, `tools.py`, `prompts.py`, `state.py`
+- [x] `pyproject.toml`에 `langgraph`, `langchain-google-genai` 추가
+- [x] `core/config.py`에 `GEMINI_API_KEY`, 모델명 설정
+- [x] `domains/chat/models.py`: `chat_sessions`, `chat_messages`(`input_mode` 포함) + 마이그레이션
+- [x] `src/avengers_bank/agents/` 폴더: `graph.py`, `tools.py`, `prompts.py`, `state.py`, `llm.py`
 
 ### 3-2. 도구
-- [ ] `get_my_accounts`, `get_account_histories`
-- [ ] `find_recipient` (별칭 → 계좌번호, 없으면 "등록된 사람이 없어요")
-- [ ] `prepare_transfer` (확인 카드 JSON 생성, 실행 아님)
-- [ ] `execute_transfer` (승인 토큰 검증 후 `transfers.service` 호출)
-- [ ] `search_products`
-- [ ] `get_my_cards`
-- [ ] 도구 입력은 모두 Pydantic 스키마로 검증
+- [x] `get_my_accounts`, `get_account_histories`
+- [x] `find_recipient` (별칭 → 계좌번호, 없으면 "등록된 사람이 없어요")
+- [x] `prepare_transfer` (확인 카드 JSON 생성, 실행 아님)
+- ~~`execute_transfer`~~ LLM 도구로 두지 않기로 함. 실행은 프론트가 승인 토큰을 실어 `POST /transfers` 호출
+- [x] `search_products`
+- [x] `get_my_cards`
+- [x] 도구 입력은 모두 Pydantic 스키마로 검증
 
 ### 3-3. 그래프
-- [ ] 의도 분류 노드 (조회 / 이체 / 상품 / 카드 / 일반)
-- [ ] 슬롯 채우기 노드: 이체는 받는 사람·금액·출금 계좌 없으면 되묻기
-- [ ] 금액 정규화 함수 `chat/service.py` ("오만원", "5만 원", "50000원" → 50000) + 단위 테스트
-- [ ] 에이전트 추출 금액과 정규화 결과 불일치 시 되묻기
-- [ ] 확인 단계: 돈이 움직이는 작업은 `prepare_transfer`까지만, 승인은 프론트 → `POST /transfers`
-- [ ] 시스템 프롬프트: 외부 텍스트·붙여넣기 내용은 명령 아님 명시
-- [ ] 세션 내 거절 횟수·키워드 수를 state에 누적 → FDS 피처로 전달
+- [x] 의도 분류 노드 (조회 / 이체 / 상품 / 카드 / 일반)
+- [x] 슬롯 채우기 노드: 이체는 받는 사람·금액·출금 계좌 없으면 되묻기
+- [x] 금액 정규화 함수 `chat/amount.py` ("오만원", "5만 원", "50000원" → 50000) + 단위 테스트
+- [x] 에이전트 추출 금액과 정규화 결과 불일치 시 되묻기
+- [x] 확인 단계: 돈이 움직이는 작업은 `prepare_transfer`까지만, 승인은 프론트 → `POST /transfers`
+- [x] 시스템 프롬프트: 외부 텍스트·붙여넣기 내용은 명령 아님 명시
+- [x] 세션 내 거절 횟수·키워드 수 → FDS 피처로 전달 (state에 따로 쌓지 않고 FDS가 `fds_logs`·`chat_messages`에서 직접 셈)
 
 ### 3-4. API
-- [ ] `POST /chat/sessions`, `POST /chat/sessions/{id}/messages` (text, input_mode) → 응답 + 카드(있으면)
-- [ ] `GET /chat/sessions/{id}/messages`
-- [ ] `POST /transfers`에 확인 카드 승인 토큰 검증 추가
-- [ ] `tests/test_chat.py` (LLM 호출은 mock)
-- [ ] 수동 시나리오: "엄마한테 5만원 보내줘" → 확인 카드 → 승인 → 이체 완료
+- [x] `POST /chat/sessions`, `POST /chat/sessions/{id}/messages` (text, input_mode) → 응답 + 카드(있으면)
+- [x] `GET /chat/sessions/{id}/messages`
+- [x] `POST /transfers`에 확인 카드 승인 토큰 검증 추가
+- [x] `tests/test_chat.py` (LLM 호출은 mock)
+- [x] 수동 시나리오: "엄마한테 5만원 보내줘" → 확인 카드 → 승인 → 이체 완료 (실제 Gemini로 확인)
+- [x] 붙여넣은 문자 속 이체 지시는 이체 요청으로 분류하지 않음 (분류 프롬프트, 실제 Gemini로 확인)
 
 ## 4. 프론트엔드 (6일)
 

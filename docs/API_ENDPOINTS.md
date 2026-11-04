@@ -125,11 +125,12 @@
 <details>
 <summary>요청·응답 예시</summary>
 
-`POST /transfers`: 뒤의 4개 필드는 선택이며 FDS가 씁니다.
+`POST /transfers`: `amount` 뒤의 필드는 선택입니다. 채팅에서 온 이체는 `session_id`와 확인 카드의 `confirmation_token`이 필요합니다.
 ```json
 { "from_checking_account_id": 1, "to_account_num": "110-555-000111", "amount": 10000,
-  "pin": null, "device_fingerprint": "a1b2c3", "session_id": "chat-42", "input_mode": "voice" }
+  "pin": null, "device_fingerprint": "a1b2c3", "session_id": "9f2c...", "confirmation_token": "eyJ...", "input_mode": "voice" }
 ```
+확인 카드 관련 실패: `400 CONFIRMATION_REQUIRED`, `400 CONFIRMATION_MISMATCH`(카드와 금액·계좌가 다름), `400 CONFIRMATION_USED`(이미 썼거나 새 카드로 바뀜), `400 CONFIRMATION_EXPIRED`(5분), `404 CHAT_SESSION_NOT_FOUND`
 → `200`
 ```json
 { "data": { "from_account_num": "110-123-456789", "to_account_num": "110-555-000111", "to_holder_name": "브루스 배너", "amount": 10000, "balance_after": 490000, "transferred_at": "...", "risk_level": "LOW" }, "message": "이체가 완료되었습니다." }
@@ -224,6 +225,36 @@
 | 상태 | 메서드 | 경로 | 인증 | 설명 |
 |---|---|---|---|---|
 | ✅ | GET | `/fds/logs?limit=50` | 🔒 | 내 FDS 판정 기록 (최근 순). 통과·추가 인증·차단 모두 |
+
+## chat: AUI 에이전트 대화 (`domains/chat`, `agents/`)
+
+| 상태 | 메서드 | 경로 | 인증 | 설명 |
+|---|---|---|---|---|
+| ✅ | POST | `/chat/sessions` | 🔒 | 대화 시작 → `session_id` |
+| ✅ | POST | `/chat/sessions/{session_id}/messages` | 🔒 | 에이전트에게 말하기 `{ "text", "input_mode": "text" \| "voice" }` → 사용자 메시지 + 답변 |
+| ✅ | GET | `/chat/sessions/{session_id}/messages` | 🔒 | 대화 기록 (오래된 순) |
+
+<details>
+<summary>응답 예시와 카드 종류</summary>
+
+`POST /chat/sessions/{id}/messages` `{ "text": "엄마한테 오만원 보내줘", "input_mode": "voice" }` → `200`
+```json
+{ "data": {
+  "user_message": { "msg_id": 1, "role": "user", "content": "엄마한테 오만원 보내줘", "intent": "transfer", "input_mode": "voice", "card": null, "created_at": "..." },
+  "assistant_message": { "msg_id": 2, "role": "assistant", "content": "엄마(김영희)님께 5만원을 보낼까요? 화면의 확인 카드에서 승인을 눌러 주세요.",
+    "card": { "type": "transfer_confirmation", "from_checking_account_id": 1, "from_account_num": "110-...", "from_nickname": "생활비", "from_balance": 1200000,
+      "to_account_num": "110-...", "holder_name": "김영희", "recipient_nickname": "엄마", "amount": 50000, "amount_text": "5만원",
+      "insufficient_balance": false, "confirmation_token": "eyJ...", "expires_at": "...",
+      "tts_text": "엄마님께 5만원을 보냅니다. 승인하시겠어요?" } } } }
+```
+
+| `card.type` | 언제 | 프론트가 할 일 |
+|---|---|---|
+| `transfer_confirmation` | 이체 정보가 다 모였을 때 | 승인/취소 버튼. 승인하면 카드 값 + `session_id` + `confirmation_token`으로 `POST /transfers`. `tts_text`를 읽음 |
+| `account_summary` | 잔액·계좌 조회 | `accounts` 목록 표시 (계좌번호는 뒤 4자리) |
+
+실패: `503 LLM_UNAVAILABLE`(Gemini 키 없음·호출 실패), `403 CHAT_SESSION_FORBIDDEN`, `404 CHAT_SESSION_NOT_FOUND`
+</details>
 
 ## 새 API를 추가하는 순서
 
