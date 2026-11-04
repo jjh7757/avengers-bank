@@ -24,6 +24,7 @@ class ChatMessageResponse(BaseModel):
     input_mode: str
     card: dict | None
     screen: str | None = None
+    screen_params: dict | None = None
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)

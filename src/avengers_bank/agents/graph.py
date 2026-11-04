@@ -24,18 +24,41 @@ from avengers_bank.domains.chat.amount import format_korean_amount, normalize_am
 MAX_TOOL_ROUNDS = 4
 FALLBACK_REPLY = "죄송해요, 제가 잘 이해하지 못했어요. 다시 한 번 말씀해 주시겠어요?"
 
-# 도구를 쓰면 그 결과를 보여 줄 화면. 한 턴에 여러 도구를 쓰면 마지막 도구의 화면.
-# 발급·개설 같은 변경 도구도 실행한 뒤 목록 화면을 보여 준다 (동의를 묻는 턴은 도구를 안 쓰므로 화면이 안 바뀐다).
-TOOL_SCREENS: dict[str, Screen] = {
-    **dict.fromkeys(
-        ["get_my_accounts", "get_account", "get_account_histories", "open_checking_account",
-         "open_deposit_account", "open_savings_account", "rename_account", "lower_transfer_limits"],
-        "accounts",
-    ),
-    **dict.fromkeys(["get_my_cards", "get_card_histories", "issue_debit_card", "issue_credit_card"], "cards"),
-    **dict.fromkeys(["search_products", "get_product"], "products"),
-    "get_fds_logs": "fds",
-}
+OPEN_ACCOUNT_TYPES = {"open_checking_account": "checking", "open_deposit_account": "deposit", "open_savings_account": "savings"}
+ISSUE_CARD_TYPES = {"issue_debit_card": "debit", "issue_credit_card": "credit"}
+
+
+def screen_for(name: str, args: dict, result: dict) -> tuple[Screen, dict] | None:
+    """도구 호출 → 그 결과를 보여 줄 화면과 대상·조건. None이면 화면을 바꾸지 않는다.
+
+    "생활비 통장 거래내역"이면 계좌 목록이 아니라 그 계좌 화면을 가져오도록, LLM이 도구에 넘긴 인자를 그대로 쓴다.
+    개설·발급은 결과에 담긴 새 계좌·카드 화면으로 간다 (동의를 묻는 턴은 도구를 안 쓰므로 화면이 안 바뀐다).
+    도구가 실패하면 화면을 바꾸지 않는다. 한도 높이기 거절만 예외: 그 계좌 화면에서 PIN으로 높일 수 있게 가져간다.
+    """
+    if "error" in result and result["error"] != "LIMIT_RAISE_NOT_ALLOWED":
+        return None
+    match name:
+        case "get_my_accounts":
+            return "accounts", {}
+        case "get_account" | "get_account_histories" | "rename_account":
+            return "account", {"account_type": args["account_type"], "account_id": args["account_id"]}
+        case "lower_transfer_limits":
+            return "account", {"account_type": "checking", "account_id": args["checking_account_id"]}
+        case _ if name in OPEN_ACCOUNT_TYPES:
+            return "account", {"account_type": OPEN_ACCOUNT_TYPES[name], "account_id": result["account_id"]}
+        case "get_my_cards":
+            return "cards", {}
+        case "get_card_histories":
+            return "card", {"card_type": args["card_type"], "card_id": args["card_id"]}
+        case _ if name in ISSUE_CARD_TYPES:
+            return "card", {"card_type": ISSUE_CARD_TYPES[name], "card_id": result["card_id"]}
+        case "search_products":
+            return "products", {k: v for k, v in {"kind": args.get("kind"), "keyword": args.get("keyword")}.items() if v}
+        case "get_product":
+            return "products", {"kind": args["kind"], "product_id": args["product_id"]}
+        case "get_fds_logs":
+            return "fds", {}
+    return None
 
 
 @dataclass
@@ -152,11 +175,11 @@ def build_graph(ctx: AgentContext):
 
     async def transfer_node(state: AgentState) -> dict:
         result = await handle_transfer(ctx, state)
-        return {**result, "screen": "transfer" if result.get("card") else None}  # 되묻는 동안은 화면 그대로
+        return {**result, "screen": "transfer" if result.get("card") else None, "screen_params": None}  # 되묻는 동안은 화면 그대로
 
     async def cancel_node(state: AgentState) -> dict:
         reply = "이체를 취소했어요." if state.get("pending") else "진행 중인 이체가 없어요."
-        return {"reply": reply, "card": None, "new_pending": None, "confirmation_jti": None, "screen": "home"}
+        return {"reply": reply, "card": None, "new_pending": None, "confirmation_jti": None, "screen": "home", "screen_params": None}
 
     async def agent_node(state: AgentState) -> dict:
         messages = state.get("messages") or [
@@ -174,9 +197,9 @@ def build_graph(ctx: AgentContext):
     async def tools_node(state: AgentState) -> dict:
         last: AIMessage = state["messages"][-1]
         tools_by_name = {tool.name: tool for tool in await ctx.tools()}
-        results, card, screen = [], state.get("card"), state.get("screen")
+        results, card = [], state.get("card")
+        screen, screen_params = state.get("screen"), state.get("screen_params")
         for call in last.tool_calls:
-            screen = TOOL_SCREENS.get(call["name"], screen)
             tool = tools_by_name.get(call["name"])
             if tool is None:
                 output = json.dumps({"error": "없는 도구입니다."}, ensure_ascii=False)
@@ -190,8 +213,15 @@ def build_graph(ctx: AgentContext):
                     card = {"type": "account_summary", "accounts": json.loads(output)["accounts"]}
                 except (ValueError, KeyError):
                     pass
+            try:
+                parsed = json.loads(output)
+                shown = screen_for(call["name"], call["args"], parsed if isinstance(parsed, dict) else {})
+            except (ValueError, KeyError, TypeError):
+                shown = None
+            if shown:
+                screen, screen_params = shown
             results.append(ToolMessage(content=output, tool_call_id=call["id"], name=call["name"]))
-        return {"messages": [*state["messages"], *results], "card": card, "screen": screen,
+        return {"messages": [*state["messages"], *results], "card": card, "screen": screen, "screen_params": screen_params,
                 "tool_rounds": state.get("tool_rounds", 0) + 1}
 
     graph = StateGraph(AgentState)

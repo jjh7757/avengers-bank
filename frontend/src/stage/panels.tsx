@@ -1,9 +1,20 @@
-import { useCallback } from 'react'
+import { useCallback, useState } from 'react'
 import { Link } from 'react-router-dom'
 
 import { accountApi, cardApi, fdsApi, productApi } from '../api/endpoints'
+import type { AccountDetail, AccountType, CardType } from '../api/types'
+import TransferLimitForm from '../components/TransferLimitForm'
 import { useLoad } from '../hooks/useLoad'
-import { ACCOUNT_TYPE_LABEL, CARD_TYPE_LABEL, dateTime, FDS_DECISION_LABEL, maskAccount, won } from '../lib/format'
+import {
+  ACCOUNT_TYPE_LABEL,
+  CARD_TYPE_LABEL,
+  dateTime,
+  FDS_DECISION_LABEL,
+  HISTORY_TYPE_LABEL,
+  maskAccount,
+  signedWon,
+  won,
+} from '../lib/format'
 
 /** 도우미가 무대로 가져오는 화면들. 가져올 때마다 새로 마운트되므로 항상 최신 데이터를 불러온다. */
 
@@ -54,6 +65,92 @@ export function AccountsPanel() {
   )
 }
 
+const RECENT = 8 // 무대에는 최근 거래만. 전체는 상세 화면에서
+
+/** 계좌 하나: 잔액·한도(입출금이면 한도 변경 폼)·최근 거래 */
+export function AccountPanel({ type, id }: { type: AccountType; id: number }) {
+  const { data, error, loading } = useLoad(
+    useCallback(() => Promise.all([accountApi.get(type, id), accountApi.histories(type, id)]), [type, id]),
+  )
+  const [updated, setUpdated] = useState<AccountDetail | null>(null)
+  const [loaded, histories] = data ?? [null, null]
+  const account = updated ?? loaded
+  return (
+    <>
+      <Loading loading={loading} error={error} />
+      {account && histories && (
+        <>
+          <p className="stage-panel-title">
+            {account.nickname ?? `${ACCOUNT_TYPE_LABEL[type]} 계좌`}{' '}
+            <span className="muted small">{maskAccount(account.account_num)}</span>
+          </p>
+          <p className="balance">{won(account.balance)}</p>
+          {account.per_transfer_limit != null && (
+            <p className="muted small">
+              이체 한도 1회 {won(account.per_transfer_limit)} · 1일 {won(account.daily_transfer_limit ?? 0)}
+            </p>
+          )}
+          {type === 'checking' && <TransferLimitForm key={account.account_id} account={account} onSaved={setUpdated} />}
+          <p className="stage-subtitle">최근 거래</p>
+          {histories.length === 0 && <p className="muted">거래내역이 없어요.</p>}
+          <ul className="list">
+            {histories.slice(0, RECENT).map((h) => (
+              <li key={h.history_id} className="list-item static">
+                <span>
+                  <strong>{HISTORY_TYPE_LABEL[h.type] ?? h.type}</strong>
+                  <span className="muted small">{dateTime(h.date)}</span>
+                </span>
+                <span className={`amount ${h.amount < 0 ? 'minus' : 'plus'}`}>{signedWon(h.amount)}</span>
+              </li>
+            ))}
+          </ul>
+          <Link to={`/accounts/${type}/${id}`}>전체 거래내역 보기</Link>
+        </>
+      )}
+    </>
+  )
+}
+
+/** 카드 하나: 카드 모양·이번 달 사용액·최근 사용내역 */
+export function CardPanel({ type, id }: { type: CardType; id: number }) {
+  const { data, error, loading } = useLoad(
+    useCallback(() => Promise.all([cardApi.get(type, id), cardApi.histories(type, id)]), [type, id]),
+  )
+  const [card, histories] = data ?? [null, null]
+  return (
+    <>
+      <Loading loading={loading} error={error} />
+      {card && histories && (
+        <>
+          <p className="stage-panel-title">내 카드</p>
+          <div className="stage-card-face">
+            <span>{CARD_TYPE_LABEL[type]}</span>
+            <span className="stage-card-num">**** **** **** {card.card_num.slice(-4)}</span>
+            <span className="small">
+              이번 달 {won(card.accumulated_amount)}
+              {card.payment_date ? ` · 매월 ${card.payment_date}일 결제` : ' · 사용 즉시 출금'}
+            </span>
+          </div>
+          <p className="stage-subtitle">최근 사용</p>
+          {histories.length === 0 && <p className="muted">사용내역이 없어요.</p>}
+          <ul className="list">
+            {histories.slice(0, RECENT).map((h) => (
+              <li key={h.history_id} className="list-item static">
+                <span>
+                  <strong>{h.place_of_use}</strong>
+                  <span className="muted small">{dateTime(h.time)}</span>
+                </span>
+                <span className="amount minus">-{won(h.used_amount)}</span>
+              </li>
+            ))}
+          </ul>
+          <Link to={`/cards/${type}/${id}`}>전체 사용내역 보기</Link>
+        </>
+      )}
+    </>
+  )
+}
+
 export function CardsPanel() {
   const { data, error, loading } = useLoad(useCallback(() => cardApi.list(), []))
   return (
@@ -74,26 +171,41 @@ export function CardsPanel() {
   )
 }
 
-/** reply: 모아의 답변. 답변에 이름이 나온 상품(추천한 상품)을 맨 위로 올린다 */
-export function ProductsPanel({ reply }: { reply: string }) {
+export interface ProductFilter {
+  kind?: 'account' | 'card' | 'all'
+  keyword?: string
+  productId?: number
+}
+
+/**
+ * 상품 목록. kind로 계좌/카드 상품만 보여 주고, 모아가 찾은 상품(product_id·키워드)과
+ * 답변에 이름이 나온 상품(추천한 상품)을 맨 위로 올린다.
+ */
+export function ProductsPanel({ reply, kind = 'all', keyword, productId }: { reply: string } & ProductFilter) {
   const load = useCallback(async () => {
-    const [accounts, cards] = await Promise.all([productApi.accounts(), productApi.cards()])
+    const [accounts, cards] = await Promise.all([
+      kind === 'card' ? [] : productApi.accounts(),
+      kind === 'account' ? [] : productApi.cards(),
+    ])
     return [...accounts, ...cards]
-  }, [])
+  }, [kind])
   const { data: all, error, loading } = useLoad(load)
-  const picked = (name: string) => reply.includes(name)
-  const data = all && [...all.filter((p) => picked(p.name)), ...all.filter((p) => !picked(p.name))]
+  const picked = (p: { product_id: number; name: string; description: string }) =>
+    p.product_id === productId ||
+    reply.includes(p.name) ||
+    (!!keyword && (p.name.includes(keyword) || p.description.includes(keyword)))
+  const data = all && [...all.filter(picked), ...all.filter((p) => !picked(p))]
   return (
     <>
-      <p className="stage-panel-title">상품</p>
+      <p className="stage-panel-title">{kind === 'account' ? '계좌 상품' : kind === 'card' ? '카드 상품' : '상품'}</p>
       <Loading loading={loading} error={error} />
       <ul className="list">
         {data?.map((p) => (
-          <li key={`${p.type}-${p.product_id}`} className={`list-item stage-product ${picked(p.name) ? 'picked' : ''}`}>
+          <li key={`${p.type}-${p.product_id}`} className={`list-item stage-product ${picked(p) ? 'picked' : ''}`}>
             <span>
               <span className="badge">
                 {PRODUCT_TYPE_LABEL[p.type]}
-                {picked(p.name) && ' · 모아 추천'}
+                {picked(p) && ' · 모아 추천'}
               </span>
               <strong>{p.name}</strong>
               <span className="muted small">{p.description}</span>

@@ -101,7 +101,8 @@ async def lower_transfer_limits(
     per_transfer_limit: int | None = Field(default=None, gt=0),
     daily_transfer_limit: int | None = Field(default=None, gt=0),
 ) -> dict:
-    """입출금 계좌 이체 한도를 낮춘다 (높이기는 앱 화면에서만: 탈취·보이스피싱 때 한도를 올려 빼 가는 것을 막기 위해)"""
+    """입출금 계좌 이체 한도를 낮춘다 (높이기는 앱 화면에서 PIN 확인 후에만: 탈취·보이스피싱 때 한도를 올려 빼 가는 것을 막기 위해).
+    높여 달라는 요청에도 이 도구를 부른다. 높이는 값이면 아무것도 바꾸지 않고 LIMIT_RAISE_NOT_ALLOWED를 돌려준다"""
     current = await account_service.get_account(db, "checking", checking_account_id, user)
     for name, value in (("per_transfer_limit", per_transfer_limit), ("daily_transfer_limit", daily_transfer_limit)):
         if value is not None and value > getattr(current, name):

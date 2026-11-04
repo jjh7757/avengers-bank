@@ -271,12 +271,57 @@ async def test_screen_follows_last_tool(client, user, bank, classify, chat_model
         AIMessage("잔액에 맞는 적금을 찾아봤어요."),
     )
     reply = await say(client, user, bank["session_id"], "내 잔액으로 들 만한 적금 있어?")
-    assert reply["screen"] == "products"
+    assert (reply["screen"], reply["screen_params"]) == ("products", {"kind": "account"})
 
     classify.next(intent="card")
     chat_model(AIMessage("체크카드를 만들어 드릴까요?"))
     reply = await say(client, user, bank["session_id"], "카드 하나 만들어줘")
     assert reply["screen"] is None  # 동의를 묻는 턴은 도구를 쓰지 않는다
+
+
+async def test_screen_carries_target(client, user, other_user, bank, classify, chat_model):
+    """"생활비 통장 거래내역" → 계좌 목록이 아니라 그 계좌 화면. 남의 계좌라 도구가 실패하면 화면을 바꾸지 않는다"""
+    mine = bank["mine"]
+    classify.next(intent="inquiry")
+    chat_model(
+        AIMessage("", tool_calls=[{"name": "get_account_histories", "args": {
+            "account_type": "checking", "account_id": mine["account_id"]}, "id": "call-1"}]),
+        AIMessage("생활비 통장 최근 거래예요."),
+    )
+    reply = await say(client, user, bank["session_id"], "생활비 통장 거래내역 보여줘")
+    assert (reply["screen"], reply["screen_params"]) == (
+        "account", {"account_type": "checking", "account_id": mine["account_id"]}
+    )
+
+    classify.next(intent="inquiry")
+    chat_model(
+        AIMessage("", tool_calls=[{"name": "get_account", "args": {
+            "account_type": "checking", "account_id": bank["mom"]["account_id"]}, "id": "call-2"}]),
+        AIMessage("그 계좌는 볼 수 없어요."),
+    )
+    reply = await say(client, user, bank["session_id"], "엄마 계좌 잔액 알려줘")
+    assert reply["screen"] is None and reply["screen_params"] is None
+
+    messages = (await client.get(f"/chat/sessions/{bank['session_id']}/messages", headers=user)).json()["data"]
+    assert messages[1]["screen_params"]["account_id"] == mine["account_id"]  # 새로고침해도 복원할 수 있게 저장
+
+
+def test_screen_for_tools():
+    from avengers_bank.agents.graph import screen_for
+
+    assert screen_for("issue_debit_card", {"product_id": 2, "checking_account_id": 1}, {"card_type": "debit", "card_id": 7}) == (
+        "card", {"card_type": "debit", "card_id": 7}
+    )
+    assert screen_for("open_savings_account", {}, {"account_type": "savings", "account_id": 3}) == (
+        "account", {"account_type": "savings", "account_id": 3}
+    )
+    # 한도 높이기는 거절돼도 그 계좌 화면으로 (거기서 PIN으로 높인다)
+    assert screen_for("lower_transfer_limits", {"checking_account_id": 5}, {"error": "LIMIT_RAISE_NOT_ALLOWED"}) == (
+        "account", {"account_type": "checking", "account_id": 5}
+    )
+    assert screen_for("get_product", {"kind": "card", "product_id": 2}, {}) == ("products", {"kind": "card", "product_id": 2})
+    assert screen_for("search_products", {"kind": "all"}, {}) == ("products", {"kind": "all"})
+    assert screen_for("find_recipient", {"nickname": "엄마"}, {}) is None
 
 
 async def test_others_session_is_hidden(client, user, bank):

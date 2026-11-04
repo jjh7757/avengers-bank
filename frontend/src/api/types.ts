@@ -96,7 +96,7 @@ export interface AccountSummaryCard {
 export type ChatCard = TransferConfirmationCard | AccountSummaryCard
 
 /** 도우미 화면(/stage)에서 답변과 함께 가져올 화면. null이면 지금 화면 유지 */
-export type Screen = 'home' | 'accounts' | 'cards' | 'products' | 'fds' | 'transfer'
+export type Screen = 'home' | 'accounts' | 'account' | 'cards' | 'card' | 'products' | 'fds' | 'transfer'
 
 export interface ChatMessage {
   msg_id: number
@@ -106,6 +106,8 @@ export interface ChatMessage {
   input_mode: 'text' | 'voice'
   card: ChatCard | null
   screen: Screen | null
+  /** 화면의 대상·조건. account {account_type, account_id}, card {card_type, card_id}, products {kind, keyword, product_id} */
+  screen_params: Record<string, unknown> | null
   created_at: string
 }
 

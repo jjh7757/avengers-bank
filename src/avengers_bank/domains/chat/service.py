@@ -85,7 +85,8 @@ class ChatService:
             user_message.intent = result["extraction"].intent
             assistant_message = ChatMessage(
                 session_id=session_id, role="assistant", content=result["reply"],
-                input_mode="text", card=result.get("card"), screen=result.get("screen"), created_at=now_utc(),
+                input_mode="text", card=result.get("card"), screen=result.get("screen"),
+                screen_params=result.get("screen_params"), created_at=now_utc(),
             )
             await chat_repository.save(db, assistant_message)
             await db.flush()

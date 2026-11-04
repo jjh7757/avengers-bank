@@ -3,14 +3,23 @@ import { Link } from 'react-router-dom'
 
 import { ApiError } from '../api/client'
 import { chatApi } from '../api/endpoints'
-import type { ChatMessage, Screen } from '../api/types'
+import type { AccountType, CardType, ChatMessage, Screen } from '../api/types'
 import { useAuth } from '../auth/useAuth'
 import TransferCard, { type Status } from '../components/TransferCard'
 import { useChatSession } from '../hooks/useChatSession'
 import { usePushToTalk } from '../hooks/usePushToTalk'
 import { useSpeech } from '../hooks/useSpeech'
 import Mascot, { type Mood } from './Mascot'
-import { AccountsPanel, CardsPanel, FdsPanel, HomePanel, ProductsPanel } from './panels'
+import {
+  AccountPanel,
+  AccountsPanel,
+  CardPanel,
+  CardsPanel,
+  FdsPanel,
+  HomePanel,
+  ProductsPanel,
+  type ProductFilter,
+} from './panels'
 import './stage.css'
 
 /**
@@ -29,6 +38,30 @@ interface View {
 }
 
 const reducedMotion = () => window.matchMedia('(prefers-reduced-motion: reduce)').matches
+
+const ACCOUNT_TYPES: AccountType[] = ['checking', 'deposit', 'savings']
+const CARD_TYPES: CardType[] = ['credit', 'debit']
+const PRODUCT_KINDS = ['account', 'card', 'all'] as const
+
+/** 답변의 screen_params(서버가 도구 인자로 채운 값)를 화면별 대상으로. 모양이 맞지 않으면 목록 화면을 보여 준다 */
+function screenTarget(params: Record<string, unknown>) {
+  const { account_type, account_id, card_type, card_id, kind, keyword, product_id } = params
+  return {
+    account:
+      ACCOUNT_TYPES.includes(account_type as AccountType) && typeof account_id === 'number'
+        ? { type: account_type as AccountType, id: account_id }
+        : null,
+    card:
+      CARD_TYPES.includes(card_type as CardType) && typeof card_id === 'number'
+        ? { type: card_type as CardType, id: card_id }
+        : null,
+    products: {
+      kind: PRODUCT_KINDS.find((k) => k === kind),
+      keyword: typeof keyword === 'string' ? keyword : undefined,
+      productId: typeof product_id === 'number' ? product_id : undefined,
+    } satisfies ProductFilter,
+  }
+}
 
 /** 새로고침하면 마지막으로 화면을 가져온 답변의 화면을 연출 없이 보여 준다 */
 function restoredView(messages: ChatMessage[]): View {
@@ -64,7 +97,9 @@ export default function StagePage() {
   const lastAssistant = messages.findLast((m) => m.role === 'assistant')
   const lastUser = messages.findLast((m) => m.role === 'user')
   const lastCardId = messages.findLast((m) => m.card?.type === 'transfer_confirmation')?.msg_id
-  const transferMessage = shown.screen === 'transfer' ? messages.find((m) => m.msg_id === shown.msgId) : undefined
+  const shownMessage = shown.msgId != null ? messages.find((m) => m.msg_id === shown.msgId) : undefined
+  const transferMessage = shown.screen === 'transfer' ? shownMessage : undefined
+  const target = screenTarget(shownMessage?.screen_params ?? {})
   const bubbleText = bubble ?? lastAssistant?.content ?? GREETING
 
   /** 답변을 말한다. 음성 안내가 꺼져 있어도 말하는 표정은 글 길이만큼 보여 준다 */
@@ -241,9 +276,11 @@ export default function StagePage() {
             aria-busy={arriving || busy}
           >
             {shown.key > 0 && <span className="stage-grip" aria-hidden="true" />}
-            {shown.screen === 'accounts' && <AccountsPanel />}
-            {shown.screen === 'cards' && <CardsPanel />}
-            {shown.screen === 'products' && <ProductsPanel reply={messages.find((m) => m.msg_id === shown.msgId)?.content ?? ''} />}
+            {(shown.screen === 'accounts' || (shown.screen === 'account' && !target.account)) && <AccountsPanel />}
+            {shown.screen === 'account' && target.account && <AccountPanel {...target.account} />}
+            {(shown.screen === 'cards' || (shown.screen === 'card' && !target.card)) && <CardsPanel />}
+            {shown.screen === 'card' && target.card && <CardPanel {...target.card} />}
+            {shown.screen === 'products' && <ProductsPanel reply={shownMessage?.content ?? ''} {...target.products} />}
             {shown.screen === 'fds' && <FdsPanel />}
             {shown.screen === 'transfer' && transferMessage?.card?.type === 'transfer_confirmation' && sessionId ? (
               <TransferCard

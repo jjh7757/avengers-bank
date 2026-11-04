@@ -433,6 +433,20 @@
   margin-top: 0.15rem;
 }
 
+.stage-subtitle {
+  margin: 1rem 0 0.5rem;
+  font-weight: 700;
+}
+
+.stage-panel .balance {
+  margin: 0.25rem 0;
+}
+
+.stage-panel .list + a {
+  display: inline-block;
+  margin-top: 0.6rem;
+}
+
 .stage-welcome p {
   margin: 0 0 0.4rem;
 }
