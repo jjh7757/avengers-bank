@@ -1,5 +1,7 @@
 import { NavLink, Outlet } from 'react-router-dom'
 
+import DemoClockBadge from './DemoClockBadge'
+
 const NAV = [
   { to: '/', label: '대화', icon: '💬', end: true },
   { to: '/accounts', label: '계좌', icon: '🏦', end: false },
@@ -10,6 +12,7 @@ const NAV = [
 export default function Layout() {
   return (
     <div className="app">
+      <DemoClockBadge />
       <main className="app-main">
         <Outlet />
       </main>

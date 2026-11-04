@@ -4,7 +4,7 @@ from datetime import timedelta
 
 import jwt
 
-from avengers_bank.core.clock import now_utc
+from avengers_bank.core.clock import real_now_utc
 from avengers_bank.core.config import get_settings
 from avengers_bank.core.exceptions import BadRequestException
 from avengers_bank.core.security import ALGORITHM
@@ -14,7 +14,7 @@ EXPIRE = timedelta(minutes=2)
 
 
 def create_voice_approval_token(user_id: int, confirmation_jti: str) -> str:
-    now = now_utc()
+    now = real_now_utc()  # JWT 만료는 실제 시각 기준
     payload = {"typ": TOKEN_TYPE, "sub": str(user_id), "cjti": confirmation_jti, "iat": now, "exp": now + EXPIRE}
     return jwt.encode(payload, get_settings().jwt_secret_key.get_secret_value(), algorithm=ALGORITHM)
 

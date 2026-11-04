@@ -1,0 +1,133 @@
+"""발표 전 시연 시나리오 자동 점검 (실제 서버 + 실제 Gemini, 글자 입력).
+
+    uv run python scripts/demo_check.py            # 서버: uv run --group voice fastapi dev, .env에 DEMO_MODE=true
+
+시작할 때와 끝날 때 scripts/demo_seed.py로 시연 데이터를 초기화한다.
+음성(마이크·스피커)과 다른 사람 목소리(시나리오 5)는 사람이 직접 확인해야 한다 (docs/DEMO.md).
+"""
+
+import asyncio
+import selectors
+import sys
+import time
+from pathlib import Path
+
+import httpx
+
+sys.path.insert(0, str(Path(__file__).parent))
+import demo_seed  # noqa: E402
+
+BASE = "http://127.0.0.1:8000"
+results: list[tuple[str, bool, str]] = []
+
+
+def seed() -> None:
+    if sys.platform == "win32":
+        asyncio.run(demo_seed.run(), loop_factory=lambda: asyncio.SelectorEventLoop(selectors.SelectSelector()))
+    else:
+        asyncio.run(demo_seed.run())
+
+
+def check(name: str, ok: bool, detail: str) -> None:
+    results.append((name, ok, detail))
+    print(f"{'✅' if ok else '❌'} {name}: {detail}")
+
+
+class Demo:
+    def __init__(self) -> None:
+        self.c = httpx.Client(base_url=BASE, timeout=120)
+        token = self.c.post("/users/login", json={"login_id": "demo", "password": demo_seed.PASSWORD}).json()["data"]["access_token"]
+        self.h = {"Authorization": f"Bearer {token}"}
+        self.sid = ""
+
+    def new_session(self) -> None:
+        self.sid = self.c.post("/chat/sessions", headers=self.h).json()["data"]["session_id"]
+
+    def say(self, text: str) -> dict:
+        t = time.time()
+        r = self.c.post(f"/chat/sessions/{self.sid}/messages", headers=self.h, json={"text": text})
+        r.raise_for_status()
+        reply = r.json()["data"]["assistant_message"]
+        print(f"   사용자: {text}\n   에이전트 ({time.time() - t:.1f}s): {reply['content']}")
+        return reply
+
+    def approve(self, card: dict, pin: str | None = None) -> httpx.Response:
+        return self.c.post("/transfers", headers=self.h, json={
+            "from_checking_account_id": card["from_checking_account_id"], "to_account_num": card["to_account_num"],
+            "amount": card["amount"], "session_id": self.sid, "confirmation_token": card["confirmation_token"],
+            "device_fingerprint": "demo-check", "pin": pin,
+        })
+
+    def balance(self) -> int:
+        accounts = self.c.get("/accounts", headers=self.h).json()["data"]
+        return next(a["balance"] for a in accounts if a["nickname"] == "생활비")
+
+
+def main() -> None:
+    status = httpx.get(f"{BASE}/demo/status").json()["data"]
+    if not status["demo_mode"]:
+        raise SystemExit(".env에 DEMO_MODE=true를 넣고 서버를 다시 켜 주세요.")
+    seed()
+    d = Demo()
+    voice = d.c.get("/voice/profile", headers=d.h).json()["data"]["enrolled"]
+
+    print("\n[시나리오 1] 엄마한테 오만원 → 확인 카드 → 승인 → LOW 통과")
+    d.new_session()
+    card = d.say("엄마한테 오만원 보내줘")["card"]
+    ok = card and card["amount"] == 50_000 and card["recipient_nickname"] == "엄마"
+    r = d.approve(card, pin=demo_seed.PIN if voice else None)  # 목소리 등록자는 버튼 승인에 PIN (음성 승인은 사람이 확인)
+    body = r.json()
+    check("1 정상 이체", bool(ok) and r.status_code == 200 and body["data"]["risk_level"] == "LOW",
+          f"{r.status_code} {body.get('data', {}).get('risk_level') or body['error']['code']}")
+
+    print("\n[시나리오 2] 처음 보는 계좌로 150만원 → MEDIUM → PIN → 완료")
+    card = d.say("110-900-222222 계좌로 150만원 보내줘")["card"]
+    r = d.approve(card)
+    error = r.json().get("error", {})
+    rules = [h["code"] for h in (error.get("extra") or {}).get("rule_hits", [])]
+    first_ok = error.get("code") in ("ADDITIONAL_AUTH_REQUIRED", "PIN_REQUIRED")
+    r = d.approve(card, pin=demo_seed.PIN)
+    check("2 추가 인증", first_ok and r.status_code == 200, f"처음 {error.get('code')} {rules} → PIN 후 {r.status_code}")
+
+    print("\n[시나리오 3] 새벽 2시 + 보이스피싱 대화 + 처음 보는 계좌 + 잔액 95% → HIGH 차단")
+    d.c.post("/demo/clock", json={"kst_hour": 2})
+    try:
+        d.new_session()
+        d.say("검찰청 수사관이라는데 내 계좌가 범죄에 연루돼서 안전계좌로 옮기래")
+        amount = d.balance() * 95 // 100 // 10_000 * 10_000
+        card = d.say(f"110-900-333333 계좌로 {amount:,}원 보내줘")["card"]
+        r = d.approve(card, pin=demo_seed.PIN)
+        error = r.json().get("error", {})
+        extra = error.get("extra") or {}
+        rules = {h["code"] for h in extra.get("rule_hits", [])}
+        expected = {"NIGHT_HIGH_AMOUNT", "NEW_RECIPIENT_HIGH_AMOUNT", "BALANCE_DRAIN", "CONVERSATION_KEYWORD"}
+        check("3 차단", error.get("code") == "FDS_BLOCKED" and expected <= rules,
+              f"{error.get('code')} 규칙 {sorted(rules)} ML {extra.get('ml_score')}")
+        check("3 경고 문구", "송금을 요구하지 않습니다" in (extra.get("warning") or ""), "TTS로 강제 재생할 경고")
+        factors = [f["label"] for f in extra.get("top_factors", [])]
+        check("4 판단 근거(SHAP)", bool(factors), ", ".join(factors) or "없음")
+    finally:
+        d.c.post("/demo/clock", json={"kst_hour": None})
+
+    print("\n[시나리오 6] MCP 도구: 체크카드 발급은 먼저 묻고, 동의하면 발급")
+    d.new_session()
+    before = len(d.c.get("/cards", headers=d.h).json()["data"])
+    d.say("월급 통장에 연결해서 체크카드 하나 더 만들어줘")
+    after_ask = len(d.c.get("/cards", headers=d.h).json()["data"])
+    d.say("네, 만들어 주세요")
+    after_yes = len(d.c.get("/cards", headers=d.h).json()["data"])
+    check("6 동의 후 발급", after_ask == before and after_yes == before + 1, f"묻는 단계 {after_ask - before}장, 동의 후 {after_yes - before}장")
+
+    logs = d.c.get("/fds/logs", headers=d.h).json()["data"]
+    check("FDS 기록", any(log["decision"] == "BLOCKED" for log in logs), f"{len(logs)}건 (대시보드 /fds)")
+
+    print("\n시연 데이터를 다시 초기화합니다.")
+    seed()
+    passed = sum(ok for _, ok, _ in results)
+    print(f"\n결과: {passed}/{len(results)} 통과")
+    print("사람이 확인할 것: 실제 마이크로 시나리오 1(음성 전송·음성 승인), 시나리오 5(다른 사람 목소리)")
+    sys.exit(0 if passed == len(results) else 1)
+
+
+if __name__ == "__main__":
+    main()

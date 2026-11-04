@@ -149,8 +149,9 @@ async def test_choose_from_account_when_several(client, user, bank, classify):
     await open_checking(client, user, balance=500_000, nickname="월급")
     classify.next(intent="transfer", recipient="엄마", amount=30_000)
     reply = await say(client, user, bank["session_id"], "엄마한테 3만원 보내줘")
-    assert reply["content"].startswith("어느 계좌에서 보낼까요?")
-    assert "생활비" in reply["content"] and "월급" in reply["content"]
+    # 계좌를 말하지 않으면 가장 먼저 만든 계좌(생활비)에서, 어느 계좌인지 밝힌다
+    assert reply["card"]["from_nickname"] == "생활비"
+    assert reply["content"].startswith("생활비 통장에서")
 
     classify.next(intent="transfer", from_account_hint="월급통장")
     reply = await say(client, user, bank["session_id"], "월급통장에서")

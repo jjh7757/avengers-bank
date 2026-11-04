@@ -7,6 +7,10 @@
 | 문서 | 내용 |
 |---|---|
 | [docs/PROJECT_PLAN.md](docs/PROJECT_PLAN.md) | 프로젝트 계획서: 목표, 아키텍처, AUI·FDS 설계, 일정, 리스크 |
+| [docs/DEMO.md](docs/DEMO.md) | **시연 대본**: 준비, 시나리오 6개, 비상 대응 |
+| [docs/PRESENTATION.md](docs/PRESENTATION.md) | 발표 자료 초안 (슬라이드별) |
+| [docs/MCP_SERVERS.md](docs/MCP_SERVERS.md) | MCP 서버 5개, 도구 23개, 안전 규칙 |
+| [docs/VOICE_AUTH.md](docs/VOICE_AUTH.md) | 음성 승인(화자 인증) 설계, 측정 결과, 한계 |
 | [docs/TODO.md](docs/TODO.md) | 계획서를 작업 단위로 쪼갠 체크리스트 |
 | [docs/ERD.md](docs/ERD.md) | ER 다이어그램 (Mermaid), 코드에서 지킬 규칙 · 원본: [AvengersBankDiagram.drawio](docs/AvengersBankDiagram.drawio) |
 | [docs/API_ENDPOINTS.md](docs/API_ENDPOINTS.md) | API 엔드포인트 목록, 요청·응답 형식, 구현 상태 |
@@ -40,6 +44,30 @@ npm run dev
 ```
 
 화면: http://localhost:5173 (음성 입력은 Chrome·Edge)
+
+## 시연
+
+`.env`에 `DEMO_MODE=true`를 넣고 서버를 켠 뒤:
+
+```bash
+uv run python scripts/demo_seed.py     # 시연 데이터 만들기·초기화 (demo / demo1234!)
+```
+```bash
+uv run python scripts/demo_check.py    # 시나리오 자동 점검 (실제 Gemini)
+```
+
+순서와 비상 대응은 [docs/DEMO.md](docs/DEMO.md).
+
+## 환경변수 (`.env`)
+
+| 이름 | 필수 | 설명 |
+|---|---|---|
+| `DATABASE_URL`, `JWT_SECRET_KEY` | ✅ | PostgreSQL 주소, JWT 서명 키(32자 이상) |
+| `GEMINI_API_KEY` | 채팅 | 없으면 채팅·음성 숫자 인식만 503 |
+| `GEMINI_FAST_MODEL`, `GEMINI_CHAT_MODEL` | | 의도 분류용 / 조회·상담 답변용 모델 |
+| `VOICE_ENCRYPTION_KEY` | 음성 승인 | 목소리 특징 암호화 Fernet 키. 바꾸면 다시 등록해야 함 |
+| `VOICE_SIMILARITY_THRESHOLD` | | 화자 인증 기준 (기본 0.45, 보정 필요) |
+| `DEMO_MODE` | | true면 `/demo/clock`으로 업무 시각 옮기기 (발표용 로컬에서만) |
 
 ## 테스트
 

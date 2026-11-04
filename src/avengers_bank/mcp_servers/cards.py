@@ -19,10 +19,18 @@ server = new_server(
 )
 
 
+ISSUED_NOTE = "발급 즉시 앱의 '카드' 메뉴에서 볼 수 있다. 이 서비스에는 실물 카드 배송·수령 절차가 없다."
+
+
 def card_json(card) -> dict:
     data = card.model_dump(mode="json")
     data["card_num"] = mask(card.card_num)
     return data
+
+
+def issued_json(card) -> dict:
+    """발급 결과 + 사용자에게 안내할 내용 (LLM이 배송 같은 없는 절차를 지어내지 않게)"""
+    return {**card_json(card), "next_step": ISSUED_NOTE}
 
 
 @bank_tool(server, annotations=READ)
@@ -41,7 +49,7 @@ async def get_card_histories(db, user, card_type: CardType, card_id: int, limit:
 @bank_tool(server, annotations=WRITE)
 async def issue_debit_card(db, user, product_id: int, checking_account_id: int) -> dict:
     """체크카드 발급 (연결 계좌 = 본인 입출금 계좌). 사용자가 동의한 뒤에만 호출한다"""
-    return card_json(await card_service.issue_debit(
+    return issued_json(await card_service.issue_debit(
         db, DebitCardCreate(product_id=product_id, checking_account_id=checking_account_id), user
     ))
 
@@ -50,4 +58,4 @@ async def issue_debit_card(db, user, product_id: int, checking_account_id: int) 
 async def issue_credit_card(db, user, product_id: int, checking_account_id: int, payment_date: int = Field(ge=1, le=31)) -> dict:
     """신용카드 발급 (결제 계좌 = 본인 입출금 계좌, 매월 결제일). 사용자가 동의한 뒤에만 호출한다"""
     data = CreditCardCreate(product_id=product_id, checking_account_id=checking_account_id, payment_date=payment_date)
-    return card_json(await card_service.issue_credit(db, data, user))
+    return issued_json(await card_service.issue_credit(db, data, user))

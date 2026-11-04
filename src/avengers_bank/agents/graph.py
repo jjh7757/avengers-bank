@@ -91,8 +91,9 @@ async def handle_transfer(ctx: AgentContext, state: AgentState) -> dict:
         matched = [a for a in checking if hint and a["nickname"] and (hint in a["nickname"] or a["nickname"] in hint)]
         if len(matched) == 1:
             slots.from_checking_account_id = matched[0]["account_id"]
-    if slots.from_checking_account_id is None and len(checking) == 1:
-        slots.from_checking_account_id = checking[0]["account_id"]
+    if slots.from_checking_account_id is None:
+        # 말하지 않았으면 가장 먼저 만든 입출금 계좌(주 계좌). 카드와 답변에 계좌를 밝히고, "월급 통장에서"라고 하면 바꾼다
+        slots.from_checking_account_id = min(a["account_id"] for a in checking)
 
     # 4. 빠진 것을 하나씩 묻는다
     who = slots.recipient_nickname or slots.holder_name
@@ -100,9 +101,6 @@ async def handle_transfer(ctx: AgentContext, state: AgentState) -> dict:
         return _ask(slots, "누구에게 보낼까요? 등록된 이름(예: 엄마)이나 계좌번호를 말씀해 주세요.")
     if slots.amount is None:
         return _ask(slots, f"{who}님께 얼마를 보낼까요?")
-    if slots.from_checking_account_id is None:
-        names = ", ".join(a["nickname"] or f"끝자리 {a['account_num'][-4:]}" for a in checking)
-        return _ask(slots, f"어느 계좌에서 보낼까요? ({names})")
 
     # 5. 확인 카드 (MCP prepare_transfer. 실행은 사용자가 카드에서 승인할 때)
     card = await ctx.mcp.call("transfers", "prepare_transfer", {
@@ -123,7 +121,8 @@ async def handle_transfer(ctx: AgentContext, state: AgentState) -> dict:
         how = "화면의 확인 카드에서 PIN으로 승인해 주세요."
     else:
         how = "화면의 확인 카드에서 승인을 눌러 주세요."
-    reply = f"{name}님께 {format_korean_amount(slots.amount)}을 보낼까요? {how}"
+    source = f"{card['from_nickname']} 통장에서 " if len(checking) > 1 and card["from_nickname"] else ""
+    reply = f"{source}{name}님께 {format_korean_amount(slots.amount)}을 보낼까요? {how}"
     if card["insufficient_balance"]:
         reply = f"출금 계좌 잔액이 {format_korean_amount(card['from_balance'])}이라 부족해요. " + reply
     return {"reply": reply, "card": card, "new_pending": slots, "confirmation_jti": jti}

@@ -11,7 +11,7 @@ from datetime import datetime, timedelta
 
 import jwt
 
-from avengers_bank.core.clock import now_utc
+from avengers_bank.core.clock import real_now_utc
 from avengers_bank.core.config import get_settings
 from avengers_bank.core.exceptions import BadRequestException
 from avengers_bank.core.security import ALGORITHM
@@ -41,7 +41,7 @@ def create_confirmation_token(
 ) -> tuple[str, str, datetime]:
     """(토큰, jti, 만료 시각)"""
     settings = get_settings()
-    now = now_utc()
+    now = real_now_utc()  # JWT 만료는 실제 시각 기준
     expires_at = now + timedelta(minutes=settings.confirmation_expire_minutes)
     jti = uuid.uuid4().hex
     payload = {

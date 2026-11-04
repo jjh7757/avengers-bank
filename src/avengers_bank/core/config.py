@@ -19,6 +19,8 @@ class Settings(BaseSettings):
     # 실제 사람 목소리로는 보정 전 → 팀원 녹음으로 scripts/voice_calibration.py를 돌려 정한다
     voice_similarity_threshold: float = Field(default=0.45, ge=0, le=1)
     voice_max_attempts: int = Field(default=2, gt=0)  # 카드 하나당 음성 승인 시도 횟수
+    # 시연 모드: /demo/clock으로 업무 시각을 옮길 수 있다 (심야 이체 재현). 로그인 없이 바뀌므로 발표용 로컬에서만 켠다
+    demo_mode: bool = False
 
     model_config = SettingsConfigDict(
         env_file=".env", env_file_encoding="utf-8", extra="ignore"

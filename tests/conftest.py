@@ -5,6 +5,7 @@ os.environ["DATABASE_URL"] = "sqlite+aiosqlite:///./test.db"
 os.environ["JWT_SECRET_KEY"] = "test-secret-key-test-secret-key-0000"
 os.environ["VOICE_ENCRYPTION_KEY"] = "0nqMmCGBZz4Ii2tmmjnlxxzI5d7Z0r6MWQqv2qD3fWs="  # 테스트 전용 Fernet 키
 os.environ["GEMINI_API_KEY"] = ""  # 테스트는 실제 Gemini를 부르지 않는다
+os.environ["DEMO_MODE"] = "false"  # 시연 모드는 test_demo.py에서만 켠다
 
 import pytest
 from httpx import ASGITransport, AsyncClient
