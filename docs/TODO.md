@@ -8,8 +8,8 @@
 ## 0. 계획·환경 (1일)
 
 - [ ] 프로젝트 시작일·발표일 확정 → PROJECT_PLAN.md 4절에 날짜 기입
-- [ ] PROJECT_PLAN.md 8절 "정해야 할 것" 결정 (거래 type 값, 계좌번호 형식, 한도 기본값, FDS 임계값, Gemini 모델, STT 전송 방식, TTS 기본값)
-  - 거래 type·계좌/카드번호 형식·한도 기본값은 1단계에서 확정. 나머지(날짜, FDS 임계값, Gemini, STT, TTS)는 남음
+- [x] PROJECT_PLAN.md 8절 "정해야 할 것" 결정 (거래 type 값, 계좌번호 형식, 한도 기본값, FDS 임계값, Gemini 모델, STT 전송 방식, TTS 기본값)
+  - 프로젝트 날짜만 남음
 - [x] PostgreSQL 설치, `avengers_bank` DB 생성 (PostgreSQL 17)
 - [x] `cp .env.example .env` 후 `DATABASE_URL`, `JWT_SECRET_KEY` 채우기
 - [x] `.env.example`에 `GEMINI_API_KEY` 항목 추가
@@ -141,9 +141,10 @@
 
 ### 4-3. 음성 (STT/TTS, 2일)
 - [ ] `src/hooks/useSpeech.ts`: `SpeechRecognition`(ko-KR) push-to-talk, `SpeechSynthesis` 래퍼
-- [ ] 마이크 버튼: 누르는 동안 녹음, 인식 결과를 입력창에 표시, (결정에 따라) 침묵 1.5초 후 자동 전송
+- [ ] 마이크 버튼: 누르는 동안 녹음, 인식 결과를 입력창에 표시
+- [ ] 음성 확인: 인식 결과를 TTS로 되읽고 "확인"이라고 답하면 전송, "아니"·"취소"면 다시 듣기, 무응답이면 입력창에 남김
 - [ ] 메시지 전송 시 `input_mode: "voice"` 전달
-- [ ] TTS 토글: 에이전트 응답 읽기, 확인 카드는 "OOO님께 5만원을 보냅니다. 승인하시겠어요?"만 읽기, 계좌번호 제외
+- [ ] TTS 토글 (기본 켜짐): 에이전트 응답 읽기, 확인 카드는 "OOO님께 5만원을 보냅니다. 승인하시겠어요?"만 읽기, 계좌번호 제외
 - [ ] FDS MEDIUM·HIGH 메시지는 토글과 무관하게 TTS 재생
 - [ ] 마이크 버튼 누르면 재생 중인 TTS 중단
 - [ ] ko-KR 보이스 없을 때 토글 비활성화 + 안내
