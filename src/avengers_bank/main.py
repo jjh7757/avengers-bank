@@ -13,6 +13,7 @@ from avengers_bank.domains.fds.router import router as fds_router
 from avengers_bank.domains.fds.scorer import fds_scorer
 from avengers_bank.domains.products.router import router as product_router
 from avengers_bank.domains.recipients.router import router as recipient_router
+from avengers_bank.domains.speech.router import router as voice_router
 from avengers_bank.domains.transfers.router import router as transfer_router
 from avengers_bank.domains.users.router import router as user_router
 
@@ -42,6 +43,7 @@ app.include_router(card_router)
 app.include_router(recipient_router)
 app.include_router(fds_router)
 app.include_router(chat_router)
+app.include_router(voice_router)
 
 
 @app.get("/", response_model=SuccessResponse[dict[str, str]])

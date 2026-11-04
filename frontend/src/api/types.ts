@@ -74,6 +74,9 @@ export interface TransferConfirmationCard {
   insufficient_balance: boolean
   confirmation_token: string
   expires_at: string
+  voice_enrolled: boolean // true면 버튼으로 승인할 때 PIN이 필요
+  voice_challenge: string | null // 음성 승인 때 말할 숫자 "472" (서버가 음성 승인을 못 하면 null)
+  voice_challenge_text: string | null // "사 칠 이"
   tts_text: string
 }
 
@@ -125,6 +128,13 @@ export interface FdsExtra {
   top_factors: Factor[]
   warning?: string
   has_pin?: boolean
+}
+
+export interface VoiceProfile {
+  enrolled: boolean
+  available: boolean
+  created_at: string | null
+  updated_at: string | null
 }
 
 export interface FdsLog {

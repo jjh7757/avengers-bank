@@ -130,6 +130,7 @@
 { "from_checking_account_id": 1, "to_account_num": "110-555-000111", "amount": 10000,
   "pin": null, "device_fingerprint": "a1b2c3", "session_id": "9f2c...", "confirmation_token": "eyJ...", "input_mode": "voice" }
 ```
+목소리를 등록한 사용자는 `voice_approval_token`(아래 voice 참고)을 넣거나, 없으면 `pin`이 필요합니다 (`400 PIN_REQUIRED`, `400 INVALID_VOICE_APPROVAL`).
 확인 카드 관련 실패: `400 CONFIRMATION_REQUIRED`, `400 CONFIRMATION_MISMATCH`(카드와 금액·계좌가 다름), `400 CONFIRMATION_USED`(이미 썼거나 새 카드로 바뀜), `400 CONFIRMATION_EXPIRED`(5분), `404 CHAT_SESSION_NOT_FOUND`
 → `200`
 ```json
@@ -255,6 +256,21 @@
 
 실패: `503 LLM_UNAVAILABLE`(Gemini 키 없음·호출 실패), `403 CHAT_SESSION_FORBIDDEN`, `404 CHAT_SESSION_NOT_FOUND`
 </details>
+
+## voice: 목소리 등록·음성 승인 (`domains/speech`)
+
+설계·확인 결과·한계: [VOICE_AUTH.md](VOICE_AUTH.md). 녹음은 모두 16kHz 모노 16bit WAV (multipart).
+
+| 상태 | 메서드 | 경로 | 인증 | 설명 |
+|---|---|---|---|---|
+| ✅ | GET | `/voice/profile` | 🔒 | `{ enrolled, available, created_at, updated_at }`. `available`=false면 서버가 음성 승인을 못 함 |
+| ✅ | POST | `/voice/profile` | 🔒 | 등록·재등록. form: `password`, `consent=true`, `recordings` × 3 |
+| ✅ | DELETE | `/voice/profile` | 🔒 | 삭제 `{ "password" }` → `204` |
+| ✅ | POST | `/voice/approvals` | 🔒 | form: `session_id`, `confirmation_token`, `recording` → `{ voice_approval_token }` (2분, 그 카드에만 유효) |
+
+확인 카드(`transfer_confirmation`)에 `voice_enrolled`, `voice_challenge`("895"), `voice_challenge_text`("팔 구 오")가 추가됩니다.
+
+실패: `400 VOICE_DIGITS_MISMATCH` / `400 VOICE_NOT_MATCHED` (`extra.remaining_attempts`), `400 VOICE_LOCKED`(카드당 2번 실패), `400 INVALID_AUDIO`, `400 CONSENT_REQUIRED`, `401 INVALID_CREDENTIALS`, `404 VOICE_NOT_ENROLLED`, `503 VOICE_UNAVAILABLE`(모델·키 없음, 15초 초과)
 
 ## 새 API를 추가하는 순서
 

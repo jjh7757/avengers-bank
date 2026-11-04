@@ -674,3 +674,59 @@ input {
     animation: none;
   }
 }
+
+/* ---------- 음성 승인·목소리 등록 ---------- */
+.voice-approve {
+  margin-top: 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.voice-approve p {
+  margin: 0;
+}
+
+.challenge {
+  font-size: 1.25rem;
+  color: var(--primary);
+  white-space: nowrap;
+}
+
+.button.wide {
+  width: 100%;
+}
+
+.button.recording {
+  background: var(--danger);
+  border-color: var(--danger);
+  color: #fff;
+}
+
+.consent {
+  flex-direction: row !important;
+  align-items: flex-start;
+  gap: 0.6rem !important;
+  font-weight: 400 !important;
+}
+
+.consent input {
+  min-height: auto;
+  width: 22px;
+  height: 22px;
+  margin-top: 0.2rem;
+  flex-shrink: 0;
+}
+
+.sentences {
+  margin: 0;
+  padding-left: 1.2rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.sentences li span {
+  display: block;
+  margin-bottom: 0.3rem;
+}

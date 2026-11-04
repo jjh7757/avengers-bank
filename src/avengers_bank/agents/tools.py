@@ -22,6 +22,8 @@ from avengers_bank.domains.chat.confirmation import create_confirmation_token
 from avengers_bank.domains.products.schemas import AccountProductResponse, CardProductResponse
 from avengers_bank.domains.products.service import product_service
 from avengers_bank.domains.recipients.service import recipient_service
+from avengers_bank.domains.speech import digits
+from avengers_bank.domains.speech.service import voice_available, voice_service
 from avengers_bank.domains.users.schemas import UserResponse
 
 
@@ -158,12 +160,16 @@ class PrepareTransferArgs(BaseModel):
 async def prepare_transfer(ctx: ToolContext, args: PrepareTransferArgs) -> tuple[dict, str]:
     """확인 카드(JSON)와 승인 토큰의 jti. 이체는 실행하지 않는다."""
     account = await account_service.get_account(ctx.db, "checking", args.from_checking_account_id, ctx.user)
+    # 목소리를 등록한 사용자는 "확인 + 무작위 숫자"로 승인한다 (서버가 화자 인증을 못 하면 버튼 + PIN)
+    voice_enrolled = await voice_service.is_enrolled(ctx.db, ctx.user.user_id)
+    challenge = digits.new_challenge() if voice_enrolled and voice_available() else None
     token, jti, expires_at = create_confirmation_token(
         user_id=ctx.user.user_id,
         session_id=ctx.session_id,
         from_checking_account_id=account.account_id,
         to_account_num=args.to_account_num,
         amount=args.amount,
+        voice_challenge=challenge,
     )
     who = args.recipient_nickname or args.holder_name
     spoken = format_korean_amount(args.amount)
@@ -181,7 +187,13 @@ async def prepare_transfer(ctx: ToolContext, args: PrepareTransferArgs) -> tuple
         "insufficient_balance": account.balance < args.amount,
         "confirmation_token": token,
         "expires_at": expires_at.isoformat(),
+        "voice_enrolled": voice_enrolled,  # true면 버튼으로 승인할 때 PIN이 필요하다
+        "voice_challenge": challenge,  # "472"
+        "voice_challenge_text": digits.spoken(challenge) if challenge else None,  # "사 칠 이"
         # 확인 카드는 핵심만 읽는다. 계좌번호는 읽지 않는다.
-        "tts_text": f"{who}님께 {spoken}을 보냅니다. 승인하시겠어요?",
+        "tts_text": (
+            f"{who}님께 {spoken}을 보냅니다. 승인하시려면 확인, {digits.spoken(challenge)}, 라고 말씀해 주세요."
+            if challenge else f"{who}님께 {spoken}을 보냅니다. 승인하시겠어요?"
+        ),
     }
     return card, jti

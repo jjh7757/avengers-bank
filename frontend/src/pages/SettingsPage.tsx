@@ -4,6 +4,7 @@ import { Link } from 'react-router-dom'
 import { ApiError } from '../api/client'
 import { authApi } from '../api/endpoints'
 import { useAuth } from '../auth/useAuth'
+import VoiceEnrollment from '../components/VoiceEnrollment'
 
 export default function SettingsPage() {
   const { user, logout, refresh } = useAuth()
@@ -74,6 +75,10 @@ export default function SettingsPage() {
           {user?.has_pin ? 'PIN 변경' : 'PIN 등록'}
         </button>
       </form>
+
+      <h2>목소리로 이체 승인</h2>
+      <p className="muted">목소리를 등록하면 이체 확인 카드를 "확인 + 숫자"로 말해서 승인해요. 등록한 목소리와 다르면 승인되지 않아요.</p>
+      <VoiceEnrollment />
 
       <h2>기타</h2>
       <ul className="list">

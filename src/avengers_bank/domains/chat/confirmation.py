@@ -27,10 +27,17 @@ class Confirmation:
     from_checking_account_id: int
     to_account_num: str
     amount: int
+    voice_challenge: str | None  # 음성 승인 때 말해야 하는 무작위 숫자 (목소리 미등록이면 None)
 
 
 def create_confirmation_token(
-    *, user_id: int, session_id: str, from_checking_account_id: int, to_account_num: str, amount: int
+    *,
+    user_id: int,
+    session_id: str,
+    from_checking_account_id: int,
+    to_account_num: str,
+    amount: int,
+    voice_challenge: str | None = None,
 ) -> tuple[str, str, datetime]:
     """(토큰, jti, 만료 시각)"""
     settings = get_settings()
@@ -45,6 +52,7 @@ def create_confirmation_token(
         "from": from_checking_account_id,
         "to": to_account_num,
         "amt": amount,
+        "vc": voice_challenge,
         "iat": now,
         "exp": expires_at,
     }
@@ -77,4 +85,5 @@ def decode_confirmation_token(token: str) -> Confirmation:
         from_checking_account_id=payload["from"],
         to_account_num=payload["to"],
         amount=payload["amt"],
+        voice_challenge=payload.get("vc"),
     )

@@ -13,13 +13,15 @@ from avengers_bank.domains.accounts.models import (
 )
 from avengers_bank.domains.accounts.repository import account_repository
 from avengers_bank.domains.accounts.service import account_service
-from avengers_bank.domains.chat.confirmation import decode_confirmation_token
+from avengers_bank.domains.chat.confirmation import Confirmation, decode_confirmation_token
 from avengers_bank.domains.chat.models import ChatSession
 from avengers_bank.domains.chat.repository import chat_repository
 from avengers_bank.domains.fds.models import FdsDecision
 from avengers_bank.domains.fds.rules import RiskLevel
 from avengers_bank.domains.fds.service import FdsResult, fds_service
 from avengers_bank.domains.recipients.repository import recipient_repository
+from avengers_bank.domains.speech.approval import verify_voice_approval_token
+from avengers_bank.domains.speech.repository import voice_repository
 from avengers_bank.domains.transfers.schemas import (
     DepositPaymentCreate,
     SavingsPaymentCreate,
@@ -59,8 +61,10 @@ class TransferService:
     ) -> TransferResponse:
         rejection: FdsDecision | None = None
         async with db.begin():
-            # 0. 채팅에서 온 이체면 확인 카드 승인 토큰 검사
-            chat_session = await self._check_confirmation(db, data, current_user.user_id)
+            # 0. 채팅에서 온 이체면 확인 카드 승인 토큰 검사, 목소리 등록 사용자는 음성 승인 또는 PIN
+            chat_session, confirmation = await self._check_confirmation(db, data, current_user.user_id)
+            if confirmation is not None:
+                await self._check_voice_or_pin(db, data, confirmation, current_user.user_id)
 
             # 1. 보내는 계좌가 본인 것인지 확인
             source = await account_service.get_owned_account(
@@ -186,7 +190,7 @@ class TransferService:
 
     async def _check_confirmation(
         self, db: AsyncSession, data: TransferCreate, user_id: int
-    ) -> ChatSession | None:
+    ) -> tuple[ChatSession | None, Confirmation | None]:
         """session_id가 있으면(채팅에서 온 이체) 확인 카드 토큰이 있어야 하고, 카드 내용과 요청이 같아야 한다.
         PIN 재요청에도 같은 토큰을 쓰도록, 토큰은 이체가 실제로 성공했을 때만 소모한다."""
         if data.session_id is None:
@@ -194,7 +198,7 @@ class TransferService:
                 raise BadRequestException(
                     code="CONFIRMATION_MISMATCH", message="확인 카드와 요청 내용이 다릅니다."
                 )
-            return None
+            return None, None
         session = await chat_repository.find_session(db, data.session_id, for_update=True)
         if session is None or session.user_id != user_id:
             raise NotFoundException(code="CHAT_SESSION_NOT_FOUND", message="대화를 찾을 수 없습니다.")
@@ -215,7 +219,26 @@ class TransferService:
             raise BadRequestException(
                 code="CONFIRMATION_USED", message="이미 처리했거나 바뀐 확인 카드입니다. 다시 요청해 주세요."
             )
-        return session
+        return session, confirmation
+
+    async def _check_voice_or_pin(
+        self, db: AsyncSession, data: TransferCreate, confirmation: Confirmation, user_id: int
+    ) -> None:
+        """목소리를 등록한 사용자: 음성 승인 토큰이 있거나, 없으면(버튼 승인) PIN이 맞아야 한다.
+        버튼만으로 통과시키면 남이 폰을 들고 승인 버튼을 누르는 것을 막을 수 없기 때문이다."""
+        if await voice_repository.find(db, user_id) is None:
+            return
+        if data.voice_approval_token is not None:
+            verify_voice_approval_token(data.voice_approval_token, user_id=user_id, confirmation_jti=confirmation.jti)
+            return
+        user = await user_repository.find_by_id(db, user_id)
+        if data.pin is None:
+            raise BadRequestException(
+                code="PIN_REQUIRED", message="목소리로 승인하지 않으면 이체 PIN이 필요해요.",
+                extra={"has_pin": user.has_pin},
+            )
+        if not await user_service.verify_pin(user, data.pin):
+            raise BadRequestException(code="INVALID_PIN", message="이체 PIN이 올바르지 않습니다.")
 
     async def _decide(self, fds: FdsResult, user: User, pin: str | None) -> FdsDecision:
         if fds.risk_level == RiskLevel.HIGH:

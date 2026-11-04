@@ -25,6 +25,7 @@ export default function ChatPage() {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [voicePrompt, setVoicePrompt] = useState<string | null>(null)
+  const [autoVoiceFor, setAutoVoiceFor] = useState<number | null>(null) // 안내를 다 읽고 음성 승인 녹음을 시작할 카드
   const bottomRef = useRef<HTMLDivElement>(null)
   const pushingRef = useRef(false) // 마이크 버튼을 누르고 있는 동안만 true ("확인" 대답 듣기와 구분)
 
@@ -82,7 +83,15 @@ export default function ChatPage() {
         const { user_message, assistant_message } = await chatApi.send(sessionId, trimmed, inputMode)
         setMessages((prev) => [...prev, user_message, assistant_message])
         const card = assistant_message.card
-        speech.speak(card?.type === 'transfer_confirmation' ? card.tts_text : assistant_message.content)
+        if (card?.type === 'transfer_confirmation') {
+          const reads = speech.ttsAvailable && speech.ttsEnabled
+          speech.speak(card.tts_text).then(() => {
+            // "확인 사 칠 이 라고 말씀해 주세요"를 들려준 뒤에만 자동으로 녹음한다 (안내가 꺼져 있으면 버튼으로)
+            if (reads && card.voice_challenge) setAutoVoiceFor(assistant_message.msg_id)
+          })
+        } else {
+          speech.speak(assistant_message.content)
+        }
       } catch (e) {
         setInput(trimmed)
         setError(e instanceof ApiError ? e.message : '보내지 못했어요.')
@@ -178,6 +187,7 @@ export default function ChatPage() {
                 sessionId={sessionId}
                 inputMode={messages[index - 1]?.input_mode ?? 'text'}
                 active={index === lastCardIndex}
+                autoVoice={autoVoiceFor === m.msg_id}
                 speech={speech}
                 onCancel={() => send('이체 취소', 'text')}
               />

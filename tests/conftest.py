@@ -3,6 +3,8 @@ import os
 # 앱을 import하기 전에 테스트용 설정을 넣는다 (SQLite 파일 DB).
 os.environ["DATABASE_URL"] = "sqlite+aiosqlite:///./test.db"
 os.environ["JWT_SECRET_KEY"] = "test-secret-key-test-secret-key-0000"
+os.environ["VOICE_ENCRYPTION_KEY"] = "0nqMmCGBZz4Ii2tmmjnlxxzI5d7Z0r6MWQqv2qD3fWs="  # 테스트 전용 Fernet 키
+os.environ["GEMINI_API_KEY"] = ""  # 테스트는 실제 Gemini를 부르지 않는다
 
 import pytest
 from httpx import ASGITransport, AsyncClient
@@ -14,6 +16,7 @@ import avengers_bank.domains.chat.models  # noqa: F401
 import avengers_bank.domains.fds.models  # noqa: F401
 import avengers_bank.domains.products.models  # noqa: F401
 import avengers_bank.domains.recipients.models  # noqa: F401
+import avengers_bank.domains.speech.models  # noqa: F401
 from avengers_bank.core.database import Base, SessionLocal, engine
 from avengers_bank.domains.accounts.models import CheckingAccount
 from avengers_bank.domains.chat.confirmation import create_confirmation_token

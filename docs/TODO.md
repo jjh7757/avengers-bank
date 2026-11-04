@@ -156,24 +156,26 @@
 설계: [PROJECT_PLAN.md](PROJECT_PLAN.md) 3.5절 "음성 승인 (화자 인증)"
 
 백엔드
-- [ ] `pyproject.toml`에 `voice` 의존성 그룹: `speechbrain`, `torch`(CPU), `torchaudio`. Windows 설치·webm 디코딩(ffmpeg 필요 여부) 확인
-- [ ] `domains/speech/models.py`: `voice_profiles` (user_id PK, 암호화한 embedding, model_version, consented_at) + 마이그레이션
-- [ ] 임베딩 암호화 키 설정 (`.env`의 `VOICE_ENCRYPTION_KEY`, Fernet)
-- [ ] `speech/speaker.py`: ECAPA 모델 로드(앱 시작 시 1회), 녹음 → 임베딩, 코사인 유사도. 모델이 없으면 화자 인증만 비활성
-- [ ] `POST /voice/profile` (동의 + 녹음 3개 → 평균 임베딩 저장), `GET`, `DELETE`
-- [ ] 확인 카드에 무작위 숫자 3개 추가: `prepare_transfer`가 만들고 확인 토큰 payload에 넣음, `tts_text` 변경
-- [ ] `speech/digits.py`: Gemini 오디오 입력으로 승인 녹음 속 숫자 인식 ("사칠이" → 472)
-- [ ] `POST /voice/approvals`: 숫자 일치 + 유사도 ≥ 기준값 → 음성 승인 토큰(확인 카드 jti에 묶음, 짧은 유효기간). 카드당 2회 실패하면 잠금
-- [ ] `POST /transfers`: `voice_approval_token` 검증. 목소리 등록 사용자가 음성 2회 실패한 카드는 버튼 승인 시 PIN 필수
-- [ ] 판정에 쓴 녹음은 저장하지 않고 바로 버림
-- [ ] `tests/test_voice.py` (화자 모델·Gemini는 mock): 등록/삭제, 숫자 불일치, 타인 목소리, 2회 실패 후 PIN 요구, 토큰 재사용 거부
-- [ ] 기준값 정하기: 팀원 3명 이상 녹음으로 본인 거부율·타인 통과율 측정 → `results`에 기록
+- [x] `pyproject.toml`에 `voice` 의존성 그룹: `speechbrain`, `torch`(CPU), `torchaudio`. Windows 설치 확인, webm은 브라우저에서 WAV로 바꿔 ffmpeg 불필요
+- [x] `domains/speech/models.py`: `voice_profiles` (user_id PK, 암호화한 embedding, model_version, consented_at) + 마이그레이션
+- [x] 임베딩 암호화 키 설정 (`.env`의 `VOICE_ENCRYPTION_KEY`, Fernet)
+- [x] `speech/speaker.py`: ECAPA 모델 로드(앱 시작 시 1회), 녹음 → 임베딩, 코사인 유사도. 모델이 없으면 화자 인증만 비활성
+- [x] `POST /voice/profile` (동의 + 녹음 3개 → 평균 임베딩 저장), `GET`, `DELETE`
+- [x] 확인 카드에 무작위 숫자 3개 추가: `prepare_transfer`가 만들고 확인 토큰 payload에 넣음, `tts_text` 변경
+- [x] `speech/digits.py`: Gemini 오디오 입력으로 승인 녹음 속 숫자 인식 ("사칠이" → 472)
+- [x] `POST /voice/approvals`: 숫자 일치 + 유사도 ≥ 기준값 → 음성 승인 토큰(확인 카드 jti에 묶음, 짧은 유효기간). 카드당 2회 실패하면 잠금
+- [x] `POST /transfers`: `voice_approval_token` 검증. 목소리 등록 사용자가 음성 2회 실패한 카드는 버튼 승인 시 PIN 필수
+- [x] 판정에 쓴 녹음은 저장하지 않고 바로 버림
+- [x] `tests/test_voice.py` (화자 모델·Gemini는 mock): 등록/삭제, 숫자 불일치, 타인 목소리, 2회 실패 후 PIN 요구, 토큰 재사용 거부
+- [x] 보정 스크립트 `scripts/voice_calibration.py`, 합성 목소리 4종으로 1차 측정 → [VOICE_AUTH.md](VOICE_AUTH.md) (기준 0.45, 타인 통과 16.7%)
+- [ ] **기준값 보정: 팀원 3명 이상 실제 녹음으로 측정 → `VOICE_SIMILARITY_THRESHOLD` 확정** (합성 목소리 결과는 임시값)
 
 프론트
-- [ ] `src/hooks/useRecorder.ts`: `MediaRecorder` 녹음 (webm)
-- [ ] 목소리 등록 화면: 생체정보 수집·이용 동의 → 문장 3개 녹음 → 등록, 등록 상태·삭제
-- [ ] 확인 카드: 등록 사용자는 TTS로 "확인 OOO" 안내 후 자동 녹음 → `/voice/approvals` → 이체. 실패 안내와 남은 횟수, 2회 실패 시 버튼 + PIN
-- [ ] 미등록 사용자는 기존 승인 버튼 유지
+- [x] `src/hooks/useRecorder.ts`: `MediaRecorder` 녹음 (webm)
+- [x] 목소리 등록 화면: 생체정보 수집·이용 동의 → 문장 3개 녹음 → 등록, 등록 상태·삭제
+- [x] 확인 카드: 등록 사용자는 TTS로 "확인 OOO" 안내 후 자동 녹음 → `/voice/approvals` → 이체. 실패 안내와 남은 횟수, 2회 실패 시 버튼 + PIN
+- [ ] 실제 마이크로 Chrome에서 목소리 등록·음성 승인 확인 (브라우저 확인은 마이크 입력을 합성 음성으로 바꿔서 함)
+- [x] 미등록 사용자는 기존 승인 버튼 유지
 
 ## 5. 통합·시연 준비 (3일)
 

@@ -12,6 +12,7 @@ import type {
   FdsLog,
   TransferResult,
   User,
+  VoiceProfile,
 } from './types'
 
 export const authApi = {
@@ -53,11 +54,31 @@ export interface TransferRequest {
   confirmation_token?: string
   pin?: string
   device_fingerprint?: string
+  voice_approval_token?: string
   input_mode?: 'text' | 'voice'
 }
 
 export const transferApi = {
   transfer: (body: TransferRequest) => api<TransferResult>('/transfers', { method: 'POST', body }),
+}
+
+export const voiceApi = {
+  profile: () => api<VoiceProfile>('/voice/profile'),
+  enroll: (password: string, recordings: Blob[]) => {
+    const form = new FormData()
+    form.append('password', password)
+    form.append('consent', 'true')
+    recordings.forEach((blob, i) => form.append('recordings', blob, `enroll-${i + 1}.wav`))
+    return api<VoiceProfile>('/voice/profile', { method: 'POST', body: form })
+  },
+  remove: (password: string) => api<void>('/voice/profile', { method: 'DELETE', body: { password } }),
+  approve: (sessionId: string, confirmationToken: string, recording: Blob) => {
+    const form = new FormData()
+    form.append('session_id', sessionId)
+    form.append('confirmation_token', confirmationToken)
+    form.append('recording', recording, 'approve.wav')
+    return api<{ voice_approval_token: string }>('/voice/approvals', { method: 'POST', body: form })
+  },
 }
 
 export const fdsApi = {

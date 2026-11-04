@@ -16,6 +16,7 @@ dependencies = [
     "lightgbm>=4.5,<5",
     "langgraph>=0.6",
     "langchain-google-genai>=2.1",
+    "cryptography>=44",
 ]
 
 [dependency-groups]
@@ -30,6 +31,11 @@ fds = [
     "pyarrow>=17",
     "scikit-learn>=1.5,<2",
     "shap>=0.47,<1",
+]
+voice = [
+    "speechbrain>=1.0",
+    "torch>=2.6",
+    "torchaudio>=2.6",
 ]
 
 [tool.uv.build-backend]

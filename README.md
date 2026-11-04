@@ -49,6 +49,13 @@ uv run pytest
 
 테스트는 SQLite로 돌아가서 PostgreSQL 없이도 실행됩니다.
 
+음성 승인(화자 인증)을 쓰려면 PyTorch가 든 `voice` 그룹을 함께 설치·실행합니다 (약 1GB). 없으면 승인 버튼 + PIN으로만 동작합니다.
+
+```bash
+uv sync --group voice
+uv run --group voice fastapi dev
+```
+
 > Windows에서는 `uv run fastapi run`이 psycopg 비동기 모드와 맞지 않아 DB 연결에 실패합니다. 개발 중에는 `fastapi dev`를 쓰세요.
 
 ## FDS 모델 다시 학습하기
@@ -68,4 +75,4 @@ uv run --group fds python fds_training/train.py           # 모델·임계값·r
 | fds | ✅ 2단계 규칙 엔진 + LightGBM, 이체에 연결 ([results.md](fds_training/results.md)) |
 | chat(에이전트) | ✅ 3단계 LangGraph + Gemini, 확인 카드 승인 후 이체 |
 | frontend | ✅ 4단계 채팅·확인 카드·FDS 안내·계좌·카드·음성 입력/안내 ([frontend/README.md](frontend/README.md)) |
-| 음성 승인(화자 인증) | 📝 [TODO.md](docs/TODO.md) 4-4 |
+| 음성 승인(화자 인증) | ✅ 4-4 구현, 기준값은 실제 목소리로 보정 필요 ([VOICE_AUTH.md](docs/VOICE_AUTH.md)) |

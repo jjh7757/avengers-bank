@@ -100,7 +100,13 @@ async def handle_transfer(ctx: ToolContext, state: AgentState) -> dict:
         amount=slots.amount,
     ))
     name = f"{slots.recipient_nickname}({slots.holder_name})" if slots.recipient_nickname else slots.holder_name
-    reply = f"{name}님께 {format_korean_amount(slots.amount)}을 보낼까요? 화면의 확인 카드에서 승인을 눌러 주세요."
+    if card["voice_challenge"]:
+        how = f"맞으면 \"확인 {card['voice_challenge_text']}\"이라고 말씀해 주세요."
+    elif card["voice_enrolled"]:
+        how = "화면의 확인 카드에서 PIN으로 승인해 주세요."
+    else:
+        how = "화면의 확인 카드에서 승인을 눌러 주세요."
+    reply = f"{name}님께 {format_korean_amount(slots.amount)}을 보낼까요? {how}"
     if card["insufficient_balance"]:
         reply = f"출금 계좌 잔액이 {format_korean_amount(card['from_balance'])}이라 부족해요. " + reply
     return {"reply": reply, "card": card, "new_pending": slots, "confirmation_jti": jti}
