@@ -18,11 +18,24 @@ from langgraph.graph import END, START, StateGraph
 from avengers_bank.agents import llm
 from avengers_bank.agents.mcp_client import BankMcpClient
 from avengers_bank.agents.prompts import SYSTEM_PROMPT
-from avengers_bank.agents.state import AgentState, PendingTransfer
+from avengers_bank.agents.state import AgentState, PendingTransfer, Screen
 from avengers_bank.domains.chat.amount import format_korean_amount, normalize_amount
 
 MAX_TOOL_ROUNDS = 4
 FALLBACK_REPLY = "죄송해요, 제가 잘 이해하지 못했어요. 다시 한 번 말씀해 주시겠어요?"
+
+# 도구를 쓰면 그 결과를 보여 줄 화면. 한 턴에 여러 도구를 쓰면 마지막 도구의 화면.
+# 발급·개설 같은 변경 도구도 실행한 뒤 목록 화면을 보여 준다 (동의를 묻는 턴은 도구를 안 쓰므로 화면이 안 바뀐다).
+TOOL_SCREENS: dict[str, Screen] = {
+    **dict.fromkeys(
+        ["get_my_accounts", "get_account", "get_account_histories", "open_checking_account",
+         "open_deposit_account", "open_savings_account", "rename_account", "lower_transfer_limits"],
+        "accounts",
+    ),
+    **dict.fromkeys(["get_my_cards", "get_card_histories", "issue_debit_card", "issue_credit_card"], "cards"),
+    **dict.fromkeys(["search_products", "get_product"], "products"),
+    "get_fds_logs": "fds",
+}
 
 
 @dataclass
@@ -138,11 +151,12 @@ def build_graph(ctx: AgentContext):
         return intent if intent in ("transfer", "cancel") else "agent"
 
     async def transfer_node(state: AgentState) -> dict:
-        return await handle_transfer(ctx, state)
+        result = await handle_transfer(ctx, state)
+        return {**result, "screen": "transfer" if result.get("card") else None}  # 되묻는 동안은 화면 그대로
 
     async def cancel_node(state: AgentState) -> dict:
         reply = "이체를 취소했어요." if state.get("pending") else "진행 중인 이체가 없어요."
-        return {"reply": reply, "card": None, "new_pending": None, "confirmation_jti": None}
+        return {"reply": reply, "card": None, "new_pending": None, "confirmation_jti": None, "screen": "home"}
 
     async def agent_node(state: AgentState) -> dict:
         messages = state.get("messages") or [
@@ -160,8 +174,9 @@ def build_graph(ctx: AgentContext):
     async def tools_node(state: AgentState) -> dict:
         last: AIMessage = state["messages"][-1]
         tools_by_name = {tool.name: tool for tool in await ctx.tools()}
-        results, card = [], state.get("card")
+        results, card, screen = [], state.get("card"), state.get("screen")
         for call in last.tool_calls:
+            screen = TOOL_SCREENS.get(call["name"], screen)
             tool = tools_by_name.get(call["name"])
             if tool is None:
                 output = json.dumps({"error": "없는 도구입니다."}, ensure_ascii=False)
@@ -176,7 +191,7 @@ def build_graph(ctx: AgentContext):
                 except (ValueError, KeyError):
                     pass
             results.append(ToolMessage(content=output, tool_call_id=call["id"], name=call["name"]))
-        return {"messages": [*state["messages"], *results], "card": card,
+        return {"messages": [*state["messages"], *results], "card": card, "screen": screen,
                 "tool_rounds": state.get("tool_rounds", 0) + 1}
 
     graph = StateGraph(AgentState)

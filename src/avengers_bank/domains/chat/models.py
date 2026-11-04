@@ -32,4 +32,5 @@ class ChatMessage(Base):
     intent: Mapped[str | None] = mapped_column(String(20))  # 사용자 메시지의 분류 결과
     input_mode: Mapped[str] = mapped_column(String(10), nullable=False, default="text")  # text / voice
     card: Mapped[dict | None] = mapped_column(JSON)  # 확인 카드·계좌 요약 카드
+    screen: Mapped[str | None] = mapped_column(String(20))  # 답변과 함께 보여 줄 화면 (agents.state.Screen)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)

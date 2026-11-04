@@ -101,6 +101,7 @@ async def test_send_to_mom_scenario(client, user, other_user, bank, classify):
     assert card["tts_text"] == "엄마님께 5만원을 보냅니다. 승인하시겠어요?"
     assert "110-" not in card["tts_text"]  # 계좌번호는 읽지 않는다
     assert "5만원" in reply["content"]
+    assert reply["screen"] == "transfer"
 
     response = await client.post("/transfers", headers=user, json=approve(card, bank["session_id"]))
     assert response.status_code == 200, response.text
@@ -111,8 +112,8 @@ async def test_send_to_mom_scenario(client, user, other_user, bank, classify):
     assert response.json()["error"]["code"] == "CONFIRMATION_USED"
 
     messages = (await client.get(f"/chat/sessions/{bank['session_id']}/messages", headers=user)).json()["data"]
-    assert [(m["role"], m["intent"], m["input_mode"]) for m in messages] == [
-        ("user", "transfer", "voice"), ("assistant", None, "text")
+    assert [(m["role"], m["intent"], m["input_mode"], m["screen"]) for m in messages] == [
+        ("user", "transfer", "voice", None), ("assistant", None, "text", "transfer")
     ]
 
 
@@ -120,6 +121,7 @@ async def test_asks_for_missing_amount(client, user, bank, classify):
     classify.next(intent="transfer", recipient="엄마")
     reply = await say(client, user, bank["session_id"], "엄마한테 돈 좀 보내줘")
     assert reply["card"] is None
+    assert reply["screen"] is None  # 되묻는 동안은 화면을 바꾸지 않는다
     assert reply["content"] == "엄마님께 얼마를 보낼까요?"
 
     classify.next(intent="transfer", amount=50_000)
@@ -164,6 +166,7 @@ async def test_cancel_clears_pending(client, user, bank, classify):
     classify.next(intent="cancel")
     reply = await say(client, user, bank["session_id"], "아니 됐어")
     assert reply["content"] == "이체를 취소했어요."
+    assert reply["screen"] == "home"
 
     classify.next(intent="transfer", amount=10_000)
     reply = await say(client, user, bank["session_id"], "만원")
@@ -247,6 +250,7 @@ async def test_inquiry_uses_tools_and_returns_summary_card(client, user, bank, c
     reply = await say(client, user, bank["session_id"], "내 잔액 얼마야?")
     assert reply["content"] == "생활비 통장에 100만원 있어요."
     assert reply["card"]["type"] == "account_summary"
+    assert reply["screen"] == "accounts"
     [account] = reply["card"]["accounts"]
     assert account["balance"] == 1_000_000
     assert account["account_num"].startswith("****")  # LLM에는 뒤 4자리만
@@ -256,6 +260,23 @@ async def test_inquiry_uses_tools_and_returns_summary_card(client, user, bank, c
     assert not LLM_EXCLUDED & set(model.tool_names)
     tool_message = model.calls[1][-1]
     assert tool_message.name == "get_my_accounts"
+
+
+async def test_screen_follows_last_tool(client, user, bank, classify, chat_model):
+    """도구를 여러 개 쓰면 마지막 도구의 화면, 도구 없이 답하면 화면을 바꾸지 않는다"""
+    classify.next(intent="product")
+    chat_model(
+        AIMessage("", tool_calls=[{"name": "get_my_accounts", "args": {}, "id": "call-1"}]),
+        AIMessage("", tool_calls=[{"name": "search_products", "args": {"kind": "account"}, "id": "call-2"}]),
+        AIMessage("잔액에 맞는 적금을 찾아봤어요."),
+    )
+    reply = await say(client, user, bank["session_id"], "내 잔액으로 들 만한 적금 있어?")
+    assert reply["screen"] == "products"
+
+    classify.next(intent="card")
+    chat_model(AIMessage("체크카드를 만들어 드릴까요?"))
+    reply = await say(client, user, bank["session_id"], "카드 하나 만들어줘")
+    assert reply["screen"] is None  # 동의를 묻는 턴은 도구를 쓰지 않는다
 
 
 async def test_others_session_is_hidden(client, user, bank):

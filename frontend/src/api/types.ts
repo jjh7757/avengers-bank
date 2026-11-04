@@ -53,6 +53,14 @@ export interface CardDetail extends CardSummary {
   payment_date: number | null
 }
 
+export interface Product {
+  product_id: number
+  type: 'CHECKING' | 'DEPOSIT' | 'SAVINGS' | 'CREDIT' | 'DEBIT'
+  name: string
+  description: string
+  interest_rate?: string // 계좌 상품만 ("3.50")
+}
+
 export interface CardHistory {
   history_id: number
   place_of_use: string
@@ -87,6 +95,9 @@ export interface AccountSummaryCard {
 
 export type ChatCard = TransferConfirmationCard | AccountSummaryCard
 
+/** 도우미 화면(/stage)에서 답변과 함께 가져올 화면. null이면 지금 화면 유지 */
+export type Screen = 'home' | 'accounts' | 'cards' | 'products' | 'fds' | 'transfer'
+
 export interface ChatMessage {
   msg_id: number
   role: 'user' | 'assistant'
@@ -94,6 +105,7 @@ export interface ChatMessage {
   intent: string | null
   input_mode: 'text' | 'voice'
   card: ChatCard | null
+  screen: Screen | null
   created_at: string
 }
 

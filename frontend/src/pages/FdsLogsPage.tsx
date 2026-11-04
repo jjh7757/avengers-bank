@@ -3,15 +3,7 @@ import { Link } from 'react-router-dom'
 
 import { fdsApi } from '../api/endpoints'
 import { useLoad } from '../hooks/useLoad'
-import { dateTime, won } from '../lib/format'
-
-const DECISION_LABEL: Record<string, string> = {
-  PASS: '통과',
-  PASS_WITH_AUTH: 'PIN 확인 후 통과',
-  AUTH_REQUIRED: 'PIN 요청',
-  AUTH_FAILED: 'PIN 틀림',
-  BLOCKED: '차단',
-}
+import { dateTime, won, FDS_DECISION_LABEL } from '../lib/format'
 
 /** FDS 판정 기록 (발표용 대시보드) */
 export default function FdsLogsPage() {
@@ -48,7 +40,7 @@ export default function FdsLogsPage() {
                   <td>
                     <span className={`risk risk-${log.risk_level.toLowerCase()}`}>{log.risk_level}</span>
                   </td>
-                  <td>{DECISION_LABEL[log.decision] ?? log.decision}</td>
+                  <td>{FDS_DECISION_LABEL[log.decision] ?? log.decision}</td>
                   <td>{log.rule_hits.map((h) => h.name).join(', ') || '-'}</td>
                   <td className="num">{log.ml_score?.toFixed(3) ?? '-'}</td>
                   <td>{log.top_factors.map((f) => f.label).join(', ') || '-'}</td>

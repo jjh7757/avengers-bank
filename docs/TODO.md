@@ -218,3 +218,8 @@
 - [ ] `domains/speech`: `POST /speech/stt` (MediaRecorder webm → Gemini), `POST /speech/tts` (Google Cloud TTS)
 - [ ] 브라우저 미지원 시 서버 STT 폴백 연결
 - [ ] 서버 STT와 브라우저 STT 인식 정확도 비교표
+- [x] 도우미 화면 `/stage`: 채팅 목록 대신 캐릭터 "모아"가 필요한 화면(계좌·카드·상품·FDS·이체 확인)을 무대로 끌어옴
+  - 백엔드: 답변에 `screen`(마지막으로 쓴 도구로 결정, `chat_messages.screen` 마이그레이션 `eb4ae6c87077`)
+  - 프론트: 채팅 화면과 같은 세션·음성 입력(`useChatSession`, `usePushToTalk`), 확인 카드는 기존 `TransferCard`(PIN·음성 승인) 그대로
+  - 실제 Gemini로 확인: 잔액 → 계좌 화면, 엄마 5만원 → 확인 카드 → 승인 완료, 가족 사칭 → 차단(AI 근거), 카드, 적금 추천(추천 상품 위로)
+- [ ] `/stage`를 기본 화면으로 할지 결정 (지금은 채팅 화면 위 "모아 화면" 링크)

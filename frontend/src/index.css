@@ -399,6 +399,12 @@ input {
   white-space: nowrap;
 }
 
+.chat-header a.button {
+  display: inline-flex;
+  align-items: center;
+  text-decoration: none;
+}
+
 .toggle {
   min-height: 40px;
   padding: 0.3rem 0.7rem;

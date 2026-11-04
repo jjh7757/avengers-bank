@@ -10,7 +10,7 @@ import { deviceFingerprint } from '../lib/fingerprint'
 import { won } from '../lib/format'
 import FdsAlert from './FdsAlert'
 
-type Status =
+export type Status =
   | { kind: 'idle' }
   | { kind: 'sending' }
   | { kind: 'voice_listening' }
@@ -29,6 +29,7 @@ interface Props {
   autoVoice: boolean // 카드 안내를 다 읽은 직후: 음성 승인 녹음을 바로 시작
   speech: Speech
   onCancel: () => void
+  onStatusChange?: (kind: Status['kind']) => void // 도우미 화면이 캐릭터 표정을 바꾼다
 }
 
 const VOICE_RECORD_MS = 5000
@@ -37,7 +38,7 @@ const VOICE_RECORD_MS = 5000
  * 이체 확인 카드. 승인하면 카드 내용과 승인 토큰 그대로 POST /transfers.
  * 목소리를 등록한 사용자는 "확인 + 숫자"를 말해 승인하고(POST /voice/approvals), 실패하면 PIN으로 승인한다.
  */
-export default function TransferCard({ card, sessionId, inputMode, active, autoVoice, speech, onCancel }: Props) {
+export default function TransferCard({ card, sessionId, inputMode, active, autoVoice, speech, onCancel, onStatusChange }: Props) {
   const recorder = useRecorder()
   const [status, setStatus] = useState<Status>({ kind: 'idle' })
   const [pin, setPin] = useState('')
@@ -137,6 +138,10 @@ export default function TransferCard({ card, sessionId, inputMode, active, autoV
     setStatus({ kind: 'cancelled' })
     onCancel()
   }
+
+  useEffect(() => {
+    onStatusChange?.(status.kind)
+  }, [status.kind, onStatusChange])
 
   const locked = !active || expired || ['done', 'blocked', 'cancelled'].includes(status.kind)
 

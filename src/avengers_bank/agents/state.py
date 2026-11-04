@@ -4,6 +4,8 @@ from langchain_core.messages import BaseMessage
 from pydantic import BaseModel, Field
 
 Intent = Literal["inquiry", "transfer", "product", "card", "cancel", "general"]
+# 화면 시안(/stage)에서 도우미가 가져올 화면. None이면 지금 화면을 그대로 둔다
+Screen = Literal["home", "accounts", "cards", "products", "fds", "transfer"]
 
 
 class Extraction(BaseModel):
@@ -39,3 +41,4 @@ class AgentState(TypedDict, total=False):
     card: dict | None
     new_pending: PendingTransfer | None
     confirmation_jti: str | None
+    screen: Screen | None

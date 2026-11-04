@@ -12,6 +12,7 @@ import FdsLogsPage from './pages/FdsLogsPage'
 import LoginPage from './pages/LoginPage'
 import SettingsPage from './pages/SettingsPage'
 import SignupPage from './pages/SignupPage'
+import StagePage from './stage/StagePage'
 
 function RequireAuth({ children }: { children: ReactNode }) {
   const { user, loading } = useAuth()
@@ -26,6 +27,15 @@ export default function App() {
     <Routes>
       <Route path="/login" element={<LoginPage />} />
       <Route path="/signup" element={<SignupPage />} />
+      {/* 도우미 화면: 넓은 무대를 쓰므로 하단 탭(Layout) 없이 연다 */}
+      <Route
+        path="/stage"
+        element={
+          <RequireAuth>
+            <StagePage />
+          </RequireAuth>
+        }
+      />
       <Route
         element={
           <RequireAuth>

@@ -10,6 +10,7 @@ import type {
   CardType,
   ChatMessage,
   FdsLog,
+  Product,
   TransferResult,
   User,
   VoiceProfile,
@@ -34,6 +35,11 @@ export const cardApi = {
   list: () => api<CardSummary[]>('/cards'),
   get: (type: CardType, id: number) => api<CardDetail>(`/cards/${type}/${id}`),
   histories: (type: CardType, id: number) => api<CardHistory[]>(`/cards/${type}/${id}/histories`),
+}
+
+export const productApi = {
+  accounts: () => api<Product[]>('/products/accounts'),
+  cards: () => api<Product[]>('/products/cards'),
 }
 
 export const chatApi = {

@@ -15,6 +15,13 @@ export const maskAccount = (num: string) => num.replace(/^(\d+)-(\d+)-(\d+)$/, (
 
 export const ACCOUNT_TYPE_LABEL: Record<string, string> = { checking: '입출금', deposit: '예금', savings: '적금' }
 export const CARD_TYPE_LABEL: Record<string, string> = { credit: '신용카드', debit: '체크카드' }
+export const FDS_DECISION_LABEL: Record<string, string> = {
+  PASS: '통과',
+  PASS_WITH_AUTH: 'PIN 확인 후 통과',
+  AUTH_REQUIRED: 'PIN 요청',
+  AUTH_FAILED: 'PIN 틀림',
+  BLOCKED: '차단',
+}
 export const HISTORY_TYPE_LABEL: Record<string, string> = {
   DEPOSIT: '입금',
   WITHDRAW: '출금',

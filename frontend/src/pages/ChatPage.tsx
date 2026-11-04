@@ -1,71 +1,26 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
+import { Link } from 'react-router-dom'
 
 import { ApiError } from '../api/client'
 import { chatApi } from '../api/endpoints'
-import type { ChatMessage } from '../api/types'
 import { useAuth } from '../auth/useAuth'
 import AccountSummaryCardView from '../components/AccountSummaryCardView'
 import TransferCard from '../components/TransferCard'
+import { useChatSession } from '../hooks/useChatSession'
+import { usePushToTalk } from '../hooks/usePushToTalk'
 import { useSpeech } from '../hooks/useSpeech'
 
 const SUGGESTIONS = ['내 잔액 알려줘', '엄마한테 5만원 보내줘', '적금 상품 추천해줘']
-const YES = /확인/
-const NO = /아니|취소|틀렸|다시/
-
-function sessionKey(userId: number) {
-  return `avengers.chat_session.${userId}`
-}
 
 export default function ChatPage() {
   const { user } = useAuth()
   const speech = useSpeech()
-  const [sessionId, setSessionId] = useState<string | null>(null)
-  const [messages, setMessages] = useState<ChatMessage[]>([])
+  const { sessionId, messages, setMessages, error, setError, startNewSession } = useChatSession()
   const [input, setInput] = useState('')
   const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<string | null>(null)
   const [voicePrompt, setVoicePrompt] = useState<string | null>(null)
   const [autoVoiceFor, setAutoVoiceFor] = useState<number | null>(null) // 안내를 다 읽고 음성 승인 녹음을 시작할 카드
   const bottomRef = useRef<HTMLDivElement>(null)
-  const pushingRef = useRef(false) // 마이크 버튼을 누르고 있는 동안만 true ("확인" 대답 듣기와 구분)
-
-  function onMicUp() {
-    if (!pushingRef.current) return
-    pushingRef.current = false
-    speech.stopListening()
-  }
-
-  // 대화 세션: 새로고침해도 같은 대화를 이어 간다 (탭을 닫으면 새 대화)
-  const startNewSession = useCallback(async () => {
-    const { session_id } = await chatApi.createSession()
-    try {
-      sessionStorage.setItem(sessionKey(user!.user_id), session_id)
-    } catch {
-      /* 저장 못 하면 새로고침 때 새 대화 */
-    }
-    setSessionId(session_id)
-    setMessages([])
-  }, [user])
-
-  useEffect(() => {
-    let saved: string | null = null
-    try {
-      saved = sessionStorage.getItem(sessionKey(user!.user_id))
-    } catch {
-      saved = null
-    }
-    if (!saved) {
-      startNewSession().catch(() => setError('대화를 시작하지 못했어요.'))
-      return
-    }
-    chatApi
-      .messages(saved)
-      .then((loaded) => {
-        setSessionId(saved)
-        setMessages(loaded)
-      })
-      .catch(() => startNewSession().catch(() => setError('대화를 시작하지 못했어요.')))
-  }, [user, startNewSession])
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' })
@@ -99,37 +54,13 @@ export default function ChatPage() {
         setBusy(false)
       }
     },
-    [sessionId, busy, speech],
+    [sessionId, busy, speech, setMessages, setError],
   )
+  const ptt = usePushToTalk({ speech, busy, send, setInput, setVoicePrompt })
 
   function submit(event: FormEvent) {
     event.preventDefault()
     send(input, 'text')
-  }
-
-  /** 마이크를 누르고 있는 동안 듣고, 손을 떼면 인식한 문장을 되읽어 "확인"이라고 하면 보낸다. */
-  async function onMicDown() {
-    if (!speech.sttSupported || busy || speech.listening) return
-    setVoicePrompt(null)
-    pushingRef.current = true
-    const heard = await speech.startListening()
-    if (!heard) {
-      setVoicePrompt('잘 듣지 못했어요. 마이크 버튼을 누른 채로 다시 말씀해 주세요.')
-      return
-    }
-    setInput(heard)
-    setVoicePrompt(`"${heard}" 라고 말씀하셨나요? 맞으면 "확인"이라고 말씀해 주세요.`)
-    await speech.speak(`${heard}, 라고 말씀하셨나요? 맞으면 확인이라고 말씀해 주세요.`)
-    const answer = await speech.listenOnce(5000)
-    if (YES.test(answer)) {
-      await send(heard, 'voice')
-    } else if (NO.test(answer)) {
-      setInput('')
-      setVoicePrompt('다시 말씀해 주세요.')
-      speech.speak('다시 말씀해 주세요.')
-    } else {
-      setVoicePrompt('대답을 듣지 못했어요. 내용을 고치거나 보내기 버튼을 눌러 주세요.')
-    }
   }
 
   const lastCardIndex = messages.findLastIndex((m) => m.card?.type === 'transfer_confirmation')
@@ -153,6 +84,9 @@ export default function ChatPage() {
           <button className="button small" onClick={() => startNewSession()} disabled={busy}>
             새 대화
           </button>
+          <Link className="button small" to="/stage">
+            모아 화면
+          </Link>
         </div>
       </header>
       {speech.voicesLoaded && !speech.ttsAvailable && (
@@ -218,9 +152,9 @@ export default function ChatPage() {
         <button
           type="button"
           className={`mic ${speech.listening ? 'listening' : ''}`}
-          onPointerDown={onMicDown}
-          onPointerUp={onMicUp}
-          onPointerLeave={onMicUp}
+          onPointerDown={ptt.onMicDown}
+          onPointerUp={ptt.onMicUp}
+          onPointerLeave={ptt.onMicUp}
           disabled={!speech.sttSupported || busy}
           aria-label={speech.sttSupported ? '누르고 있는 동안 말하기' : '이 브라우저는 음성 입력을 지원하지 않아요'}
           title={speech.sttSupported ? '누르고 있는 동안 말하기' : '음성 입력은 Chrome·Edge에서 쓸 수 있어요'}

@@ -243,18 +243,22 @@
 `POST /chat/sessions/{id}/messages` `{ "text": "엄마한테 오만원 보내줘", "input_mode": "voice" }` → `200`
 ```json
 { "data": {
-  "user_message": { "msg_id": 1, "role": "user", "content": "엄마한테 오만원 보내줘", "intent": "transfer", "input_mode": "voice", "card": null, "created_at": "..." },
+  "user_message": { "msg_id": 1, "role": "user", "content": "엄마한테 오만원 보내줘", "intent": "transfer", "input_mode": "voice", "card": null, "screen": null, "created_at": "..." },
   "assistant_message": { "msg_id": 2, "role": "assistant", "content": "엄마(김영희)님께 5만원을 보낼까요? 화면의 확인 카드에서 승인을 눌러 주세요.",
     "card": { "type": "transfer_confirmation", "from_checking_account_id": 1, "from_account_num": "110-...", "from_nickname": "생활비", "from_balance": 1200000,
       "to_account_num": "110-...", "holder_name": "김영희", "recipient_nickname": "엄마", "amount": 50000, "amount_text": "5만원",
       "insufficient_balance": false, "confirmation_token": "eyJ...", "expires_at": "...",
-      "tts_text": "엄마님께 5만원을 보냅니다. 승인하시겠어요?" } } } }
+      "tts_text": "엄마님께 5만원을 보냅니다. 승인하시겠어요?" },
+    "screen": "transfer" } } }
 ```
 
 | `card.type` | 언제 | 프론트가 할 일 |
 |---|---|---|
 | `transfer_confirmation` | 이체 정보가 다 모였을 때 | 승인/취소 버튼. 승인하면 카드 값 + `session_id` + `confirmation_token`으로 `POST /transfers`. `tts_text`를 읽음 |
 | `account_summary` | 잔액·계좌 조회 | `accounts` 목록 표시 (계좌번호는 뒤 4자리) |
+
+`screen`: 도우미 화면(`/stage`)이 답변과 함께 가져올 화면. 에이전트가 마지막으로 쓴 도구로 정한다 (`agents/graph.py`의 `TOOL_SCREENS`).
+`accounts`(계좌 조회·개설·한도) / `cards`(카드 조회·발급) / `products`(상품 검색) / `fds`(이상거래 기록) / `transfer`(확인 카드) / `home`(이체 취소) / `null`(도구 없이 답함: 화면 유지)
 
 실패: `503 LLM_UNAVAILABLE`(Gemini 키 없음·호출 실패), `403 CHAT_SESSION_FORBIDDEN`, `404 CHAT_SESSION_NOT_FOUND`
 </details>
