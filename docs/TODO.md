@@ -150,10 +150,34 @@
 - [ ] ko-KR 보이스 없을 때 토글 비활성화 + 안내
 - [ ] Chrome에서 "엄마한테 오만원 보내줘" 음성 → 확인 카드 도달 확인
 
+### 4-4. 음성 승인 (화자 인증, 3일)
+설계: [PROJECT_PLAN.md](PROJECT_PLAN.md) 3.5절 "음성 승인 (화자 인증)"
+
+백엔드
+- [ ] `pyproject.toml`에 `voice` 의존성 그룹: `speechbrain`, `torch`(CPU), `torchaudio`. Windows 설치·webm 디코딩(ffmpeg 필요 여부) 확인
+- [ ] `domains/speech/models.py`: `voice_profiles` (user_id PK, 암호화한 embedding, model_version, consented_at) + 마이그레이션
+- [ ] 임베딩 암호화 키 설정 (`.env`의 `VOICE_ENCRYPTION_KEY`, Fernet)
+- [ ] `speech/speaker.py`: ECAPA 모델 로드(앱 시작 시 1회), 녹음 → 임베딩, 코사인 유사도. 모델이 없으면 화자 인증만 비활성
+- [ ] `POST /voice/profile` (동의 + 녹음 3개 → 평균 임베딩 저장), `GET`, `DELETE`
+- [ ] 확인 카드에 무작위 숫자 3개 추가: `prepare_transfer`가 만들고 확인 토큰 payload에 넣음, `tts_text` 변경
+- [ ] `speech/digits.py`: Gemini 오디오 입력으로 승인 녹음 속 숫자 인식 ("사칠이" → 472)
+- [ ] `POST /voice/approvals`: 숫자 일치 + 유사도 ≥ 기준값 → 음성 승인 토큰(확인 카드 jti에 묶음, 짧은 유효기간). 카드당 2회 실패하면 잠금
+- [ ] `POST /transfers`: `voice_approval_token` 검증. 목소리 등록 사용자가 음성 2회 실패한 카드는 버튼 승인 시 PIN 필수
+- [ ] 판정에 쓴 녹음은 저장하지 않고 바로 버림
+- [ ] `tests/test_voice.py` (화자 모델·Gemini는 mock): 등록/삭제, 숫자 불일치, 타인 목소리, 2회 실패 후 PIN 요구, 토큰 재사용 거부
+- [ ] 기준값 정하기: 팀원 3명 이상 녹음으로 본인 거부율·타인 통과율 측정 → `results`에 기록
+
+프론트
+- [ ] `src/hooks/useRecorder.ts`: `MediaRecorder` 녹음 (webm)
+- [ ] 목소리 등록 화면: 생체정보 수집·이용 동의 → 문장 3개 녹음 → 등록, 등록 상태·삭제
+- [ ] 확인 카드: 등록 사용자는 TTS로 "확인 OOO" 안내 후 자동 녹음 → `/voice/approvals` → 이체. 실패 안내와 남은 횟수, 2회 실패 시 버튼 + PIN
+- [ ] 미등록 사용자는 기존 승인 버튼 유지
+
 ## 5. 통합·시연 준비 (3일)
 
 - [ ] 시연용 시드: 사용자 1명, 입출금 계좌 2개, 수취인 "엄마" 등록, 평소 거래 이력 30건
-- [ ] 시나리오 1 정상 이체(음성) 끝까지 통과
+- [ ] 시나리오 1 정상 이체(음성 전송 + 음성 승인) 끝까지 통과
+- [ ] 시나리오 5 다른 사람 목소리로 승인 → 거부 → 버튼 + PIN 전환
 - [ ] 시나리오 2 신규 수취인 150만원 → MEDIUM → PIN → 완료
 - [ ] 시나리오 3 심야 + 잔액 95% + 신규 수취인 + 키워드 → HIGH 차단 + TTS 경고
 - [ ] 시나리오 3의 "심야" 조건을 시연 시간에 맞춰 재현할 방법 (시간 주입 옵션 또는 환경변수)
