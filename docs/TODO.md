@@ -211,7 +211,9 @@
 ## 6. 선택 기능 (남는 기간)
 
 - [ ] RAG: `rag/` 폴더, 상품 설명·약관 → Chroma, `search_products`에 연결
-- [ ] LLM 기반 대화 위험 판별 (키워드 규칙의 상위 버전)
+- [x] LLM 기반 대화 위험 판별 (키워드 규칙의 상위 버전): `fds/conversation.py`, 규칙 `CONVERSATION_AI_SUSPICIOUS`(MEDIUM)·`CONVERSATION_AI_SCAM`(HIGH), 근거는 `rule_hits[].detail`
+  - 이체 트랜잭션 전에 Gemini 호출(계좌 잠금 중 대기 방지), 8초 넘거나 실패하면 키워드 규칙만. LLM이 위험으로 보면 키워드 규칙은 빼서 중복으로 세지 않음
+  - 실제 Gemini: 키워드 없는 가족 사칭·대출 선입금 → scam, "경찰서 앞 식당" → none, 1.4~4.7초. `demo_check.py` 시나리오 3-2 추가 → 8/8 통과
 - [x] FDS 대시보드 화면 (`fds_logs` 표) → 4단계에서 `/fds`로 구현
 - [ ] `domains/speech`: `POST /speech/stt` (MediaRecorder webm → Gemini), `POST /speech/tts` (Google Cloud TTS)
 - [ ] 브라우저 미지원 시 서버 STT 폴백 연결

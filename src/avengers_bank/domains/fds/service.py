@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from avengers_bank.core.clock import now_utc
 from avengers_bank.domains.accounts.models import CheckingAccount
 from avengers_bank.domains.accounts.repository import account_repository
+from avengers_bank.domains.fds.conversation import ConversationRisk
 from avengers_bank.domains.fds.features import (
     PastTransfer,
     TransferContext,
@@ -46,7 +47,10 @@ class FdsResult:
     top_factors: list[Factor]
 
     def rule_hits_json(self) -> list[dict]:
-        return [{"code": h.code, "name": h.name, "level": h.level.name} for h in self.rule_hits]
+        return [
+            {"code": h.code, "name": h.name, "level": h.level.name, **({"detail": h.detail} if h.detail else {})}
+            for h in self.rule_hits
+        ]
 
     def top_factors_json(self) -> list[dict]:
         return [asdict(f) for f in self.top_factors]
@@ -66,6 +70,7 @@ class FdsService:
         device_fingerprint: str | None,
         input_mode: str,
         session_texts: list[str],
+        conversation: ConversationRisk | None = None,
     ) -> FdsResult:
         now = now_utc()
         past = await account_repository.find_user_transfer_outs_since(db, user.user_id, now - HISTORY_WINDOW)
@@ -103,6 +108,8 @@ class FdsService:
             daily_transfer_limit=source.daily_transfer_limit,
             sent_today=sent_today,
             rejected_recently_in_session=rejected_recently,
+            conversation_risk=conversation.risk if conversation else None,
+            conversation_reason=conversation.reason if conversation else None,
         )
 
         hits = evaluate_rules(ctx)

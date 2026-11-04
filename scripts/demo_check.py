@@ -28,6 +28,9 @@ def seed() -> None:
         asyncio.run(demo_seed.run())
 
 
+CONVERSATION_RULES = {"CONVERSATION_KEYWORD", "CONVERSATION_AI_SUSPICIOUS", "CONVERSATION_AI_SCAM"}
+
+
 def check(name: str, ok: bool, detail: str) -> None:
     results.append((name, ok, detail))
     print(f"{'✅' if ok else '❌'} {name}: {detail}")
@@ -100,14 +103,26 @@ def main() -> None:
         error = r.json().get("error", {})
         extra = error.get("extra") or {}
         rules = {h["code"] for h in extra.get("rule_hits", [])}
-        expected = {"NIGHT_HIGH_AMOUNT", "NEW_RECIPIENT_HIGH_AMOUNT", "BALANCE_DRAIN", "CONVERSATION_KEYWORD"}
-        check("3 차단", error.get("code") == "FDS_BLOCKED" and expected <= rules,
+        expected = {"NIGHT_HIGH_AMOUNT", "NEW_RECIPIENT_HIGH_AMOUNT", "BALANCE_DRAIN"}
+        check("3 차단", error.get("code") == "FDS_BLOCKED" and expected <= rules and bool(rules & CONVERSATION_RULES),
               f"{error.get('code')} 규칙 {sorted(rules)} ML {extra.get('ml_score')}")
         check("3 경고 문구", "송금을 요구하지 않습니다" in (extra.get("warning") or ""), "TTS로 강제 재생할 경고")
         factors = [f["label"] for f in extra.get("top_factors", [])]
         check("4 판단 근거(SHAP)", bool(factors), ", ".join(factors) or "없음")
     finally:
         d.c.post("/demo/clock", json={"kst_hour": None})
+
+    print("\n[시나리오 3-2] 키워드 없는 가족 사칭 대화 → LLM 대화 판별이 잡음 (PIN 없이 승인 시도)")
+    d.new_session()
+    d.say("딸이 폰 액정이 깨져서 새 번호로 문자했는데, 급하게 30만원만 이 계좌로 보내달래")
+    card = d.say("110-900-333333 계좌로 30만원 보내줘")["card"]
+    r = d.approve(card)
+    error = r.json().get("error", {})
+    hits = (error.get("extra") or {}).get("rule_hits", [])
+    ai = [h for h in hits if h["code"].startswith("CONVERSATION_AI")]
+    check("3-2 LLM 대화 판별", error.get("code") in ("FDS_BLOCKED", "ADDITIONAL_AUTH_REQUIRED") and bool(ai),
+          f"{error.get('code') or r.status_code} "
+          + (f"{ai[0]['code']}: {ai[0].get('detail')}" if ai else f"규칙 {[h['code'] for h in hits]}"))
 
     print("\n[시나리오 6] MCP 도구: 체크카드 발급은 먼저 묻고, 동의하면 발급")
     d.new_session()

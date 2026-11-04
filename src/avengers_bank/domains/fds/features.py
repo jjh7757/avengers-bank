@@ -62,6 +62,8 @@ class TransferContext:
     daily_transfer_limit: int = 0
     sent_today: int = 0
     rejected_recently_in_session: bool = False  # 같은 세션에서 5분 안에 차단된 적 있음
+    conversation_risk: str | None = None  # LLM 대화 판별 none / suspicious / scam, 판별 못 했으면 None
+    conversation_reason: str | None = None
 
 
 FEATURE_NAMES = [

@@ -16,6 +16,8 @@ from avengers_bank.domains.accounts.service import account_service
 from avengers_bank.domains.chat.confirmation import Confirmation, decode_confirmation_token
 from avengers_bank.domains.chat.models import ChatSession
 from avengers_bank.domains.chat.repository import chat_repository
+from avengers_bank.domains.fds import conversation
+from avengers_bank.domains.fds.conversation import ConversationRisk
 from avengers_bank.domains.fds.models import FdsDecision
 from avengers_bank.domains.fds.rules import RiskLevel
 from avengers_bank.domains.fds.service import FdsResult, fds_service
@@ -60,6 +62,7 @@ class TransferService:
         client_ip: str | None = None,
     ) -> TransferResponse:
         rejection: FdsDecision | None = None
+        conversation_risk = await self._assess_conversation(db, data.session_id, current_user.user_id)
         async with db.begin():
             # 0. 채팅에서 온 이체면 확인 카드 승인 토큰 검사, 목소리 등록 사용자는 음성 승인 또는 PIN
             chat_session, confirmation = await self._check_confirmation(db, data, current_user.user_id)
@@ -114,6 +117,7 @@ class TransferService:
                 session_texts=(
                     await chat_repository.find_user_texts(db, chat_session.session_id) if chat_session else []
                 ),
+                conversation=conversation_risk,
             )
             decision = await self._decide(fds, user, data.pin)
             log_fields = {
@@ -187,6 +191,20 @@ class TransferService:
                 log, fds, has_pin=None if rejection == FdsDecision.BLOCKED else user.has_pin
             )
         raise BadRequestException(**REJECTION_ERRORS[rejection], extra=extra)
+
+    async def _assess_conversation(
+        self, db: AsyncSession, session_id: str | None, user_id: int
+    ) -> ConversationRisk | None:
+        """FDS 대화 위험 판별(LLM). 몇 초 걸릴 수 있어 계좌를 잠그는 트랜잭션 전에 따로 한다.
+        세션 소유·확인 카드 검사는 본 트랜잭션에서 다시 하므로 여기서는 남의 세션이면 건너뛰기만 한다."""
+        if session_id is None:
+            return None
+        async with db.begin():
+            session = await chat_repository.find_session(db, session_id)
+            if session is None or session.user_id != user_id:
+                return None
+            texts = await chat_repository.find_user_texts(db, session_id)
+        return await conversation.assess(texts)
 
     async def _check_confirmation(
         self, db: AsyncSession, data: TransferCreate, user_id: int

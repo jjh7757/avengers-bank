@@ -172,7 +172,8 @@
 | 새 기기 | user_devices에 없는 fingerprint로 첫 이체 | MEDIUM 이상 |
 | 잔액 소진 | amount ≥ 잔액의 90% | MEDIUM 이상 |
 | 반복 시도 | 같은 세션에서 거절 후 5분 내 재시도 | HIGH |
-| 대화 키워드 | 같은 세션 메시지에 "검찰", "금감원", "안전계좌" 등 보이스피싱 키워드 포함 | MEDIUM 이상 |
+| 대화 키워드 | 같은 세션 메시지에 "검찰", "금감원", "안전계좌" 등 보이스피싱 키워드 포함 (LLM 판별이 위험이면 빠짐) | MEDIUM 이상 |
+| AI 대화 판별 (선택 기능) | 같은 세션 메시지를 Gemini가 보고 suspicious / scam 판정 (`fds/conversation.py`). 판별 못 하면 키워드 규칙만 | suspicious MEDIUM, scam HIGH |
 
 **LightGBM 피처 (2단계)**
 

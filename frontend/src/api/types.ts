@@ -111,6 +111,7 @@ export interface RuleHit {
   code: string
   name: string
   level: string
+  detail?: string // LLM 대화 판별 근거
 }
 
 export interface Factor {
@@ -143,7 +144,7 @@ export interface FdsLog {
   from_account: string
   to_account: string
   amount: number
-  rule_hits: { code: string; name: string; level: string }[]
+  rule_hits: RuleHit[]
   ml_score: number | null
   top_factors: Factor[]
   risk_level: string

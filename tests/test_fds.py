@@ -58,6 +58,8 @@ def test_normal_transfer_hits_no_rule():
         ({"amount": 900_000}, "BALANCE_DRAIN"),
         ({"rejected_recently_in_session": True}, "REPEATED_ATTEMPT"),
         ({"session_keyword_count": 1}, "CONVERSATION_KEYWORD"),
+        ({"conversation_risk": "suspicious"}, "CONVERSATION_AI_SUSPICIOUS"),
+        ({"conversation_risk": "scam"}, "CONVERSATION_AI_SCAM"),
     ],
 )
 def test_each_rule(overrides, expected):
@@ -75,6 +77,40 @@ def test_three_medium_rules_escalate_to_high():
     assert {h.code for h in hits} == {"NEW_RECIPIENT_HIGH_AMOUNT", "NEW_DEVICE", "BALANCE_DRAIN"}
     assert rule_level(hits) == RiskLevel.HIGH
     assert rule_level(hits[:2]) == RiskLevel.MEDIUM
+
+
+def test_llm_conversation_rules():
+    """LLM 판별이 위험이면 키워드 규칙을 대신하고, 아니면(또는 판별 못 하면) 키워드 규칙이 남는다"""
+    scam = evaluate_rules(context(session_keyword_count=2, conversation_risk="scam", conversation_reason="검찰 사칭"))
+    assert [(h.code, h.detail) for h in scam] == [("CONVERSATION_AI_SCAM", "검찰 사칭")]
+    assert rule_level(scam) == RiskLevel.HIGH
+
+    suspicious = evaluate_rules(context(session_keyword_count=1, conversation_risk="suspicious"))
+    assert [h.code for h in suspicious] == ["CONVERSATION_AI_SUSPICIOUS"]
+    assert rule_level(suspicious) == RiskLevel.MEDIUM
+
+    assert codes(context(session_keyword_count=1, conversation_risk="none")) == {"CONVERSATION_KEYWORD"}
+    assert codes(context(conversation_risk="none")) == set()
+
+
+async def test_assess_falls_back_to_none(monkeypatch):
+    from avengers_bank.domains.fds import conversation
+
+    assert await conversation.assess([]) is None
+    assert await conversation.assess(["검찰청이래요"]) is None  # 테스트 환경은 GEMINI_API_KEY가 비어 있다
+
+    async def broken(texts):
+        raise ValueError("bad output")
+
+    monkeypatch.setattr(conversation, "judge", broken)
+    assert await conversation.assess(["검찰청이래요"]) is None
+
+    async def wordy(texts):
+        return conversation.ConversationRisk(risk="scam", reason=" 가" * 100)
+
+    monkeypatch.setattr(conversation, "judge", wordy)
+    result = await conversation.assess(["검찰청이래요"])
+    assert result.risk == "scam" and len(result.reason) == conversation.MAX_REASON_CHARS
 
 
 def test_count_keywords():

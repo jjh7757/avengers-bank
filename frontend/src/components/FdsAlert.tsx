@@ -13,7 +13,10 @@ export default function FdsAlert({ extra, blocked }: { extra: FdsExtra; blocked:
           <p className="small muted">확인된 위험 신호</p>
           <ul className="fds-reasons">
             {extra.rule_hits.map((hit) => (
-              <li key={hit.code}>{hit.name}</li>
+              <li key={hit.code}>
+                {hit.name}
+                {hit.detail && <span className="muted"> — {hit.detail}</span>}
+              </li>
             ))}
           </ul>
         </>

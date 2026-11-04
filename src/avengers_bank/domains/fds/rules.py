@@ -21,12 +21,14 @@ class RuleHit:
     code: str
     name: str
     level: RiskLevel
+    detail: str | None = None  # 고객에게 보여 줄 근거 (LLM 대화 판별)
 
 
 NEW_RECIPIENT_HIGH_AMOUNT = 1_000_000
 NIGHT_HIGH_AMOUNT = 500_000
 NIGHT_HOURS = range(0, 6)  # 00:00 ~ 05:59 (한국 시간)
 BALANCE_DRAIN_RATIO = 0.9
+CONVERSATION_RISKY = ("suspicious", "scam")
 MEDIUM_HITS_TO_HIGH = 3  # MEDIUM 규칙이 이만큼 겹치면 ML 점수와 무관하게 HIGH
 
 
@@ -36,6 +38,7 @@ class Rule:
     name: str
     level: RiskLevel
     matches: Callable[[TransferContext], bool]
+    detail: Callable[[TransferContext], str | None] = lambda c: None
 
 
 RULES = [
@@ -64,15 +67,25 @@ RULES = [
         "REPEATED_ATTEMPT", "차단 직후 재시도", RiskLevel.HIGH,
         lambda c: c.rejected_recently_in_session,
     ),
+    # LLM이 대화를 위험하다고 보면 같은 근거인 키워드 규칙은 빼서 MEDIUM 개수를 두 번 세지 않는다.
+    # LLM이 위험하지 않다고 봐도 키워드 규칙은 남긴다 (LLM을 속이는 글이 있어도 최소한 PIN은 요구).
     Rule(
         "CONVERSATION_KEYWORD", "대화에 보이스피싱 의심 표현", RiskLevel.MEDIUM,
-        lambda c: c.session_keyword_count > 0,
+        lambda c: c.session_keyword_count > 0 and c.conversation_risk not in CONVERSATION_RISKY,
+    ),
+    Rule(
+        "CONVERSATION_AI_SUSPICIOUS", "AI가 대화에서 보이스피싱 정황을 감지", RiskLevel.MEDIUM,
+        lambda c: c.conversation_risk == "suspicious", lambda c: c.conversation_reason,
+    ),
+    Rule(
+        "CONVERSATION_AI_SCAM", "AI가 대화를 보이스피싱으로 판단", RiskLevel.HIGH,
+        lambda c: c.conversation_risk == "scam", lambda c: c.conversation_reason,
     ),
 ]
 
 
 def evaluate_rules(ctx: TransferContext) -> list[RuleHit]:
-    return [RuleHit(rule.code, rule.name, rule.level) for rule in RULES if rule.matches(ctx)]
+    return [RuleHit(rule.code, rule.name, rule.level, rule.detail(ctx)) for rule in RULES if rule.matches(ctx)]
 
 
 def rule_level(hits: list[RuleHit]) -> RiskLevel:

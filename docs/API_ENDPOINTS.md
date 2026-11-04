@@ -150,7 +150,9 @@
 ```json
 { "error": { "code": "FDS_BLOCKED", "message": "이상거래가 의심되어 이체를 차단했습니다.", "details": [],
   "extra": { "fds_log_id": 7, "risk_level": "HIGH", "ml_score": 0.9754,
-    "rule_hits": [{ "code": "NEW_DEVICE", "name": "처음 보는 기기", "level": "MEDIUM" }],
+    "rule_hits": [{ "code": "NEW_DEVICE", "name": "처음 보는 기기", "level": "MEDIUM" },
+                  { "code": "CONVERSATION_AI_SCAM", "name": "AI가 대화를 보이스피싱으로 판단", "level": "HIGH",
+                    "detail": "가족을 사칭해 급히 송금을 요구하고 있어요." }],
     "top_factors": [{ "feature": "is_new_device", "label": "새 기기", "contribution": 5.648 }],
     "warning": "금융기관·검찰·경찰·금융감독원은 전화나 메시지로 송금을 요구하지 않습니다. ..." } } }
 ```

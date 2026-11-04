@@ -210,6 +210,34 @@ async def test_phishing_keywords_in_chat_trigger_fds(client, user, bank, classif
     assert "CONVERSATION_KEYWORD" in [h["code"] for h in error["extra"]["rule_hits"]]
 
 
+async def test_llm_conversation_judgment_blocks_transfer(client, user, bank, classify, chat_model, monkeypatch):
+    """키워드가 없어도 LLM이 대화를 보이스피싱으로 보면 차단하고, 근거를 돌려준다"""
+    from avengers_bank.domains.fds import conversation
+
+    seen = []
+
+    async def judge(texts):
+        seen.append(texts)
+        return conversation.ConversationRisk(risk="scam", reason="가족을 사칭해 급히 송금을 요구하고 있어요.")
+
+    monkeypatch.setattr(conversation, "judge", judge)
+    classify.next(intent="general")
+    chat_model(AIMessage("가족 사칭일 수 있어요. 직접 전화로 확인해 보세요."))
+    await say(client, user, bank["session_id"], "딸이 폰이 고장났다고 새 번호로 문자 왔는데 급하대")
+
+    classify.next(intent="transfer", recipient="엄마", amount=50_000)
+    card = (await say(client, user, bank["session_id"], "엄마한테 5만원 보내줘"))["card"]
+    response = await client.post("/transfers", headers=user, json=approve(card, bank["session_id"]))
+    error = response.json()["error"]
+    assert error["code"] == "FDS_BLOCKED"
+    assert {"code": "CONVERSATION_AI_SCAM", "name": "AI가 대화를 보이스피싱으로 판단", "level": "HIGH",
+            "detail": "가족을 사칭해 급히 송금을 요구하고 있어요."} in error["extra"]["rule_hits"]
+    assert seen[-1][0].startswith("딸이 폰이")  # 같은 세션 사용자 글을 오래된 것부터 넘긴다
+
+    logs = (await client.get("/fds/logs", headers=user)).json()["data"]
+    assert logs[0]["rule_hits"][0]["detail"] == "가족을 사칭해 급히 송금을 요구하고 있어요."
+
+
 async def test_inquiry_uses_tools_and_returns_summary_card(client, user, bank, classify, chat_model):
     classify.next(intent="inquiry")
     model = chat_model(

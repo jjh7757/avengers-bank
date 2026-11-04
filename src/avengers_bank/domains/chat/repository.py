@@ -26,9 +26,11 @@ class ChatRepository:
         return list(reversed(list(await db.scalars(stmt))))
 
     async def find_user_texts(self, db: AsyncSession, session_id: str) -> list[str]:
-        """FDS 대화 키워드 규칙용: 이 세션에서 사용자가 보낸 글 전부"""
-        stmt = select(ChatMessage.content).where(
-            ChatMessage.session_id == session_id, ChatMessage.role == "user"
+        """FDS 대화 키워드 규칙·LLM 대화 판별용: 이 세션에서 사용자가 보낸 글 전부 (오래된 것부터)"""
+        stmt = (
+            select(ChatMessage.content)
+            .where(ChatMessage.session_id == session_id, ChatMessage.role == "user")
+            .order_by(ChatMessage.msg_id)
         )
         return list(await db.scalars(stmt))
 
