@@ -6,3 +6,6 @@ __pycache__/
 *.db
 fds_training/data/
 .models/
+
+# 배포 서버 시연 계정 (로컬에만, 커밋 금지)
+.demo-account.local
