@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom'
 
 import { accountApi } from '../api/endpoints'
 import { useLoad } from '../hooks/useLoad'
-import { ACCOUNT_TYPE_LABEL, maskAccount, won } from '../lib/format'
+import { ACCOUNT_TYPE_LABEL, won } from '../lib/format'
 
 export default function AccountsPage() {
   const { data: accounts, error, loading } = useLoad(useCallback(() => accountApi.list(), []))
@@ -27,7 +27,7 @@ export default function AccountsPage() {
                   <span>
                     <span className="badge">{ACCOUNT_TYPE_LABEL[a.account_type]}</span>
                     <strong>{a.nickname ?? `${ACCOUNT_TYPE_LABEL[a.account_type]} 계좌`}</strong>
-                    <span className="muted small">{maskAccount(a.account_num)}</span>
+                    <span className="muted small">{a.account_num}</span>
                   </span>
                   <span className="amount">{won(a.balance)}</span>
                 </Link>

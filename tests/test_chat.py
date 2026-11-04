@@ -6,7 +6,7 @@ from langchain_core.messages import AIMessage
 from avengers_bank.agents import llm
 from avengers_bank.agents.mcp_client import LLM_EXCLUDED
 from avengers_bank.agents.state import Extraction
-from tests.conftest import new_chat_session, open_checking, signup_and_login
+from tests.conftest import SAVINGS_PRODUCT, new_chat_session, open_checking, signup_and_login
 
 pytestmark = pytest.mark.anyio
 
@@ -115,6 +115,43 @@ async def test_send_to_mom_scenario(client, user, other_user, bank, classify):
     assert [(m["role"], m["intent"], m["input_mode"], m["screen"]) for m in messages] == [
         ("user", "transfer", "voice", None), ("assistant", None, "text", "transfer")
     ]
+
+
+async def test_move_to_my_other_checking_account(client, user, bank, classify):
+    """"생활비에서 월급 통장으로 옮겨줘" → 내 계좌 카드 → 승인. 큰 금액·잔액 대부분이어도 PIN을 묻지 않는다"""
+    salary = await open_checking(client, user, nickname="월급")
+    classify.next(intent="transfer", recipient="월급 통장", amount=950_000, from_account_hint="생활비")
+    reply = await say(client, user, bank["session_id"], "생활비에서 월급 통장으로 95만원 옮겨줘")
+    card = reply["card"]
+    assert (card["to_own"], card["destination_type"], card["to_label"]) == (True, "checking", "내 월급 통장")
+    assert card["to_account_num"] == salary["account_num"]
+    assert card["from_checking_account_id"] == bank["mine"]["account_id"]
+    assert "내 월급 통장으로 95만원을 옮길까요?" in reply["content"]
+    assert card["tts_text"].startswith("내 월급 통장으로 95만원을 옮깁니다.")
+
+    response = await client.post("/transfers", headers=user, json=approve(card, bank["session_id"]))
+    assert response.status_code == 200, response.text  # 잔액 95%지만 내 계좌라 BALANCE_DRAIN 없음
+    assert response.json()["data"]["balance_after"] == 50_000
+
+
+async def test_put_money_into_my_savings(client, user, bank, classify):
+    """"적금에 10만원 넣어줘" → 적금 카드 → 승인하면 납입 API"""
+    response = await client.post("/accounts/savings", headers=user, json={
+        "product_id": SAVINGS_PRODUCT, "term_months": 12, "monthly_payment": 100_000, "monthly_deposit_date": 1,
+    })
+    savings = response.json()["data"]
+    classify.next(intent="transfer", recipient="적금", amount=100_000)
+    reply = await say(client, user, bank["session_id"], "적금에 10만원 넣어줘")
+    card = reply["card"]
+    assert (card["to_own"], card["destination_type"], card["to_account_id"]) == (True, "savings", savings["account_id"])
+    assert card["voice_enrolled"] is False and card["voice_challenge"] is None  # 내 적금이라 버튼 승인만
+
+    response = await client.post("/transfers/savings", headers=user, json={
+        "from_checking_account_id": card["from_checking_account_id"],
+        "savings_account_id": card["to_account_id"], "amount": card["amount"],
+    })
+    assert response.status_code == 200, response.text
+    assert response.json()["data"]["balance_after"] == 900_000
 
 
 async def test_asks_for_missing_amount(client, user, bank, classify):

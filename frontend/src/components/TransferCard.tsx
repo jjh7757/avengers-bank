@@ -47,49 +47,72 @@ export default function TransferCard({ card, sessionId, inputMode, active, autoV
   const voiceTokenRef = useRef<string | undefined>(undefined)
   const autoStartedRef = useRef(false)
   const [expired] = useState(() => new Date(card.expires_at).getTime() < Date.now()) // 만료 후 승인은 서버가 거절한다
-  const who = card.recipient_nickname ? `${card.recipient_nickname}(${card.holder_name})` : card.holder_name
+  const who = card.to_label ?? (card.recipient_nickname ? `${card.recipient_nickname}(${card.holder_name})` : card.holder_name)
   const voiceReady = card.voice_enrolled && !!card.voice_challenge && recorder.supported && !pinMode
 
   async function approve(withPin?: string) {
     setStatus({ kind: 'sending' })
     try {
-      const result = await transferApi.transfer({
-        from_checking_account_id: card.from_checking_account_id,
-        to_account_num: card.to_account_num,
-        amount: card.amount,
-        session_id: sessionId,
-        confirmation_token: card.confirmation_token,
-        voice_approval_token: voiceTokenRef.current,
-        pin: withPin,
-        device_fingerprint: await deviceFingerprint(),
-        input_mode: inputMode,
-      })
+      const result = await send(withPin)
       setStatus({ kind: 'done', result })
-      speech.speak(`이체를 완료했어요. 남은 잔액은 ${won(result.balance_after)}입니다.`)
+      speech.speak(`${card.to_own ? '옮겼어요' : '이체를 완료했어요'}. 남은 잔액은 ${won(result.balance_after)}입니다.`)
     } catch (e) {
-      if (!(e instanceof ApiError)) {
-        setStatus({ kind: 'error', message: '이체하지 못했어요.' })
-        return
-      }
-      const extra = e.extra as FdsExtra | null
-      if (e.code === 'FDS_BLOCKED' && extra) {
-        setStatus({ kind: 'blocked', extra })
-        // 보이스피싱 피해자는 화면을 잘 안 본다: 음성 안내가 꺼져 있어도 경고는 읽는다
-        speech.speak(`이체를 막았어요. ${extra.warning ?? ''}`, { force: true })
-      } else if (e.code === 'ADDITIONAL_AUTH_REQUIRED' && extra) {
-        setStatus({ kind: 'need_pin', extra })
-        setPin('')
-        speech.speak('평소와 다른 이체예요. 이체 PIN 여섯 자리를 입력해 주세요.', { force: true })
-      } else if (e.code === 'PIN_REQUIRED' || e.code === 'INVALID_PIN') {
-        setStatus((prev) => ({
-          kind: 'need_pin',
-          extra: extra?.rule_hits ? extra : prev.kind === 'need_pin' ? prev.extra : null,
-          error: e.code === 'INVALID_PIN' ? e.message : undefined,
-        }))
-        setPin('')
-      } else {
-        setStatus({ kind: 'error', message: e.message })
-      }
+      handleError(e)
+    }
+  }
+
+  /** 내 적금·예금으로 넣기는 납입 API, 그 밖(남에게, 내 입출금 계좌로)은 확인 토큰을 실은 이체 */
+  async function send(withPin?: string) {
+    if (card.destination_type === 'savings' && card.to_account_id) {
+      return transferApi.paySavings({
+        from_checking_account_id: card.from_checking_account_id,
+        savings_account_id: card.to_account_id,
+        amount: card.amount,
+      })
+    }
+    if (card.destination_type === 'deposit' && card.to_account_id) {
+      return transferApi.payDeposit({
+        from_checking_account_id: card.from_checking_account_id,
+        deposit_account_id: card.to_account_id,
+        amount: card.amount,
+      })
+    }
+    return transferApi.transfer({
+      from_checking_account_id: card.from_checking_account_id,
+      to_account_num: card.to_account_num,
+      amount: card.amount,
+      session_id: sessionId,
+      confirmation_token: card.confirmation_token,
+      voice_approval_token: voiceTokenRef.current,
+      pin: withPin,
+      device_fingerprint: await deviceFingerprint(),
+      input_mode: inputMode,
+    })
+  }
+
+  function handleError(e: unknown) {
+    if (!(e instanceof ApiError)) {
+      setStatus({ kind: 'error', message: '이체하지 못했어요.' })
+      return
+    }
+    const extra = e.extra as FdsExtra | null
+    if (e.code === 'FDS_BLOCKED' && extra) {
+      setStatus({ kind: 'blocked', extra })
+      // 보이스피싱 피해자는 화면을 잘 안 본다: 음성 안내가 꺼져 있어도 경고는 읽는다
+      speech.speak(`이체를 막았어요. ${extra.warning ?? ''}`, { force: true })
+    } else if (e.code === 'ADDITIONAL_AUTH_REQUIRED' && extra) {
+      setStatus({ kind: 'need_pin', extra })
+      setPin('')
+      speech.speak('평소와 다른 이체예요. 이체 PIN 여섯 자리를 입력해 주세요.', { force: true })
+    } else if (e.code === 'PIN_REQUIRED' || e.code === 'INVALID_PIN') {
+      setStatus((prev) => ({
+        kind: 'need_pin',
+        extra: extra?.rule_hits ? extra : prev.kind === 'need_pin' ? prev.extra : null,
+        error: e.code === 'INVALID_PIN' ? e.message : undefined,
+      }))
+      setPin('')
+    } else {
+      setStatus({ kind: 'error', message: e.message })
     }
   }
 

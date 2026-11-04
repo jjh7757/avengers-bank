@@ -13,6 +13,7 @@ execute_transfer는 확인 카드 토큰만으로는 실행하지 않고 항상 
 """
 
 import uuid
+from typing import Literal
 
 
 from mcp.types import ToolAnnotations
@@ -98,12 +99,20 @@ async def prepare_transfer(
     recipient_nickname: str | None = Field(default=None, max_length=50),
     to_account_num: str | None = Field(default=None, max_length=20),
     session_id: str | None = Field(default=None, min_length=1, max_length=64),
+    to_own_account_type: Literal["checking", "savings", "deposit"] | None = None,
+    to_own_account_id: int | None = Field(default=None, gt=0),
 ) -> dict:
-    """이체 확인 카드 만들기 (실행 아님). recipient_nickname 또는 to_account_num 중 하나.
+    """이체 확인 카드 만들기 (실행 아님). recipient_nickname, to_account_num, 내 계좌(to_own_account_type+id) 중 하나.
+    내 적금·예금으로 넣는 카드는 승인하면 앱이 POST /transfers/savings·/transfers/deposit을 부른다 (destination_type).
     카드의 confirmation_token은 이 대화(session_id)의 최신 카드 1장만 유효하다.
     session_id를 비우면 새 대화를 만들고 카드의 session_id로 돌려준다 (외부 MCP 클라이언트용)."""
-    # 1. 받는 사람
-    if recipient_nickname:
+    # 1. 받는 사람 (내 계좌면 서버가 번호를 찾는다. 에이전트는 계좌번호를 뒤 4자리만 안다)
+    own = None
+    if to_own_account_type and to_own_account_id:
+        own = await account_service.get_account(db, to_own_account_type, to_own_account_id, user)
+        to_num, holder = own.account_num, user.name
+        recipient_nickname = None
+    elif recipient_nickname:
         recipient = await recipient_service.find_by_nickname(db, user, recipient_nickname)
         to_num, holder = recipient.account_num, recipient.holder_name
     elif to_account_num:
@@ -121,7 +130,9 @@ async def prepare_transfer(
     session_id = session_id or uuid.uuid4().hex
 
     # 음성 승인: 목소리를 등록했으면 "확인 + 무작위 숫자" (서버가 화자 인증을 못 하면 버튼 + PIN)
-    voice_enrolled = await voice_service.is_enrolled(db, user.user_id)
+    # 내 적금·예금으로 넣는 건 남에게 보내는 게 아니므로 버튼 승인만 받는다 (납입 API에는 FDS·음성 승인이 없다)
+    to_own_saving = own is not None and to_own_account_type != "checking"
+    voice_enrolled = not to_own_saving and await voice_service.is_enrolled(db, user.user_id)
     challenge = digits.new_challenge() if voice_enrolled and voice_available() else None
     token, jti, expires_at = create_confirmation_token(
         user_id=user.user_id, session_id=session_id, from_checking_account_id=account.account_id,
@@ -139,11 +150,20 @@ async def prepare_transfer(
                 raise NotFoundException(code="CHAT_SESSION_NOT_FOUND", message="대화를 찾을 수 없습니다.")
         session.state = {**(session.state or {}), "confirmation_jti": jti}
 
-    who = recipient_nickname or holder
+    own_label = None
+    if own is not None:
+        kind = {"checking": "통장", "savings": "적금", "deposit": "예금"}[to_own_account_type]
+        own_label = f"내 {own.nickname} {kind}" if own.nickname and kind not in own.nickname else f"내 {own.nickname or kind}"
+    who = own_label or recipient_nickname or holder
     spoken = format_korean_amount(amount)
     return {
         "type": "transfer_confirmation",
         "session_id": session_id,
+        "destination_type": to_own_account_type or "checking",  # savings·deposit이면 납입 API로 승인
+        "to_own": own is not None,
+        "to_account_id": own.account_id if own is not None else None,
+        "to_label": own_label,  # "내 월급 통장"
+
         "from_checking_account_id": account.account_id,
         "from_account_num": account.account_num,
         "from_nickname": account.nickname,
@@ -162,9 +182,9 @@ async def prepare_transfer(
         "voice_challenge_text": digits.spoken(challenge) if challenge else None,  # "사 칠 이"
         # 확인 카드는 핵심만 읽는다. 계좌번호는 읽지 않는다.
         "tts_text": (
-            f"{who}님께 {spoken}을 보냅니다. 승인하시려면 확인, {digits.spoken(challenge)}, 라고 말씀해 주세요."
-            if challenge else f"{who}님께 {spoken}을 보냅니다. 승인하시겠어요?"
-        ),
+            # "통장·적금·예금"은 모두 받침으로 끝나 "으로"
+            f"{who}으로 {spoken}을 옮깁니다. " if own_label else f"{who}님께 {spoken}을 보냅니다. "
+        ) + (f"승인하시려면 확인, {digits.spoken(challenge)}, 라고 말씀해 주세요." if challenge else "승인하시겠어요?"),
     }
 
 

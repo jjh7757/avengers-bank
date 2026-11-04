@@ -11,7 +11,6 @@ import {
   dateTime,
   FDS_DECISION_LABEL,
   HISTORY_TYPE_LABEL,
-  maskAccount,
   signedWon,
   won,
 } from '../lib/format'
@@ -87,7 +86,7 @@ export function AccountsPanel({ pick }: { pick: Pick }) {
                   <span>
                     <span className="badge">{ACCOUNT_TYPE_LABEL[a.account_type]}</span>
                     <strong>{a.nickname ?? `${ACCOUNT_TYPE_LABEL[a.account_type]} 계좌`}</strong>
-                    <span className="muted small">{maskAccount(a.account_num)}</span>
+                    <span className="muted small">{a.account_num}</span>
                   </span>
                   <span className="amount">{won(a.balance)}</span>
                 </PickButton>
@@ -105,9 +104,9 @@ export function AccountsPanel({ pick }: { pick: Pick }) {
 
 const RECENT = 8 // 무대에는 최근 거래만. 전체는 상세 화면에서
 
-/** 계좌번호: 평소엔 가리고, 눌렀을 때만 전체 번호를 보여 주거나 복사한다 (돈을 받으려고 번호를 알려 줄 때) */
+/** 내 계좌번호: 전체를 보여 주고 복사할 수 있게 한다 (돈을 받으려고 번호를 알려 줄 때).
+ * 가리는 건 모아의 말·음성 쪽이다 (MCP 도구가 뒤 4자리만 준다) */
 function AccountNumber({ num }: { num: string }) {
-  const [shown, setShown] = useState(false)
   const [note, setNote] = useState<string | null>(null)
 
   async function copy() {
@@ -115,17 +114,13 @@ function AccountNumber({ num }: { num: string }) {
       await navigator.clipboard.writeText(num)
       setNote('복사했어요')
     } catch {
-      setShown(true)
       setNote('복사하지 못했어요. 번호를 직접 적어 주세요')
     }
   }
 
   return (
     <p className="stage-account-num">
-      <span className="muted">{shown ? num : maskAccount(num)}</span>
-      <button type="button" className="button small" onClick={() => setShown((v) => !v)} aria-pressed={shown}>
-        {shown ? '가리기' : '번호 보기'}
-      </button>
+      <span className="muted">{num}</span>
       <button type="button" className="button small" onClick={copy}>
         복사
       </button>

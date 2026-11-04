@@ -63,7 +63,7 @@ async def open_checking_account(db, user, product_id: int, nickname: str | None 
 async def open_deposit_account(
     db, user, product_id: int, term_months: int = Field(ge=1, le=60), nickname: str | None = None
 ) -> dict:
-    """예금 계좌 개설. 사용자가 동의한 뒤에만 호출한다. 잔액 0원으로 열린다 (대화나 앱 화면으로 넣는 기능은 아직 없다)"""
+    """예금 계좌 개설. 사용자가 동의한 뒤에만 호출한다. 잔액 0원으로 열린다 (넣기는 대화로 "예금에 ○원 넣어줘" → 확인 카드)"""
     data = DepositAccountCreate(product_id=product_id, term_months=term_months, nickname=nickname)
     return summary(await account_service.open_deposit(db, data, user))
 

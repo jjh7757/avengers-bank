@@ -75,6 +75,10 @@ class FdsService:
         now = now_utc()
         past = await account_repository.find_user_transfer_outs_since(db, user.user_id, now - HISTORY_WINDOW)
         known_devices = {d.device_fingerprint for d in await fds_repository.find_devices(db, user.user_id)}
+        own_accounts = {
+            account.account_num for kind, account in await account_repository.find_all_by_user_id(db, user.user_id)
+            if kind == "checking"
+        }
 
         attempts = rejected = 0
         rejected_recently = False
@@ -97,7 +101,8 @@ class FdsService:
             balance=source.balance,
             user_created_at=as_utc(user.created_at),
             past_transfers=[PastTransfer(as_utc(at), amt, to or "") for at, amt, to in past],
-            registered_recipients=await recipient_repository.find_account_nums(db, user.user_id),
+            # 내 계좌는 처음 보내는 계좌가 아니다 (ML 피처 "새 수취인"에도 같은 기준)
+            registered_recipients=await recipient_repository.find_account_nums(db, user.user_id) | own_accounts,
             # 처음 쓰는 사용자(등록 기기 0개)는 새 기기로 보지 않는다. 기기 정보를 안 보내면 모르는 기기로 본다.
             is_new_device=bool(known_devices) and device_fingerprint not in known_devices,
             input_mode=input_mode,
@@ -108,6 +113,7 @@ class FdsService:
             daily_transfer_limit=source.daily_transfer_limit,
             sent_today=sent_today,
             rejected_recently_in_session=rejected_recently,
+            to_own_account=to_account_num in own_accounts,
             conversation_risk=conversation.risk if conversation else None,
             conversation_reason=conversation.reason if conversation else None,
         )

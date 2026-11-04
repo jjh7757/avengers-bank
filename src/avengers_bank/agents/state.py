@@ -27,6 +27,9 @@ class PendingTransfer(BaseModel):
     holder_name: str | None = None
     amount: int | None = None
     from_checking_account_id: int | None = None
+    # 내 다른 계좌로 옮길 때 ("월급 통장으로", "적금에"). 있으면 recipient_nickname·to_account_num은 비운다
+    to_own_account_type: Literal["checking", "savings", "deposit"] | None = None
+    to_own_account_id: int | None = None
 
 
 class AgentState(TypedDict, total=False):

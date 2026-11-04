@@ -41,6 +41,8 @@ class Rule:
     detail: Callable[[TransferContext], str | None] = lambda c: None
 
 
+# 내 다른 계좌로 옮기는 건 돈이 내 밖으로 나가지 않으므로 "처음 보내는 계좌"·"심야 고액"·"잔액 소진"에서 뺀다.
+# 한도·차단 후 재시도·대화 판별은 그대로 둔다 (사기범이 "내 다른 통장으로 먼저 모아라"고 시키는 경우도 있다).
 RULES = [
     Rule(
         "PER_TRANSFER_LIMIT", "1회 이체 한도 초과", RiskLevel.HIGH,
@@ -56,12 +58,12 @@ RULES = [
     ),
     Rule(
         "NIGHT_HIGH_AMOUNT", "심야(0~6시) 50만원 이상", RiskLevel.MEDIUM,
-        lambda c: c.at.astimezone(KST).hour in NIGHT_HOURS and c.amount >= NIGHT_HIGH_AMOUNT,
+        lambda c: not c.to_own_account and c.at.astimezone(KST).hour in NIGHT_HOURS and c.amount >= NIGHT_HIGH_AMOUNT,
     ),
     Rule("NEW_DEVICE", "처음 보는 기기", RiskLevel.MEDIUM, lambda c: c.is_new_device),
     Rule(
         "BALANCE_DRAIN", "잔액의 90% 이상 이체", RiskLevel.MEDIUM,
-        lambda c: c.balance > 0 and c.amount >= c.balance * BALANCE_DRAIN_RATIO,
+        lambda c: not c.to_own_account and c.balance > 0 and c.amount >= c.balance * BALANCE_DRAIN_RATIO,
     ),
     Rule(
         "REPEATED_ATTEMPT", "차단 직후 재시도", RiskLevel.HIGH,

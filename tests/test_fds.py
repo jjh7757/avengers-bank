@@ -113,6 +113,16 @@ async def test_assess_falls_back_to_none(monkeypatch):
     assert result.risk == "scam" and len(result.reason) == conversation.MAX_REASON_CHARS
 
 
+def test_own_account_skips_new_recipient_night_and_drain():
+    """내 다른 계좌로 옮기는 건 "처음 보내는 계좌"·"심야 고액"·"잔액 소진"에 걸리지 않는다 (한도는 그대로)"""
+    risky = {"to_account": STRANGER, "amount": 1_000_000, "balance": 1_050_000,
+             "at": datetime(2026, 11, 4, 2, 0, tzinfo=KST), "per_transfer_limit": 5_000_000}
+    assert codes(context(**risky)) >= {"NEW_RECIPIENT_HIGH_AMOUNT", "NIGHT_HIGH_AMOUNT", "BALANCE_DRAIN"}
+    mine = context(**risky, to_own_account=True, registered_recipients={MOM, STRANGER})
+    assert codes(mine) == set()
+    assert "PER_TRANSFER_LIMIT" in codes(context(to_account=STRANGER, to_own_account=True, amount=6_000_000, balance=10_000_000))
+
+
 def test_count_keywords():
     assert count_keywords(["검찰청인데요, 안전 계좌로 옮기세요"]) == 2
     assert count_keywords(["엄마한테 5만원 보내줘"]) == 0

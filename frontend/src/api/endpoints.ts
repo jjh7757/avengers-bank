@@ -73,6 +73,12 @@ export interface TransferRequest {
 
 export const transferApi = {
   transfer: (body: TransferRequest) => api<TransferResult>('/transfers', { method: 'POST', body }),
+  /** 내 입출금 → 내 적금 (amount를 비우면 월 납입액) */
+  paySavings: (body: { from_checking_account_id: number; savings_account_id: number; amount?: number }) =>
+    api<TransferResult>('/transfers/savings', { method: 'POST', body }),
+  /** 내 입출금 → 내 예금 */
+  payDeposit: (body: { from_checking_account_id: number; deposit_account_id: number; amount: number }) =>
+    api<TransferResult>('/transfers/deposit', { method: 'POST', body }),
 }
 
 export const voiceApi = {

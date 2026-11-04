@@ -86,6 +86,10 @@ export interface TransferConfirmationCard {
   voice_challenge: string | null // 음성 승인 때 말할 숫자 "472" (서버가 음성 승인을 못 하면 null)
   voice_challenge_text: string | null // "사 칠 이"
   tts_text: string
+  destination_type: 'checking' | 'savings' | 'deposit' // savings·deposit이면 승인 때 납입 API
+  to_own: boolean // 내 다른 계좌로 옮기기
+  to_account_id: number | null // to_own일 때 받는 내 계좌 id
+  to_label: string | null // "내 월급 통장"
 }
 
 export interface AccountSummaryCard {
