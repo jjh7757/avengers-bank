@@ -174,8 +174,7 @@ DB 구조만으로는 막을 수 없는 부분이라 애플리케이션 코드�
 4. **`accumulated_amount` 동기화:** 카드 History를 저장할 때 이 값도 같이 증가시킵니다.
 5. **금액은 정수(원):** 금액 컬럼은 모두 `BIGINT`입니다. 실수형(`float`)은 쓰지 않습니다.
 
-## 팀에서 정해야 할 것
+## 정한 값
 
-- 각 `type` 컬럼에 들어갈 값 목록 (예: 거래내역 `DEPOSIT`, `WITHDRAW`, `TRANSFER_IN`, `TRANSFER_OUT`, `CARD_PAYMENT`)
-- 계좌번호와 카드번호를 만드는 형식
-- 이체 한도 기본값
+거래내역 `type` 값, 계좌·카드번호 형식, 이체 한도 기본값은 [PROJECT_PLAN.md](PROJECT_PLAN.md) 8절에 정리했습니다.
+`recipients` 테이블(수취인)은 이 다이어그램 이후 추가되었습니다 (`domains/recipients/models.py`).

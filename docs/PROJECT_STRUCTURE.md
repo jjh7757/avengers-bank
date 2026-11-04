@@ -13,14 +13,17 @@ avengers-bank/
 ├── alembic/                # DB 마이그레이션
 │   ├── env.py              # 모든 models.py를 import해서 테이블 정보를 모음
 │   └── versions/           # 마이그레이션 파일이 쌓이는 곳
-├── docs/                   # 팀 공유 문서 (ERD, API, 구조)
+├── docs/                   # 팀 공유 문서 (ERD, API, 구조, 계획, TODO)
+├── data/seed/products.json # 상품 시드 데이터
+├── scripts/seed_products.py # 시드 데이터를 DB에 넣기
 ├── tests/                  # pytest (SQLite로 실행, DB 서버 불필요)
-│   ├── conftest.py
-│   └── test_users.py
+│   ├── conftest.py         # client·user fixture, 계좌 개설 헬퍼
+│   └── test_<도메인>.py
 └── src/avengers_bank/
     ├── main.py             # 앱 생성, CORS, 예외 핸들러, 라우터 등록
     ├── core/               # 모든 도메인이 같이 쓰는 공용 코드
     │   ├── config.py       # .env 읽기
+    │   ├── clock.py        # 현재 시각 (UTC 저장, 한국 시간 기준 "오늘")
     │   ├── database.py     # DB 연결, Base, get_db
     │   ├── security.py     # 비밀번호 해시, JWT
     │   ├── dependencies.py # get_current_user (로그인 사용자 확인)
@@ -28,11 +31,12 @@ avengers-bank/
     │   ├── exception_handlers.py
     │   └── responses.py    # SuccessResponse, ErrorResponse 형식
     └── domains/
-        ├── users/          # 회원가입, 로그인, 내 정보          ✅ 구현됨
-        ├── products/       # 계좌·카드 상품 조회                📝 모델만
-        ├── accounts/       # 입출금·예금·적금 계좌, 거래내역      📝 모델만
-        ├── transfers/      # 이체, 적금 납입, 예금 입금 (테이블 없음) 📝
-        └── cards/          # 신용·체크카드, 사용내역, 결제       📝 모델만
+        ├── users/          # 회원가입, 로그인, 내 정보 수정
+        ├── products/       # 계좌·카드 상품 조회 (+ seed.py)
+        ├── accounts/       # 입출금·예금·적금 계좌, 거래내역
+        ├── transfers/      # 이체, 적금 납입, 예금 입금 (테이블 없음)
+        ├── cards/          # 신용·체크카드, 사용내역, 결제
+        └── recipients/     # 자주 보내는 수취인 (별칭 → 계좌번호)
 ```
 
 ## 도메인 안의 5개 파일
