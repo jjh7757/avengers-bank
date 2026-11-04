@@ -19,17 +19,25 @@
 ## 처음 한 번 (완료 여부)
 
 - [x] ECR 리포지토리 `avengers-bank` (Mutable, 최근 10개 보관)
-- [ ] IAM 역할 `github-actions-deploy` 신뢰 정책 `sub`에 추가: `repo:jjh7757@307797437/avengers-bank@1445025786:*`
+- [x] IAM 역할 `github-actions-deploy` 신뢰 정책 `sub`에 추가: `repo:jjh7757@307797437/avengers-bank@1445025786:*`
 - [x] 서버 `deploy/server-setup.sh` 실행 (SSM) → `/srv/avengers-bank/{docker-compose.yml,.env}`, PostgreSQL `avengers_bank`
 - [ ] 서버 `.env`에 `GEMINI_API_KEY` 채우기 (Session Manager에서 직접. 커밋하지 않는다)
-- [ ] 가비아 DNS: A `avengers-bank` → `13.209.128.48`, **전파 확인 후** 다음 단계
-- [ ] `/srv/caddy/Caddyfile`에 블록 추가 후 reload
+- [x] 가비아 DNS: A `avengers-bank` → `13.209.128.48`, **전파 확인 후** 다음 단계
+- [x] `/srv/caddy/Caddyfile`에 블록 추가 후 reload (Let's Encrypt 발급 확인)
   ```
   avengers-bank.ai-agent-develop.cloud {
       reverse_proxy avengers-bank:8000
   }
   ```
-- [ ] `/srv/monitor.sh`에 `check_url "avengers-bank" "https://avengers-bank.ai-agent-develop.cloud"`, `check_container_health "avengers-bank"`
+- [x] `/srv/monitor.sh`에 `check_url "avengers-bank" "https://avengers-bank.ai-agent-develop.cloud"`, `check_container_health "avengers-bank"`
+
+## 첫 배포 (2026-11-04)
+
+- 커밋 `b1e25eb`: Actions 전 단계 성공 → 컨테이너 `running`·`healthy`, 이미지 태그 = 커밋, 마이그레이션 6개·상품 시드 7건
+- 메모리 203MB / 512MB (서버 여유 약 590MB)
+- HTTPS `/`, `/accounts`(SPA), `/api/`, `/api/products/accounts` 200
+- 걸린 것: 처음 Caddy reload가 적용되지 않아(validate 뒤 reload가 이어지지 않음) TLS 핸드셰이크 실패 →
+  reload를 다시 실행하자 인증서 발급. reload 뒤에는 관리 API(`localhost:2019/config/`)나 로그로 실제 적용을 확인할 것
 
 ## 서버 `.env`
 
