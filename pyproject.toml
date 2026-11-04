@@ -17,6 +17,8 @@ dependencies = [
     "langgraph>=0.6",
     "langchain-google-genai>=2.1",
     "cryptography>=44",
+    "mcp>=1.10",
+    "langchain-mcp-adapters>=0.1",
 ]
 
 [dependency-groups]

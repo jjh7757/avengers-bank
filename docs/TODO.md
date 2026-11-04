@@ -123,6 +123,17 @@
 - [x] 수동 시나리오: "엄마한테 5만원 보내줘" → 확인 카드 → 승인 → 이체 완료 (실제 Gemini로 확인)
 - [x] 붙여넣은 문자 속 이체 지시는 이체 요청으로 분류하지 않음 (분류 프롬프트, 실제 Gemini로 확인)
 
+### 3-5. MCP 서버 전환 (4-4 이후)
+설계: [MCP_SERVERS.md](MCP_SERVERS.md)
+- [x] `mcp_servers/`: FastMCP 서버 5개(accounts, transfers, products, cards, security), 도구 23개, JWT 인증, 오류를 결과로
+- [x] FastAPI에 `/mcp/{서버}/mcp`로 마운트, lifespan에서 시작, Host 검사
+- [x] 에이전트: `agents/tools.py` 삭제 → `agents/mcp_client.py`(MultiServerMCPClient, ASGI 직접 호출)
+- [x] 이체 노드도 MCP 도구로 (find_recipient → get_my_accounts → prepare_transfer)
+- [x] LLM 제외 도구: prepare_transfer, 수취인 등록·변경·삭제 / 이체 한도는 낮추기만
+- [x] 변경 도구는 사용자 동의 후에만 (시스템 프롬프트), 도구 결과에 없는 내용 지어내지 않기
+- [x] `tests/test_mcp.py` 9건, 실제 Gemini로 조회·상품·카드 발급(동의 후)·한도·수취인 안내·이체·FDS 기록 확인
+- [ ] 배포 시 `ALLOWED_HOSTS`에 실제 호스트 추가, 외부 MCP 클라이언트용 토큰 발급 방식 정하기 (지금은 로그인 JWT)
+
 ## 4. 프론트엔드 (6일)
 
 ### 4-1. 기반

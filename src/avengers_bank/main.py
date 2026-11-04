@@ -16,13 +16,15 @@ from avengers_bank.domains.recipients.router import router as recipient_router
 from avengers_bank.domains.speech.router import router as voice_router
 from avengers_bank.domains.transfers.router import router as transfer_router
 from avengers_bank.domains.users.router import router as user_router
+from avengers_bank.mcp_servers.registry import mount_mcp_servers, run_mcp_servers
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     fds_scorer.load()  # LightGBM 모델은 앱 시작 때 한 번만 읽는다
     try:
-        yield
+        async with run_mcp_servers():  # 에이전트가 쓰는 MCP 서버 5개 (/mcp/*)
+            yield
     finally:
         await engine.dispose()
 
@@ -44,6 +46,7 @@ app.include_router(recipient_router)
 app.include_router(fds_router)
 app.include_router(chat_router)
 app.include_router(voice_router)
+mount_mcp_servers(app)
 
 
 @app.get("/", response_model=SuccessResponse[dict[str, str]])

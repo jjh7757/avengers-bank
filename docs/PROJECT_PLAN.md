@@ -130,17 +130,19 @@
   → 응답 생성 ──(TTS)──▶ 음성으로 읽어 줌 (확인 카드는 금액·받는 사람을 반드시 소리 내어 읽음)
 ```
 
-**에이전트에 등록할 도구**
+**에이전트 도구 = MCP 서버** (3단계 이후 전환, 자세히는 [MCP_SERVERS.md](MCP_SERVERS.md))
 
-| 도구 | 연결되는 service |
+은행 기능을 MCP 도구 23개로 만들고 서버 5개로 묶었다. 에이전트는 MCP 클라이언트로 이 도구만 쓴다.
+
+| MCP 서버 | 주요 도구 |
 |---|---|
-| `get_my_accounts` | accounts.service |
-| `get_account_histories` | accounts.service |
-| `find_recipient` | recipients (별칭 → 계좌번호) |
-| `prepare_transfer` | 확인 카드 생성 (실행 아님) |
-| `execute_transfer` | transfers.service (FDS 포함) |
-| `search_products` | products.service, 선택 시 RAG |
-| `get_my_cards` | cards.service |
+| accounts | 계좌 조회·거래내역, 계좌 개설, 별칭 변경, 이체 한도 낮추기 |
+| transfers | 수취인 조회, 예금주 확인, 이체 확인 카드 준비(`prepare_transfer`, 실행 아님) |
+| products | 상품 검색·상세 (선택 시 RAG) |
+| cards | 카드·사용내역 조회, 카드 발급 |
+| security | FDS 판정 기록, 음성 승인 등록 상태 |
+
+이체 실행 도구는 없다. `prepare_transfer`와 수취인 등록·변경은 MCP 서버에는 있지만 LLM에게 주지 않는다.
 
 **안전 원칙**
 
@@ -303,7 +305,8 @@ avengers_bank/
 │   │   ├── chat/              # 대화 API (models, schemas, router, service), 금액 정규화
 │   │   ├── speech/            # 목소리 등록·음성 승인(화자 인증), (선택) 서버 STT/TTS
 │   │   └── fds/               # models(fds_logs, user_devices), rules.py, features.py, scorer.py, service.py
-│   └── agents/                # LangGraph 그래프, tools.py, prompts.py
+│   ├── agents/                # LangGraph 그래프, MCP 클라이언트(mcp_client.py), prompts.py
+│   └── mcp_servers/           # MCP 서버 5개 (accounts, transfers, products, cards, security)
 ├── fds_training/              # 합성 데이터 생성기, 학습 노트북, 모델 파일(.txt), 평가 결과
 ├── data/seed/                 # 상품 시드 데이터 (JSON)
 └── frontend/                  # React (Vite) 앱
@@ -381,6 +384,7 @@ async with db.begin():
 
 - Gemini 모델 분리: 의도 분류·슬롯 추출은 `gemini-2.5-flash`(약 1.5초), 조회·상담 답변은 `gemini-3.8-flash`. `.env`의 `GEMINI_FAST_MODEL`, `GEMINI_CHAT_MODEL`로 변경
 - 이체 흐름은 LLM의 자유 도구 호출이 아니라 코드로 처리: LLM은 의도·슬롯만 뽑고, 금액 재검증·수취인 조회·확인 카드 생성은 `agents/graph.py`의 정해진 순서
+- 에이전트 도구는 MCP 서버로 제공 (4-4 이후 전환): 같은 FastAPI 앱의 `/mcp/{서버}/mcp`, JWT 인증. 변경 도구는 사용자 동의 후에만, 이체 한도는 낮추기만 ([MCP_SERVERS.md](MCP_SERVERS.md))
 - 확인 카드 승인 토큰: 5분 유효, 세션당 최신 카드 1장만 유효, 이체 성공 시 소모. `POST /transfers`에 `session_id`가 있으면 토큰 필수
 
 **4단계 시작 전 확정한 것**

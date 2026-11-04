@@ -4,6 +4,7 @@ import pytest
 from langchain_core.messages import AIMessage
 
 from avengers_bank.agents import llm
+from avengers_bank.agents.mcp_client import LLM_EXCLUDED
 from avengers_bank.agents.state import Extraction
 from tests.conftest import new_chat_session, open_checking, signup_and_login
 
@@ -221,9 +222,9 @@ async def test_inquiry_uses_tools_and_returns_summary_card(client, user, bank, c
     assert account["balance"] == 1_000_000
     assert account["account_num"].startswith("****")  # LLM에는 뒤 4자리만
 
-    # 이체를 실행하는 도구는 LLM에게 주지 않는다
-    assert "prepare_transfer" not in model.tool_names
-    assert not any("transfer" in name and name != "find_recipient" for name in model.tool_names)
+    # 도구는 MCP 서버에서 오고, 이체 카드·수취인 등록 같은 도구는 LLM에게 주지 않는다
+    assert {"get_my_accounts", "search_products", "get_my_cards", "get_fds_logs"} <= set(model.tool_names)
+    assert not LLM_EXCLUDED & set(model.tool_names)
     tool_message = model.calls[1][-1]
     assert tool_message.name == "get_my_accounts"
 

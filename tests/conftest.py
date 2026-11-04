@@ -57,8 +57,10 @@ async def client():
         await conn.run_sync(Base.metadata.create_all)
     async with SessionLocal() as db, db.begin():
         await seed_products(db)
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
-        yield ac
+    # 앱 lifespan을 돌려야 MCP 서버(에이전트 도구)가 시작된다
+    async with app.router.lifespan_context(app):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+            yield ac
 
 
 async def signup_and_login(client: AsyncClient, login_id: str, name: str = "테스트") -> dict:

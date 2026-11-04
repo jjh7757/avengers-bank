@@ -32,7 +32,8 @@ avengers-bank/
     │   ├── exceptions.py   # BadRequest/Unauthorized/Forbidden/NotFound/Conflict
     │   ├── exception_handlers.py
     │   └── responses.py    # SuccessResponse, ErrorResponse 형식
-    ├── agents/             # LangGraph 에이전트: graph(흐름), tools(도구), prompts, state, llm(Gemini)
+    ├── agents/             # LangGraph 에이전트: graph(흐름), mcp_client(MCP 도구 사용), prompts, state, llm(Gemini)
+    ├── mcp_servers/        # MCP 서버 5개: accounts, transfers, products, cards, security (docs/MCP_SERVERS.md)
     └── domains/
         ├── users/          # 회원가입, 로그인, 내 정보 수정
         ├── products/       # 계좌·카드 상품 조회 (+ seed.py)

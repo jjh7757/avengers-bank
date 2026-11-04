@@ -4,10 +4,10 @@ import uuid
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from avengers_bank.agents.graph import build_graph
+from avengers_bank.agents.graph import AgentContext, build_graph
 from avengers_bank.agents.llm import LlmUnavailableException
 from avengers_bank.agents.state import PendingTransfer
-from avengers_bank.agents.tools import ToolContext
+from avengers_bank.agents.mcp_client import BankMcpClient
 from avengers_bank.core.clock import now_utc
 from avengers_bank.core.exceptions import ApiException, ForbiddenException, NotFoundException
 from avengers_bank.domains.chat.models import ChatMessage, ChatSession
@@ -58,8 +58,8 @@ class ChatService:
             )
             await chat_repository.save(db, user_message)
 
-        # 2. 에이전트 실행 (트랜잭션 밖. 도구가 각 service의 트랜잭션을 연다)
-        ctx = ToolContext(db=db, user=current_user, session_id=session_id)
+        # 2. 에이전트 실행. 은행 기능은 MCP 서버의 도구로 쓴다 (도구마다 자기 DB 세션)
+        ctx = AgentContext(session_id=session_id, mcp=BankMcpClient(current_user.user_id))
         try:
             result = await build_graph(ctx).ainvoke({
                 "user_text": data.text,

@@ -272,6 +272,18 @@
 
 실패: `400 VOICE_DIGITS_MISMATCH` / `400 VOICE_NOT_MATCHED` (`extra.remaining_attempts`), `400 VOICE_LOCKED`(카드당 2번 실패), `400 INVALID_AUDIO`, `400 CONSENT_REQUIRED`, `401 INVALID_CREDENTIALS`, `404 VOICE_NOT_ENROLLED`, `503 VOICE_UNAVAILABLE`(모델·키 없음, 15초 초과)
 
+## MCP 서버 (`mcp_servers/`)
+
+AUI 에이전트와 외부 MCP 클라이언트가 쓰는 도구 서버입니다 (streamable HTTP, `Authorization: Bearer <JWT>`). 도구 목록과 안전 규칙: [MCP_SERVERS.md](MCP_SERVERS.md)
+
+| 경로 | 서버 | 도구 수 |
+|---|---|---|
+| `/mcp/accounts/mcp` | 계좌 | 8 |
+| `/mcp/transfers/mcp` | 이체·수취인 | 7 |
+| `/mcp/products/mcp` | 상품 | 2 |
+| `/mcp/cards/mcp` | 카드 | 4 |
+| `/mcp/security/mcp` | FDS 기록·음성 승인 상태 | 2 |
+
 ## 새 API를 추가하는 순서
 
 1. `schemas.py`: 요청·응답 모양 정의

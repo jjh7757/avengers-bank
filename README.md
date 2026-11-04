@@ -75,4 +75,5 @@ uv run --group fds python fds_training/train.py           # 모델·임계값·r
 | fds | ✅ 2단계 규칙 엔진 + LightGBM, 이체에 연결 ([results.md](fds_training/results.md)) |
 | chat(에이전트) | ✅ 3단계 LangGraph + Gemini, 확인 카드 승인 후 이체 |
 | frontend | ✅ 4단계 채팅·확인 카드·FDS 안내·계좌·카드·음성 입력/안내 ([frontend/README.md](frontend/README.md)) |
+| MCP 서버 | ✅ 은행 기능 도구 23개를 서버 5개로, 에이전트는 MCP로만 사용 ([MCP_SERVERS.md](docs/MCP_SERVERS.md)) |
 | 음성 승인(화자 인증) | ✅ 4-4 구현, 기준값은 실제 목소리로 보정 필요 ([VOICE_AUTH.md](docs/VOICE_AUTH.md)) |
