@@ -105,6 +105,39 @@ export function AccountsPanel({ pick }: { pick: Pick }) {
 
 const RECENT = 8 // 무대에는 최근 거래만. 전체는 상세 화면에서
 
+/** 계좌번호: 평소엔 가리고, 눌렀을 때만 전체 번호를 보여 주거나 복사한다 (돈을 받으려고 번호를 알려 줄 때) */
+function AccountNumber({ num }: { num: string }) {
+  const [shown, setShown] = useState(false)
+  const [note, setNote] = useState<string | null>(null)
+
+  async function copy() {
+    try {
+      await navigator.clipboard.writeText(num)
+      setNote('복사했어요')
+    } catch {
+      setShown(true)
+      setNote('복사하지 못했어요. 번호를 직접 적어 주세요')
+    }
+  }
+
+  return (
+    <p className="stage-account-num">
+      <span className="muted">{shown ? num : maskAccount(num)}</span>
+      <button type="button" className="button small" onClick={() => setShown((v) => !v)} aria-pressed={shown}>
+        {shown ? '가리기' : '번호 보기'}
+      </button>
+      <button type="button" className="button small" onClick={copy}>
+        복사
+      </button>
+      {note && (
+        <span className="small muted" role="status">
+          {note}
+        </span>
+      )}
+    </p>
+  )
+}
+
 /** 계좌 하나: 잔액·한도(입출금이면 한도 변경 폼)·최근 거래 */
 export function AccountPanel({ type, id }: { type: AccountType; id: number }) {
   const { data, error, loading } = useLoad(
@@ -118,10 +151,8 @@ export function AccountPanel({ type, id }: { type: AccountType; id: number }) {
       <Loading loading={loading} error={error} />
       {account && histories && (
         <>
-          <p className="stage-panel-title">
-            {account.nickname ?? `${ACCOUNT_TYPE_LABEL[type]} 계좌`}{' '}
-            <span className="muted small">{maskAccount(account.account_num)}</span>
-          </p>
+          <p className="stage-panel-title">{account.nickname ?? `${ACCOUNT_TYPE_LABEL[type]} 계좌`}</p>
+          <AccountNumber num={account.account_num} />
           <p className="balance">{won(account.balance)}</p>
           {account.per_transfer_limit != null && (
             <p className="muted small">

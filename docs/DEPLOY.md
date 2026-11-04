@@ -21,7 +21,7 @@
 - [x] ECR 리포지토리 `avengers-bank` (Mutable, 최근 10개 보관)
 - [x] IAM 역할 `github-actions-deploy` 신뢰 정책 `sub`에 추가: `repo:jjh7757@307797437/avengers-bank@1445025786:*`
 - [x] 서버 `deploy/server-setup.sh` 실행 (SSM) → `/srv/avengers-bank/{docker-compose.yml,.env}`, PostgreSQL `avengers_bank`
-- [ ] 서버 `.env`에 `GEMINI_API_KEY` 채우기 (Session Manager에서 직접. 커밋하지 않는다)
+- [x] 서버 `.env`에 `GEMINI_API_KEY` 채우기 (Session Manager에서 직접. 커밋하지 않는다)
 - [x] 가비아 DNS: A `avengers-bank` → `13.209.128.48`, **전파 확인 후** 다음 단계
 - [x] `/srv/caddy/Caddyfile`에 블록 추가 후 reload (Let's Encrypt 발급 확인)
   ```

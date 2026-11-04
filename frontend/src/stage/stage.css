@@ -464,6 +464,14 @@
   margin-top: 0.15rem;
 }
 
+.stage-account-num {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+  margin: 0;
+}
+
 .stage-subtitle {
   margin: 1rem 0 0.5rem;
   font-weight: 700;
