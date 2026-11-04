@@ -2,6 +2,8 @@
 
     uv run python scripts/demo_seed.py
 
+배포 서버에서는 컨테이너 안에서: docker exec avengers-bank python scripts/demo_seed.py (docs/DEPLOY.md)
+
 여러 번 실행해도 같은 상태로 돌아간다. 시연 사용자(demo)의 계좌·거래·대화·FDS 기록·카드·수취인을 지우고 다시 만든다.
 등록한 목소리(voice_profiles)는 남긴다 (설정 화면에서 한 번만 등록하면 된다).
 
@@ -13,6 +15,7 @@
 """
 
 import asyncio
+import os
 import random
 import selectors
 import sys
@@ -42,8 +45,10 @@ from avengers_bank.domains.recipients.models import Recipient
 from avengers_bank.domains.users.models import User
 from avengers_bank.domains.users.schemas import UserResponse
 
-PASSWORD = "demo1234!"
-PIN = "246810"
+# 로컬 기본값은 저장소에 공개돼 있다. 누구나 접속하는 배포 서버에서는 서버 .env에만 둔 값을 쓴다 (docs/DEPLOY.md)
+PASSWORD = os.environ.get("DEMO_SEED_PASSWORD") or "demo1234!"
+PIN = os.environ.get("DEMO_SEED_PIN") or "246810"
+FROM_ENV = bool(os.environ.get("DEMO_SEED_PASSWORD"))
 USERS = {  # login_id: 이름
     "demo": "홍길동",
     "demo_mom": "김영희",
@@ -159,7 +164,10 @@ async def main() -> None:
                 card.accumulated_amount += amount
 
     print("시연 데이터를 만들었습니다.\n")
-    print(f"  로그인      demo / {PASSWORD}      이체 PIN {PIN}")
+    if FROM_ENV:  # 서버 값은 출력하지 않는다 (SSM·로그에 남지 않게)
+        print("  로그인      demo / 비밀번호·이체 PIN은 서버 .env의 DEMO_SEED_PASSWORD·DEMO_SEED_PIN")
+    else:
+        print(f"  로그인      demo / {PASSWORD}      이체 PIN {PIN}")
     print(f"  내 계좌     생활비 {living.account_num} (320만원), 월급 {salary.account_num} (150만원)")
     print(f"  수취인      엄마 {mom.account_num}, 집주인 {landlord.account_num}")
     print(f"  시나리오 2  처음 보는 계좌(중고차 판매자) {seller.account_num}")

@@ -53,8 +53,17 @@
 
 ## 시연 데이터
 
+로컬과 같은 시연 사용자(`demo`, 상대 계정 4개, 계좌·수취인·30일 거래·체크카드·이체 PIN)를 만든다. 다시 실행하면 초기화된다.
+
 ```bash
 docker exec avengers-bank python scripts/demo_seed.py
+```
+
+로컬 기본 비밀번호·PIN은 저장소에 공개돼 있으므로, 서버에서는 `.env`의 `DEMO_SEED_PASSWORD`·`DEMO_SEED_PIN`을 쓴다
+(서버 안에서 생성, 스크립트도 출력하지 않는다). 값 확인은 Session Manager에서:
+
+```bash
+sudo grep '^DEMO_SEED_' /srv/avengers-bank/.env
 ```
 
 ## 확인
