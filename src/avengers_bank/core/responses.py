@@ -18,6 +18,7 @@ class ErrorDetail(BaseModel):
     code: str
     message: str
     details: list[ValidationIssue] = Field(default_factory=list)
+    extra: dict[str, Any] | None = None
 
 
 class ErrorResponse(BaseModel):

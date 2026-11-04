@@ -13,6 +13,9 @@ from avengers_bank.domains.accounts.models import (
 )
 from avengers_bank.domains.accounts.repository import account_repository
 from avengers_bank.domains.accounts.service import account_service
+from avengers_bank.domains.fds.models import FdsDecision
+from avengers_bank.domains.fds.rules import RiskLevel
+from avengers_bank.domains.fds.service import FdsResult, fds_service
 from avengers_bank.domains.recipients.repository import recipient_repository
 from avengers_bank.domains.transfers.schemas import (
     DepositPaymentCreate,
@@ -20,8 +23,20 @@ from avengers_bank.domains.transfers.schemas import (
     TransferCreate,
     TransferResponse,
 )
+from avengers_bank.domains.users.models import User
 from avengers_bank.domains.users.repository import user_repository
 from avengers_bank.domains.users.schemas import UserResponse
+from avengers_bank.domains.users.service import user_service
+
+REJECTED = {FdsDecision.BLOCKED, FdsDecision.AUTH_REQUIRED, FdsDecision.AUTH_FAILED}
+REJECTION_ERRORS = {
+    FdsDecision.BLOCKED: {"code": "FDS_BLOCKED", "message": "이상거래가 의심되어 이체를 차단했습니다."},
+    FdsDecision.AUTH_REQUIRED: {
+        "code": "ADDITIONAL_AUTH_REQUIRED",
+        "message": "평소와 다른 이체입니다. 이체 PIN을 입력해 주세요.",
+    },
+    FdsDecision.AUTH_FAILED: {"code": "INVALID_PIN", "message": "이체 PIN이 올바르지 않습니다."},
+}
 
 
 def check_balance(account: CheckingAccount, amount: int) -> None:
@@ -33,8 +48,13 @@ class TransferService:
     # 이 도메인은 테이블이 없다. 계좌 데이터는 accounts.repository를 통해 읽고 쓴다.
 
     async def transfer(
-        self, db: AsyncSession, data: TransferCreate, current_user: UserResponse
+        self,
+        db: AsyncSession,
+        data: TransferCreate,
+        current_user: UserResponse,
+        client_ip: str | None = None,
     ) -> TransferResponse:
+        rejection: FdsDecision | None = None
         async with db.begin():
             # 1. 보내는 계좌가 본인 것인지 확인
             source = await account_service.get_owned_account(
@@ -69,52 +89,99 @@ class TransferService:
                     code="DAILY_LIMIT_EXCEEDED", message="1일 이체 한도를 초과했습니다."
                 )
 
-            # TODO(2단계 FDS): fds_service.evaluate(...) → LOW / MEDIUM / HIGH
-            #   HIGH → BadRequestException(code="FDS_BLOCKED") + fds_logs 기록
-            #   MEDIUM + PIN 미검증 → BadRequestException(code="ADDITIONAL_AUTH_REQUIRED")
-
-            # 4. 양쪽 balance 변경
-            source.balance -= data.amount
-            target.balance += data.amount
-
-            # 5. 양쪽 History 한 줄씩 저장
-            now = now_utc()
-            common = {
-                "date": now,
-                "from_account": source.account_num,
-                "sending_account": target.account_num,
-            }
-            await account_repository.save(
+            # 4. FDS 판정 → LOW 통과 / MEDIUM 추가 인증(PIN) / HIGH 차단
+            user = await user_repository.find_by_id(db, current_user.user_id)
+            fds = await fds_service.evaluate(
                 db,
-                CheckingAccountHistory(
-                    checking_account_id=source.checking_account_id,
-                    change_amount=-data.amount,
-                    type=HistoryType.TRANSFER_OUT,
-                    **common,
-                ),
-            )
-            await account_repository.save(
-                db,
-                CheckingAccountHistory(
-                    checking_account_id=target.checking_account_id,
-                    change_amount=data.amount,
-                    type=HistoryType.TRANSFER_IN,
-                    **common,
-                ),
-            )
-            await recipient_repository.touch_last_sent_at(
-                db, current_user.user_id, target.account_num, now
-            )
-            holder = await user_repository.find_by_id(db, target.user_id)
-
-            return TransferResponse(
-                from_account_num=source.account_num,
+                user=user,
+                source=source,
                 to_account_num=target.account_num,
-                to_holder_name=holder.name if holder else None,
                 amount=data.amount,
-                balance_after=source.balance,
-                transferred_at=now,
+                sent_today=sent_today,
+                session_id=data.session_id,
+                device_fingerprint=data.device_fingerprint,
+                input_mode=data.input_mode,
+                session_texts=[],  # TODO(3단계): chat_messages에서 이 세션의 사용자 메시지
             )
+            decision = await self._decide(fds, user, data.pin)
+            log_fields = {
+                "user_id": user.user_id,
+                "session_id": data.session_id,
+                "from_account": source.account_num,
+                "to_account": target.account_num,
+                "amount": data.amount,
+                "input_mode": data.input_mode,
+                "result": fds,
+                "decision": decision,
+            }
+            if decision in REJECTED:
+                # 여기서 예외를 던지면 FDS 기록까지 롤백되므로, 이 트랜잭션은 아무것도 바꾸지 않고 끝낸다
+                rejection = decision
+            else:
+                # 5. 양쪽 balance 변경
+                source.balance -= data.amount
+                target.balance += data.amount
+
+                # 6. 양쪽 History 한 줄씩 저장
+                now = now_utc()
+                common = {
+                    "date": now,
+                    "from_account": source.account_num,
+                    "sending_account": target.account_num,
+                }
+                await account_repository.save(
+                    db,
+                    CheckingAccountHistory(
+                        checking_account_id=source.checking_account_id,
+                        change_amount=-data.amount,
+                        type=HistoryType.TRANSFER_OUT,
+                        **common,
+                    ),
+                )
+                await account_repository.save(
+                    db,
+                    CheckingAccountHistory(
+                        checking_account_id=target.checking_account_id,
+                        change_amount=data.amount,
+                        type=HistoryType.TRANSFER_IN,
+                        **common,
+                    ),
+                )
+                await recipient_repository.touch_last_sent_at(
+                    db, current_user.user_id, target.account_num, now
+                )
+                # 7. FDS 기록, 이체에 성공한 기기 등록
+                await fds_service.save_log(db, **log_fields)
+                await fds_service.register_device(db, user.user_id, data.device_fingerprint, client_ip)
+                holder = await user_repository.find_by_id(db, target.user_id)
+
+                return TransferResponse(
+                    from_account_num=source.account_num,
+                    to_account_num=target.account_num,
+                    to_holder_name=holder.name if holder else None,
+                    amount=data.amount,
+                    balance_after=source.balance,
+                    transferred_at=now,
+                    risk_level=fds.risk_level.name,
+                )
+
+        async with db.begin():
+            log = await fds_service.save_log(db, **log_fields)
+            extra = fds_service.error_extra(
+                log, fds, has_pin=None if rejection == FdsDecision.BLOCKED else user.has_pin
+            )
+        raise BadRequestException(**REJECTION_ERRORS[rejection], extra=extra)
+
+    async def _decide(self, fds: FdsResult, user: User, pin: str | None) -> FdsDecision:
+        if fds.risk_level == RiskLevel.HIGH:
+            return FdsDecision.BLOCKED
+        if fds.risk_level == RiskLevel.MEDIUM:
+            if pin is None:
+                return FdsDecision.AUTH_REQUIRED
+            if not await user_service.verify_pin(user, pin):
+                return FdsDecision.AUTH_FAILED
+            return FdsDecision.PASS_WITH_AUTH
+        return FdsDecision.PASS
 
     async def pay_savings(
         self, db: AsyncSession, data: SavingsPaymentCreate, current_user: UserResponse

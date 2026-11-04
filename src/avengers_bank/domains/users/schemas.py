@@ -20,6 +20,13 @@ class UserUpdate(BaseModel):
     phone: str | None = Field(default=None, min_length=9, max_length=20)
 
 
+class PinUpdate(BaseModel):
+    """PUT /users/me/pin — 비밀번호를 다시 확인하고 이체 PIN을 등록·변경한다."""
+
+    password: str = Field(min_length=1, max_length=128, repr=False)
+    pin: str = Field(pattern=r"^\d{6}$", repr=False, description="숫자 6자리")
+
+
 class UserLogin(BaseModel):
     login_id: str = Field(min_length=1, max_length=50)
     password: str = Field(min_length=1, max_length=128, repr=False)
@@ -31,6 +38,7 @@ class UserResponse(BaseModel):
     name: str
     nick_name: str | None
     phone: str
+    has_pin: bool = False
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)

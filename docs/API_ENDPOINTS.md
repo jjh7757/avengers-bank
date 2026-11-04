@@ -37,6 +37,7 @@
 | ✅ | POST | `/users/login` | | 로그인, JWT 발급 |
 | ✅ | GET | `/users/me` | 🔒 | 내 정보 조회 |
 | ✅ | PATCH | `/users/me` | 🔒 | 이름, 닉네임, 전화번호 수정 |
+| ✅ | PUT | `/users/me/pin` | 🔒 | 이체 PIN(숫자 6자리) 등록·변경. 비밀번호 재확인 `{ "password", "pin" }` |
 
 <details>
 <summary>요청·응답 예시</summary>
@@ -124,15 +125,33 @@
 <details>
 <summary>요청·응답 예시</summary>
 
-`POST /transfers`
+`POST /transfers`: 뒤의 4개 필드는 선택이며 FDS가 씁니다.
 ```json
-{ "from_checking_account_id": 1, "to_account_num": "110-555-000111", "amount": 10000 }
+{ "from_checking_account_id": 1, "to_account_num": "110-555-000111", "amount": 10000,
+  "pin": null, "device_fingerprint": "a1b2c3", "session_id": "chat-42", "input_mode": "voice" }
 ```
 → `200`
 ```json
-{ "data": { "from_account_num": "110-123-456789", "to_account_num": "110-555-000111", "to_holder_name": "브루스 배너", "amount": 10000, "balance_after": 490000, "transferred_at": "..." }, "message": "이체가 완료되었습니다." }
+{ "data": { "from_account_num": "110-123-456789", "to_account_num": "110-555-000111", "to_holder_name": "브루스 배너", "amount": 10000, "balance_after": 490000, "transferred_at": "...", "risk_level": "LOW" }, "message": "이체가 완료되었습니다." }
 ```
 실패: `400 INSUFFICIENT_BALANCE`, `400 PER_TRANSFER_LIMIT_EXCEEDED`, `400 DAILY_LIMIT_EXCEEDED`, `400 SAME_ACCOUNT`, `403 ACCOUNT_FORBIDDEN`, `404 ACCOUNT_NOT_FOUND`
+
+**FDS 판정** (한도 검사를 통과한 뒤)
+
+| 등급 | 응답 | 프론트가 할 일 |
+|---|---|---|
+| LOW | `200`, `risk_level: "LOW"` | |
+| MEDIUM | `400 ADDITIONAL_AUTH_REQUIRED` | PIN 입력창을 띄우고 같은 요청에 `pin`을 넣어 다시 보냄. `extra.has_pin`이 false면 PIN 등록 안내 |
+| MEDIUM + 틀린 PIN | `400 INVALID_PIN` | |
+| HIGH | `400 FDS_BLOCKED` | `extra.rule_hits`의 이름과 `extra.warning`을 보여 주고 TTS로 읽음 |
+
+```json
+{ "error": { "code": "FDS_BLOCKED", "message": "이상거래가 의심되어 이체를 차단했습니다.", "details": [],
+  "extra": { "fds_log_id": 7, "risk_level": "HIGH", "ml_score": 0.9754,
+    "rule_hits": [{ "code": "NEW_DEVICE", "name": "처음 보는 기기", "level": "MEDIUM" }],
+    "top_factors": [{ "feature": "is_new_device", "label": "새 기기", "contribution": 5.648 }],
+    "warning": "금융기관·검찰·경찰·금융감독원은 전화나 메시지로 송금을 요구하지 않습니다. ..." } } }
+```
 
 - 1일 한도는 한국 시간 0시부터의 `TRANSFER_OUT` 합계로 계산합니다. 본인 적금·예금 납입은 한도에 포함하지 않습니다.
 - 받는 계좌가 등록된 수취인이면 `recipients.last_sent_at`이 갱신됩니다. 등록 안 된 계좌는 자동 등록하지 않습니다.
@@ -197,6 +216,14 @@
 </details>
 
 ---
+
+## fds: 이상거래 탐지 (`domains/fds`)
+
+판정 로직은 `POST /transfers` 안에서 돌고, 여기서는 기록만 조회합니다. 규칙·피처·모델은 [fds_training/results.md](../fds_training/results.md) 참고.
+
+| 상태 | 메서드 | 경로 | 인증 | 설명 |
+|---|---|---|---|---|
+| ✅ | GET | `/fds/logs?limit=50` | 🔒 | 내 FDS 판정 기록 (최근 순). 통과·추가 인증·차단 모두 |
 
 ## 새 API를 추가하는 순서
 

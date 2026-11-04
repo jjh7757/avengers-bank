@@ -13,6 +13,7 @@ dependencies = [
     "pyjwt>=2.10,<3",
     "python-dotenv>=1.2,<2",
     "sqlalchemy[asyncio]>=2.0,<2.1",
+    "lightgbm>=4.5,<5",
 ]
 
 [dependency-groups]
@@ -20,6 +21,13 @@ dev = [
     "aiosqlite>=0.20,<1",
     "httpx>=0.28,<1",
     "pytest>=8,<10",
+]
+fds = [
+    "matplotlib>=3.9,<4",
+    "pandas>=2.2,<3",
+    "pyarrow>=17",
+    "scikit-learn>=1.5,<2",
+    "shap>=0.47,<1",
 ]
 
 [tool.uv.build-backend]

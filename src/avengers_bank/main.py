@@ -8,6 +8,8 @@ from avengers_bank.core.exception_handlers import register_exception_handlers
 from avengers_bank.core.responses import SuccessResponse, error_responses
 from avengers_bank.domains.accounts.router import router as account_router
 from avengers_bank.domains.cards.router import router as card_router
+from avengers_bank.domains.fds.router import router as fds_router
+from avengers_bank.domains.fds.scorer import fds_scorer
 from avengers_bank.domains.products.router import router as product_router
 from avengers_bank.domains.recipients.router import router as recipient_router
 from avengers_bank.domains.transfers.router import router as transfer_router
@@ -16,6 +18,7 @@ from avengers_bank.domains.users.router import router as user_router
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    fds_scorer.load()  # LightGBM 모델은 앱 시작 때 한 번만 읽는다
     try:
         yield
     finally:
@@ -36,6 +39,7 @@ app.include_router(account_router)
 app.include_router(transfer_router)
 app.include_router(card_router)
 app.include_router(recipient_router)
+app.include_router(fds_router)
 
 
 @app.get("/", response_model=SuccessResponse[dict[str, str]])

@@ -1,0 +1,29 @@
+{
+  "medium": 0.3,
+  "high": 0.7,
+  "tuned_medium": 0.8921,
+  "tuned_high": 0.9051,
+  "feature_names": [
+    "amount",
+    "log_amount",
+    "hour",
+    "weekday",
+    "amount_to_balance",
+    "amount_vs_30d_avg",
+    "hour_diff_from_usual",
+    "transfers_7d",
+    "is_new_recipient",
+    "recipient_send_count",
+    "days_since_last_send_to_recipient",
+    "is_new_device",
+    "account_age_days",
+    "session_attempt_count",
+    "session_rejected_count",
+    "is_voice",
+    "session_keyword_count",
+    "count_1h",
+    "sum_1h",
+    "count_24h",
+    "sum_24h"
+  ]
+}

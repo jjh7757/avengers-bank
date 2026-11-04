@@ -10,10 +10,12 @@ from sqlalchemy import update
 
 import avengers_bank.domains.accounts.models  # noqa: F401  모든 테이블을 Base에 등록
 import avengers_bank.domains.cards.models  # noqa: F401
+import avengers_bank.domains.fds.models  # noqa: F401
 import avengers_bank.domains.products.models  # noqa: F401
 import avengers_bank.domains.recipients.models  # noqa: F401
 from avengers_bank.core.database import Base, SessionLocal, engine
 from avengers_bank.domains.accounts.models import CheckingAccount
+from avengers_bank.domains.fds.scorer import Score, fds_scorer
 from avengers_bank.domains.products.seed import seed_products
 from avengers_bank.main import app
 
@@ -28,6 +30,18 @@ DEBIT_PRODUCT = 2
 @pytest.fixture
 def anyio_backend():
     return "asyncio"
+
+
+@pytest.fixture(autouse=True)
+def ml_score(monkeypatch):
+    """실제 모델 점수는 실행 시각(심야 여부 등)에 따라 달라지므로 테스트에서는 고정한다.
+    test_fds.py처럼 점수를 바꾸고 싶으면 ml_score.value = 0.9 처럼 쓴다."""
+
+    class FixedScore:
+        value = 0.01
+
+    monkeypatch.setattr(fds_scorer, "score", lambda features: Score(FixedScore.value, []))
+    return FixedScore
 
 
 @pytest.fixture

@@ -16,6 +16,7 @@ avengers-bank/
 ├── docs/                   # 팀 공유 문서 (ERD, API, 구조, 계획, TODO)
 ├── data/seed/products.json # 상품 시드 데이터
 ├── scripts/seed_products.py # 시드 데이터를 DB에 넣기
+├── fds_training/           # FDS 합성 데이터 생성(generate_data.py), 학습(train.py), 모델(model/), 결과(results.md)
 ├── tests/                  # pytest (SQLite로 실행, DB 서버 불필요)
 │   ├── conftest.py         # client·user fixture, 계좌 개설 헬퍼
 │   └── test_<도메인>.py
@@ -36,7 +37,8 @@ avengers-bank/
         ├── accounts/       # 입출금·예금·적금 계좌, 거래내역
         ├── transfers/      # 이체, 적금 납입, 예금 입금 (테이블 없음)
         ├── cards/          # 신용·체크카드, 사용내역, 결제
-        └── recipients/     # 자주 보내는 수취인 (별칭 → 계좌번호)
+        ├── recipients/     # 자주 보내는 수취인 (별칭 → 계좌번호)
+        └── fds/            # 이상거래 탐지: features(학습과 공용) → rules + scorer(LightGBM) → service
 ```
 
 ## 도메인 안의 5개 파일

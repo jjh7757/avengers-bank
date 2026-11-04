@@ -93,6 +93,26 @@ class AccountRepository:
         )
         return list(await db.scalars(stmt))
 
+    async def find_user_transfer_outs_since(
+        self, db: AsyncSession, user_id: int, since: datetime
+    ) -> list[tuple[datetime, int, str | None]]:
+        """사용자의 모든 입출금 계좌에서 since 이후 TRANSFER_OUT (시각, 금액(양수), 받은 계좌). FDS 피처용."""
+        rows = await db.execute(
+            select(
+                CheckingAccountHistory.date,
+                -CheckingAccountHistory.change_amount,
+                CheckingAccountHistory.sending_account,
+            )
+            .join(CheckingAccount)
+            .where(
+                CheckingAccount.user_id == user_id,
+                CheckingAccountHistory.type == HistoryType.TRANSFER_OUT,
+                CheckingAccountHistory.date >= since,
+            )
+            .order_by(CheckingAccountHistory.date)
+        )
+        return [tuple(row) for row in rows]
+
     async def sum_transfer_out_since(
         self, db: AsyncSession, checking_account_id: int, since: datetime
     ) -> int:

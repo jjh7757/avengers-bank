@@ -1,14 +1,22 @@
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
 
 class TransferCreate(BaseModel):
-    """POST /transfers — 입출금 → 입출금 이체"""
+    """POST /transfers — 입출금 → 입출금 이체. 아래 4개 필드는 FDS가 쓴다."""
 
     from_checking_account_id: int
     to_account_num: str = Field(min_length=1, max_length=20)
     amount: int = Field(gt=0)
+    pin: str | None = Field(
+        default=None, pattern=r"^\d{6}$", repr=False,
+        description="FDS가 ADDITIONAL_AUTH_REQUIRED를 돌려준 뒤 다시 보낼 때 넣는 이체 PIN",
+    )
+    device_fingerprint: str | None = Field(default=None, max_length=128)
+    session_id: str | None = Field(default=None, max_length=64, description="채팅 세션 ID")
+    input_mode: Literal["text", "voice"] = "text"
 
 
 class SavingsPaymentCreate(BaseModel):
@@ -34,3 +42,4 @@ class TransferResponse(BaseModel):
     amount: int
     balance_after: int  # 보낸 계좌의 이체 후 잔액
     transferred_at: datetime
+    risk_level: str | None = None  # 입출금 → 입출금 이체의 FDS 판정 (LOW / MEDIUM)

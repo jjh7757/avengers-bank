@@ -42,6 +42,10 @@ class RecipientRepository:
             )
         )
 
+    async def find_account_nums(self, db: AsyncSession, user_id: int) -> set[str]:
+        """FDS의 "처음 보내는 계좌" 판정용"""
+        return set(await db.scalars(select(Recipient.account_num).where(Recipient.user_id == user_id)))
+
     async def touch_last_sent_at(
         self, db: AsyncSession, user_id: int, account_num: str, sent_at: datetime
     ) -> None:

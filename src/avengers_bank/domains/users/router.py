@@ -7,6 +7,7 @@ from avengers_bank.core.database import get_db
 from avengers_bank.core.dependencies import get_current_user
 from avengers_bank.core.responses import SuccessResponse, error_responses
 from avengers_bank.domains.users.schemas import (
+    PinUpdate,
     TokenResponse,
     UserCreate,
     UserLogin,
@@ -48,6 +49,20 @@ async def login(
 )
 async def get_me(current_user: Annotated[UserResponse, Depends(get_current_user)]):
     return SuccessResponse[UserResponse](data=current_user)
+
+
+@router.put(
+    "/me/pin",
+    response_model=SuccessResponse[UserResponse],
+    responses=error_responses(401),
+)
+async def set_pin(
+    data: PinUpdate,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: Annotated[UserResponse, Depends(get_current_user)],
+):
+    user = await user_service.set_pin(db, current_user.user_id, data)
+    return SuccessResponse[UserResponse](data=user, message="이체 PIN이 등록되었습니다.")
 
 
 @router.patch(

@@ -1,6 +1,6 @@
 from typing import Annotated
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from avengers_bank.core.database import get_db
@@ -26,8 +26,11 @@ CurrentUser = Annotated[UserResponse, Depends(get_current_user)]
 
 
 @router.post("", response_model=SuccessResponse[TransferResponse])
-async def transfer(data: TransferCreate, db: Db, current_user: CurrentUser):
-    result = await transfer_service.transfer(db, data, current_user)
+async def transfer(data: TransferCreate, db: Db, current_user: CurrentUser, request: Request):
+    """FDS 판정에 따라 400 `FDS_BLOCKED`, `ADDITIONAL_AUTH_REQUIRED`(PIN을 넣어 다시 요청), `INVALID_PIN`이
+    나갈 수 있다. 이때 `error.extra`에 규칙 이름, ML 점수, 주요 요인, 경고 문구가 들어 있다."""
+    client_ip = request.client.host if request.client else None
+    result = await transfer_service.transfer(db, data, current_user, client_ip)
     return SuccessResponse[TransferResponse](data=result, message="이체가 완료되었습니다.")
 
 

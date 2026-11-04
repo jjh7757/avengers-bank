@@ -4,3 +4,4 @@ __pycache__/
 *.py[cod]
 .pytest_cache/
 *.db
+fds_training/data/

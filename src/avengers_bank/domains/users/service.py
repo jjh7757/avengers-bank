@@ -14,7 +14,7 @@ from avengers_bank.core.security import (
 )
 from avengers_bank.domains.users.models import User
 from avengers_bank.domains.users.repository import user_repository
-from avengers_bank.domains.users.schemas import UserCreate, UserLogin, UserUpdate
+from avengers_bank.domains.users.schemas import PinUpdate, UserCreate, UserLogin, UserUpdate
 
 
 class UserService:
@@ -61,6 +61,25 @@ class UserService:
                 message="유효하지 않거나 만료된 토큰입니다.", code="INVALID_TOKEN"
             )
         return user
+
+    async def set_pin(self, db: AsyncSession, user_id: int, data: PinUpdate) -> User:
+        async with db.begin():
+            user = await user_repository.find_by_id(db, user_id)
+            if user is None or not await run_in_threadpool(
+                verify_password, data.password, user.hashed_password
+            ):
+                raise UnauthorizedException(
+                    message="비밀번호가 올바르지 않습니다.", code="INVALID_CREDENTIALS"
+                )
+            user.hashed_pin = await run_in_threadpool(hash_password, data.pin)
+            await db.flush()
+        return user
+
+    async def verify_pin(self, user: User, pin: str) -> bool:
+        """transfers가 FDS MEDIUM 판정 때 쓴다. PIN 미등록이면 False."""
+        if user.hashed_pin is None:
+            return False
+        return await run_in_threadpool(verify_password, pin, user.hashed_pin)
 
     async def update_me(self, db: AsyncSession, user_id: int, data: UserUpdate) -> User:
         changes = data.model_dump(exclude_unset=True)

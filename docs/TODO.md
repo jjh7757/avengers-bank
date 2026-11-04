@@ -63,29 +63,31 @@
 ## 2. 합성 데이터 + FDS (5일)
 
 ### 2-1. 데이터
-- [ ] `fds_training/` 폴더, `pyproject.toml`에 `lightgbm`, `pandas`, `scikit-learn`, `shap` 추가 (dev 또는 별도 그룹)
-- [ ] `fds_training/generate_data.py`: 정상 사용자 500명 × 3개월 거래 (급여일 입금, 월세, 소액 결제, 평소 시간대·수취인 패턴)
-- [ ] 사기 시나리오 3종 주입 (계정 탈취, 보이스피싱, 테스트 송금 후 고액), 비율 1~2%
-- [ ] 각 거래에 `input_mode`, `session_keyword_count` 같은 세션 피처도 생성
-- [ ] 시간 기준 분할 (앞 2개월 train, 뒤 1개월 valid) → `fds_training/data/*.parquet`
+- [x] `fds_training/` 폴더, `pyproject.toml`에 `lightgbm`, `pandas`, `scikit-learn`, `shap` 추가 (dev 또는 별도 그룹)
+- [x] `fds_training/generate_data.py`: 정상 사용자 500명 × 3개월 거래 (급여일 입금, 월세, 소액 결제, 평소 시간대·수취인 패턴)
+- [x] 사기 시나리오 3종 주입 (계정 탈취, 보이스피싱, 테스트 송금 후 고액), 비율 1~2%
+- [x] 각 거래에 `input_mode`, `session_keyword_count` 같은 세션 피처도 생성
+- [x] 시간 기준 분할 (앞 2개월 train, 뒤 1개월 valid) → `fds_training/data/*.parquet`
 
 ### 2-2. 피처·모델
-- [ ] `src/avengers_bank/domains/fds/features.py`: 피처 계산 함수 (학습 스크립트와 서비스가 같은 코드 사용)
-- [ ] `fds_training/train.ipynb` 또는 `train.py`: LightGBM 학습, `scale_pos_weight`, early stopping
-- [ ] 평가: PR-AUC, 재현율 80%에서의 정밀도, 놓친 사기 금액, 오탐 건수 → `fds_training/results.md`에 기록
-- [ ] SHAP summary plot 저장
-- [ ] 모델 저장 `fds_training/model/lgbm.txt`, 임계값 (0.3 / 0.7) 검증 데이터로 조정
+- [x] `src/avengers_bank/domains/fds/features.py`: 피처 계산 함수 (학습 스크립트와 서비스가 같은 코드 사용)
+- [x] `fds_training/train.py`: LightGBM 학습, `scale_pos_weight`, early stopping
+- [x] 평가: PR-AUC, 재현율 80%에서의 정밀도, 놓친 사기 금액, 오탐 건수 → `fds_training/results.md`에 기록
+- [x] SHAP summary plot 저장
+- [x] 모델 저장 `fds_training/model/lgbm.txt`, 임계값 (0.3 / 0.7) 검증 데이터로 조정 → 조정값(0.89/0.91)은 MEDIUM 구간이 사라지고 과적합 위험이 커서 0.3/0.7 유지
 
 ### 2-3. 서비스 연동
-- [ ] `domains/fds/models.py`: `fds_logs`, `user_devices` + Alembic 마이그레이션
-- [ ] `domains/fds/rules.py`: 규칙 8개 (1회·1일 한도, 신규 수취인 고액, 심야 고액, 새 기기, 잔액 소진, 반복 시도, 대화 키워드)
-- [ ] `domains/fds/scorer.py`: 모델 로드(앱 시작 시 1회), 피처 → 점수
-- [ ] `domains/fds/service.py`: `evaluate()` → `LOW / MEDIUM / HIGH` + rule_hits + ml_score, `fds_logs` 저장
-- [ ] `transfers/service.py`에 `fds_service.evaluate()` 삽입. HIGH → `FDS_BLOCKED`, MEDIUM + PIN 미검증 → `ADDITIONAL_AUTH_REQUIRED`
-- [ ] `POST /transfers` 요청에 `pin`(선택), `device_fingerprint`, `session_id` 필드 추가
-- [ ] 요청 헤더나 바디에서 device fingerprint 받아 `user_devices` 갱신
-- [ ] `GET /fds/logs` (본인 것만, 대시보드용)
-- [ ] `tests/test_fds.py` (규칙별 1건, LOW/MEDIUM/HIGH 각 1건)
+- [x] `domains/fds/models.py`: `fds_logs`, `user_devices` + Alembic 마이그레이션
+- [x] `domains/fds/rules.py`: 규칙 8개 (1회·1일 한도, 신규 수취인 고액, 심야 고액, 새 기기, 잔액 소진, 반복 시도, 대화 키워드) + MEDIUM 3개 이상이면 HIGH
+- [x] `domains/fds/scorer.py`: 모델 로드(앱 시작 시 1회), 피처 → 점수
+- [x] `domains/fds/service.py`: `evaluate()` → `LOW / MEDIUM / HIGH` + rule_hits + ml_score, `fds_logs` 저장
+- [x] `transfers/service.py`에 `fds_service.evaluate()` 삽입. HIGH → `FDS_BLOCKED`, MEDIUM + PIN 미검증 → `ADDITIONAL_AUTH_REQUIRED`
+- [x] `POST /transfers` 요청에 `pin`(선택), `device_fingerprint`, `session_id` 필드 추가
+- [x] 요청 바디에서 device fingerprint 받아 `user_devices` 갱신 (이체 성공 시에만 등록)
+- [x] 이체 PIN: `users.hashed_pin`, `PUT /users/me/pin`
+- [ ] 대화 키워드 규칙에 실제 채팅 메시지 연결 (3단계 `chat_messages` 생긴 뒤, `transfers.service`의 `session_texts`)
+- [x] `GET /fds/logs` (본인 것만, 대시보드용)
+- [x] `tests/test_fds.py` (규칙별 1건, LOW/MEDIUM/HIGH 각 1건)
 
 ## 3. AUI 에이전트 (6일)
 

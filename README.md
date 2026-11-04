@@ -39,9 +39,21 @@ uv run pytest
 
 테스트는 SQLite로 돌아가서 PostgreSQL 없이도 실행됩니다.
 
+> Windows에서는 `uv run fastapi run`이 psycopg 비동기 모드와 맞지 않아 DB 연결에 실패합니다. 개발 중에는 `fastapi dev`를 쓰세요.
+
+## FDS 모델 다시 학습하기
+
+학습용 패키지는 `fds` 그룹에 있습니다. 학습된 모델(`fds_training/model/`)은 저장소에 포함되어 있어서 서버 실행에는 필요 없습니다.
+
+```bash
+uv run --group fds python fds_training/generate_data.py   # 합성 데이터 → fds_training/data/ (git 제외)
+uv run --group fds python fds_training/train.py           # 모델·임계값·results.md·SHAP 그림
+```
+
 ## 현재 상태
 
 | 도메인 | 상태 |
 |---|---|
 | users, products, accounts, transfers, cards, recipients | ✅ 1단계 백엔드 API 완료 ([API_ENDPOINTS.md](docs/API_ENDPOINTS.md)) |
-| fds, chat(에이전트), frontend | 📝 [TODO.md](docs/TODO.md) 2단계부터 |
+| fds | ✅ 2단계 규칙 엔진 + LightGBM, 이체에 연결 ([results.md](fds_training/results.md)) |
+| chat(에이전트), frontend | 📝 [TODO.md](docs/TODO.md) 3단계부터 |
