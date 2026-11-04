@@ -103,6 +103,9 @@
 ```json
 { "nickname": "월급통장", "per_transfer_limit": 1000000 }
 ```
+한도를 **높일 때는** 이체 PIN이 필요하다: `{ "daily_transfer_limit": 30000000, "pin": "123456" }`.
+PIN이 없으면 `400 PIN_NOT_SET`, 안 보내면 `400 PIN_REQUIRED`, 틀리면 `400 INVALID_PIN`. 낮추기·별칭 변경은 PIN 없이 된다.
+대화(MCP `lower_transfer_limits`)로는 낮추기만 된다 (`LIMIT_RAISE_NOT_ALLOWED`).
 
 `GET /accounts` → `200`
 ```json

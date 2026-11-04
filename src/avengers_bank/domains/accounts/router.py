@@ -102,5 +102,6 @@ async def update_account(
     db: Db,
     current_user: CurrentUser,
 ):
+    """보낸 필드만 바꾼다. 이체 한도를 **높일 때는** `pin`이 필요하다 (`400 PIN_NOT_SET` / `PIN_REQUIRED` / `INVALID_PIN`)."""
     account = await account_service.update_account(db, account_type, account_id, data, current_user)
     return SuccessResponse[AccountDetailResponse](data=account, message="계좌 정보가 변경되었습니다.")

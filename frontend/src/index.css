@@ -181,6 +181,10 @@ button:disabled {
   margin: 1.5rem 0;
 }
 
+.limit-form {
+  margin: 0.75rem 0 0;
+}
+
 .form label,
 .pin-form label {
   display: flex;

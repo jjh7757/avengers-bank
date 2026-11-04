@@ -106,7 +106,7 @@ async def lower_transfer_limits(
     for name, value in (("per_transfer_limit", per_transfer_limit), ("daily_transfer_limit", daily_transfer_limit)):
         if value is not None and value > getattr(current, name):
             raise BadRequestException(
-                code="LIMIT_RAISE_NOT_ALLOWED", message="대화로는 이체 한도를 낮추기만 할 수 있어요. 높이기는 앱의 계좌 화면에서 해 주세요."
+                code="LIMIT_RAISE_NOT_ALLOWED", message="대화로는 이체 한도를 낮추기만 할 수 있어요. 높이기는 앱의 계좌 상세 화면에서 이체 PIN을 확인한 뒤 할 수 있어요."
             )
     changes = {k: v for k, v in {"per_transfer_limit": per_transfer_limit, "daily_transfer_limit": daily_transfer_limit}.items() if v is not None}
     return summary(await account_service.update_account(db, "checking", checking_account_id, AccountUpdate(**changes), user))

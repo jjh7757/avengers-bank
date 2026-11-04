@@ -28,6 +28,12 @@ export const authApi = {
 export const accountApi = {
   list: () => api<AccountSummary[]>('/accounts'),
   get: (type: AccountType, id: number) => api<AccountDetail>(`/accounts/${type}/${id}`),
+  /** 한도를 높일 때는 pin이 필요하다 (PIN_NOT_SET / PIN_REQUIRED / INVALID_PIN) */
+  update: (
+    type: AccountType,
+    id: number,
+    body: { nickname?: string; per_transfer_limit?: number; daily_transfer_limit?: number; pin?: string },
+  ) => api<AccountDetail>(`/accounts/${type}/${id}`, { method: 'PATCH', body }),
   histories: (type: AccountType, id: number) => api<AccountHistory[]>(`/accounts/${type}/${id}/histories`),
 }
 

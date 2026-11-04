@@ -35,6 +35,7 @@ from avengers_bank.domains.accounts.schemas import (
 )
 from avengers_bank.domains.products.service import product_service
 from avengers_bank.domains.users.repository import user_repository
+from avengers_bank.domains.users.service import user_service
 from avengers_bank.domains.users.schemas import UserResponse
 
 # 계좌번호 형식: 110-XXX-XXXXXX (입출금), 220-… (예금), 330-… (적금)
@@ -170,6 +171,7 @@ class AccountService:
         current_user: UserResponse,
     ) -> AccountDetailResponse:
         changes = data.model_dump(exclude_unset=True)
+        pin = changes.pop("pin", None)
         async with db.begin():
             account = await self.get_owned_account(db, account_type, account_id, current_user.user_id)
 
@@ -184,6 +186,7 @@ class AccountService:
                     raise BadRequestException(
                         code="INVALID_TRANSFER_LIMIT", message="이체 한도는 비울 수 없습니다."
                     )
+            raising = any(changes[field] > getattr(account, field) for field in limit_fields)
 
             for field, value in changes.items():
                 setattr(account, field, value)
@@ -193,8 +196,22 @@ class AccountService:
                     code="INVALID_TRANSFER_LIMIT",
                     message="1회 이체 한도는 1일 이체 한도보다 클 수 없습니다.",
                 )
+            if raising:  # 값이 맞는지 먼저 알려 주고, 그다음 PIN을 확인한다
+                await self._check_limit_raise_pin(db, current_user.user_id, pin)
             await db.flush()
             return to_detail(account_type, account)
+
+    async def _check_limit_raise_pin(self, db: AsyncSession, user_id: int, pin: str | None) -> None:
+        """이체 한도를 높일 때는 이체 PIN을 확인한다 (낮추기는 바로 된다)."""
+        user = await user_repository.find_by_id(db, user_id)
+        if not user.has_pin:
+            raise BadRequestException(
+                code="PIN_NOT_SET", message="이체 한도를 높이려면 먼저 설정에서 이체 PIN을 등록해 주세요."
+            )
+        if pin is None:
+            raise BadRequestException(code="PIN_REQUIRED", message="이체 한도를 높이려면 이체 PIN이 필요해요.")
+        if not await user_service.verify_pin(user, pin):
+            raise BadRequestException(code="INVALID_PIN", message="이체 PIN이 올바르지 않습니다.")
 
     async def find_checking_holder(self, db: AsyncSession, account_num: str) -> str:
         """입출금 계좌번호 → 예금주 이름. 에이전트가 계좌번호로 직접 보낼 때 확인 카드에 쓴다."""

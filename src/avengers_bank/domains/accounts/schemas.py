@@ -49,6 +49,8 @@ class AccountUpdate(_TransferLimits):
     nickname: str | None = Field(default=None, max_length=50)
     per_transfer_limit: int | None = Field(default=None, gt=0, le=MAX_TRANSFER_LIMIT)
     daily_transfer_limit: int | None = Field(default=None, gt=0, le=MAX_TRANSFER_LIMIT)
+    # 한도를 높일 때만 필요하다. 로그인이 탈취됐거나 보이스피싱범이 시켜도 한도를 올려 빼 가지 못하게
+    pin: str | None = Field(default=None, pattern=r"^\d{6}$", repr=False, description="이체 PIN 6자리 (한도를 높일 때)")
 
 
 class AccountSummaryResponse(BaseModel):

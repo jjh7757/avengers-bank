@@ -1,8 +1,9 @@
-import { useCallback } from 'react'
+import { useCallback, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 
 import { accountApi } from '../api/endpoints'
-import type { AccountType } from '../api/types'
+import type { AccountDetail, AccountType } from '../api/types'
+import TransferLimitForm from '../components/TransferLimitForm'
 import { useLoad } from '../hooks/useLoad'
 import { ACCOUNT_TYPE_LABEL, HISTORY_TYPE_LABEL, dateTime, signedWon, won } from '../lib/format'
 
@@ -13,7 +14,9 @@ export default function AccountDetailPage() {
   const { data, error, loading } = useLoad(
     useCallback(() => Promise.all([accountApi.get(type, id), accountApi.histories(type, id)]), [type, id]),
   )
-  const [account, histories] = data ?? [null, null]
+  const [loaded, histories] = data ?? [null, null]
+  const [updated, setUpdated] = useState<AccountDetail | null>(null) // 한도를 바꾼 뒤의 계좌
+  const account = updated?.account_id === id && type === 'checking' ? updated : loaded
 
   return (
     <section className="page">
@@ -51,6 +54,7 @@ export default function AccountDetailPage() {
               </>
             )}
           </dl>
+          {type === 'checking' && <TransferLimitForm key={account.account_id} account={account} onSaved={setUpdated} />}
 
           <h2>거래내역</h2>
           {histories.length === 0 && <p className="muted">거래내역이 없어요.</p>}

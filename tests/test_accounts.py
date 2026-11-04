@@ -120,6 +120,36 @@ async def test_update_nickname_and_limits(client, user):
     assert response.json()["error"]["code"] == "INVALID_TRANSFER_LIMIT"
 
 
+async def test_raising_limit_requires_pin(client, user):
+    """한도 낮추기는 바로, 높이기는 이체 PIN 확인 후에만"""
+    account = await open_checking(client, user)
+    path = f"/accounts/checking/{account['account_id']}"
+
+    response = await client.patch(path, headers=user, json={"daily_transfer_limit": 2_000_000, "per_transfer_limit": 1_000_000})
+    assert response.status_code == 200
+
+    response = await client.patch(path, headers=user, json={"daily_transfer_limit": 30_000_000})
+    assert response.json()["error"]["code"] == "PIN_NOT_SET"
+
+    await client.put("/users/me/pin", headers=user, json={"password": "password1234", "pin": "123456"})
+    response = await client.patch(path, headers=user, json={"daily_transfer_limit": 30_000_000})
+    assert response.json()["error"]["code"] == "PIN_REQUIRED"
+    response = await client.patch(path, headers=user, json={"daily_transfer_limit": 30_000_000, "pin": "000000"})
+    assert response.json()["error"]["code"] == "INVALID_PIN"
+    detail = (await client.get(path, headers=user)).json()["data"]
+    assert detail["daily_transfer_limit"] == 2_000_000  # 실패하면 아무것도 바뀌지 않는다
+
+    response = await client.patch(path, headers=user, json={"daily_transfer_limit": 30_000_000, "pin": "123456"})
+    assert response.status_code == 200
+    assert response.json()["data"]["daily_transfer_limit"] == 30_000_000
+
+    # 한쪽은 낮추고 한쪽은 높이면 PIN 필요, 별칭만 바꾸면 필요 없음
+    response = await client.patch(path, headers=user, json={"daily_transfer_limit": 20_000_000, "per_transfer_limit": 5_000_000})
+    assert response.json()["error"]["code"] == "PIN_REQUIRED"
+    response = await client.patch(path, headers=user, json={"nickname": "생활비"})
+    assert response.status_code == 200
+
+
 async def test_update_limit_on_savings_rejected(client, user):
     response = await client.post(
         "/accounts/savings",
