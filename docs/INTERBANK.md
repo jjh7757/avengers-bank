@@ -110,4 +110,4 @@ AvengersBank ◀──POST /interbank/inquiry · /interbank/receive · GET /inte
 ## 다음 단계
 
 - 수취인 등록에 은행 코드 (타행 수취인도 "처음 보내는 계좌" 검사를 건너뛸 수 있게)
-- 배포 서버 `.env`에 허브 값 넣기 (허브 배포 후)
+- (완료) 배포 서버 허브 연결: [DEPLOY.md](DEPLOY.md)의 "타행 이체: ClearingHub 연결"
