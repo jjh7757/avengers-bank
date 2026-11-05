@@ -22,7 +22,7 @@ async def search_products(
     keyword: str | None = Field(default=None, max_length=30, description="이름·설명에서 찾을 단어 (예: 적금, 청년)"),
 ) -> dict:
     """상품 찾기. 키워드로 못 찾으면 전체 목록을 돌려준다"""
-    # TODO(6단계 선택): RAG(Chroma)로 상품 설명·약관 검색
+    # 약관·FAQ 같은 자세한 규칙은 knowledge 서버의 search_terms가 맡는다
     products = []
     if kind in ("account", "all"):
         products += [AccountProductResponse.model_validate(p).model_dump(mode="json")

@@ -33,7 +33,8 @@ avengers-bank/
     │   ├── exception_handlers.py
     │   └── responses.py    # SuccessResponse, ErrorResponse 형식
     ├── agents/             # LangGraph 에이전트: graph(흐름), mcp_client(MCP 도구 사용), prompts, state, llm(Gemini)
-    ├── mcp_servers/        # MCP 서버 5개: accounts, transfers, products, cards, security (docs/MCP_SERVERS.md)
+    ├── mcp_servers/        # MCP 서버 6개: accounts, transfers, products, cards, security, knowledge (docs/MCP_SERVERS.md)
+    ├── knowledge/          # 약관·FAQ 검색 (Gemini 임베딩 + 키워드 대체). 문서는 data/knowledge/
     └── domains/
         ├── users/          # 회원가입, 로그인, 내 정보 수정
         ├── products/       # 계좌·카드 상품 조회 (+ seed.py)

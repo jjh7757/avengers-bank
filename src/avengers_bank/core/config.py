@@ -12,6 +12,7 @@ class Settings(BaseSettings):
     gemini_api_key: SecretStr | None = None
     gemini_fast_model: str = "gemini-2.5-flash"  # 매 메시지: 의도 분류·슬롯 추출 (빠른 응답)
     gemini_chat_model: str = "gemini-3.8-flash"  # 조회·상담 답변 (도구 호출)
+    gemini_embedding_model: str = "gemini-embedding-001"  # 약관·FAQ 검색 (knowledge MCP 서버)
     confirmation_expire_minutes: int = Field(default=5, gt=0)  # 이체 확인 카드 유효 시간
     # 음성 승인 (화자 인증). 키가 없으면 목소리 등록·음성 승인을 쓸 수 없고 버튼 승인만 된다
     voice_encryption_key: SecretStr | None = None  # Fernet 키 (목소리 특징 암호화)

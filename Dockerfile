@@ -23,6 +23,7 @@ COPY src ./src
 COPY alembic ./alembic
 COPY alembic.ini ./
 COPY data/seed ./data/seed
+COPY data/knowledge ./data/knowledge
 COPY fds_training/model ./fds_training/model
 COPY scripts ./scripts
 RUN uv sync --frozen --no-dev

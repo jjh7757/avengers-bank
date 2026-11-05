@@ -2,6 +2,7 @@
 
     /mcp/accounts/mcp   계좌      /mcp/transfers/mcp  이체·수취인    /mcp/products/mcp  상품
     /mcp/cards/mcp      카드      /mcp/security/mcp   FDS·음성 승인 상태
+    /mcp/knowledge/mcp  상품 약관·FAQ 검색 (RAG)
 
 외부 MCP 클라이언트(Claude Desktop 등)도 같은 주소에 `Authorization: Bearer <JWT>`로 붙을 수 있다.
 """
@@ -12,7 +13,7 @@ from contextlib import AsyncExitStack, asynccontextmanager
 from fastapi import FastAPI
 from mcp.server.fastmcp import FastMCP
 
-from avengers_bank.mcp_servers import accounts, cards, products, security, transfers
+from avengers_bank.mcp_servers import accounts, cards, knowledge, products, security, transfers
 
 SERVERS: dict[str, FastMCP] = {
     "accounts": accounts.server,
@@ -20,6 +21,7 @@ SERVERS: dict[str, FastMCP] = {
     "products": products.server,
     "cards": cards.server,
     "security": security.server,
+    "knowledge": knowledge.server,
 }
 MCP_PATH = "/mcp"
 

@@ -23,8 +23,9 @@ async def mcp_for(client, headers) -> BankMcpClient:
 async def test_servers_and_llm_tools(client, user):
     mcp = await mcp_for(client, user)
     names = {tool.name for tool in await mcp.llm_tools()}
-    assert len(SERVERS) == 5
-    assert {"get_my_accounts", "open_checking_account", "search_products", "get_my_cards", "get_fds_logs"} <= names
+    assert len(SERVERS) == 6
+    assert {"get_my_accounts", "open_checking_account", "search_products", "get_my_cards", "get_fds_logs",
+            "search_terms"} <= names
     assert not LLM_EXCLUDED & names
 
 
