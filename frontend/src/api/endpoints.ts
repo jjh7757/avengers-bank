@@ -4,6 +4,7 @@ import type {
   AccountHistory,
   AccountSummary,
   AccountType,
+  Bank,
   CardDetail,
   CardHistory,
   CardSummary,
@@ -12,6 +13,8 @@ import type {
   ProductKind,
   ProductTerms,
   FdsLog,
+  HolderInquiryResult,
+  InterbankTransfer,
   Product,
   UiContext,
   TransferResult,
@@ -71,6 +74,8 @@ export const chatApi = {
 
 export interface TransferRequest {
   from_checking_account_id: number
+  /** 받는 은행 코드. 비우면 우리 은행 */
+  to_bank?: string
   to_account_num: string
   amount: number
   session_id?: string
@@ -83,6 +88,12 @@ export interface TransferRequest {
 
 export const transferApi = {
   transfer: (body: TransferRequest) => api<TransferResult>('/transfers', { method: 'POST', body }),
+  /** 보내기 전에 받는 분 이름 확인 (다른 은행이면 ClearingHub에 묻는다) */
+  inquiry: (body: { to_bank?: string; to_account_num: string }) =>
+    api<HolderInquiryResult>('/transfers/inquiry', { method: 'POST', body }),
+  /** 다른 은행 이체로 보낼 수 있는 은행 (허브 설정이 없으면 503 INTERBANK_UNAVAILABLE) */
+  banks: () => api<Bank[]>('/transfers/banks'),
+  interbank: () => api<InterbankTransfer[]>('/transfers/interbank'),
   /** 내 입출금 → 내 적금 (amount를 비우면 월 납입액) */
   paySavings: (body: { from_checking_account_id: number; savings_account_id: number; amount?: number }) =>
     api<TransferResult>('/transfers/savings', { method: 'POST', body }),

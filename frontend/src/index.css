@@ -848,3 +848,43 @@ select {
   justify-content: flex-end;
   margin: -0.25rem 0 0.5rem;
 }
+
+/* ---------- 이체 화면 ---------- */
+.transfer-form select {
+  font: inherit;
+  min-height: 52px;
+}
+
+.quick-amounts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  font-weight: 400;
+}
+
+.transfer-page .transfer-card {
+  margin: 1rem 0;
+}
+
+.transfer-page h2 {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.caution-note {
+  margin: 0.75rem 0 0;
+  padding: 0.75rem;
+  border-radius: 10px;
+  background: var(--caution-bg);
+  color: var(--caution);
+}
+
+.badge.interbank-pending {
+  color: var(--caution);
+}
+
+.badge.interbank-failed {
+  color: var(--danger);
+}

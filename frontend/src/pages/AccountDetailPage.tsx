@@ -30,6 +30,11 @@ export default function AccountDetailPage() {
           <h1>{account.nickname ?? `${ACCOUNT_TYPE_LABEL[type]} 계좌`}</h1>
           <p className="muted">{account.account_num}</p>
           <p className="balance">{won(account.balance)}</p>
+          {type === 'checking' && (
+            <Link className="button primary" to={`/transfer?from=${account.account_id}`}>
+              이 계좌에서 이체하기
+            </Link>
+          )}
           <dl className="facts">
             {account.per_transfer_limit != null && (
               <>

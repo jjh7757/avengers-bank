@@ -12,9 +12,14 @@ export default function AccountsPage() {
   return (
     <section className="page">
       <h1>내 계좌</h1>
-      <Link className="button small" to="/products?kind=account">
-        + 새 계좌 만들기
-      </Link>
+      <div className="button-row">
+        <Link className="button primary" to="/transfer">
+          이체하기
+        </Link>
+        <Link className="button" to="/products?kind=account">
+          + 새 계좌 만들기
+        </Link>
+      </div>
       {loading && <p className="muted">불러오는 중…</p>}
       {error && <p className="error">{error}</p>}
       {accounts && (

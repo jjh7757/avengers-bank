@@ -165,6 +165,36 @@ export interface TransferResult {
   balance_after: number
   transferred_at: string
   risk_level: string | null
+  /** 다른 은행 이체일 때 */
+  to_bank?: string | null
+  transfer_id?: string | null
+  /** PENDING: 출금됐고 받는 은행이 확인 중 (다른 은행 이체만) */
+  status?: 'COMPLETED' | 'PENDING'
+}
+
+export interface Bank {
+  bank_code: string
+  name: string
+}
+
+export interface HolderInquiryResult {
+  to_bank: string
+  bank_name: string
+  to_account_num: string
+  holder_name: string
+}
+
+export interface InterbankTransfer {
+  transfer_id: string
+  to_bank: string
+  to_account: string
+  to_holder_name: string | null
+  amount: number
+  status: 'PENDING' | 'COMPLETED' | 'FAILED'
+  fail_code: string | null
+  fail_message: string | null
+  created_at: string
+  finished_at: string | null
 }
 
 export interface RuleHit {

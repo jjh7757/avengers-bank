@@ -234,6 +234,21 @@ async def test_own_bank_code_is_internal_transfer(client, user, other_user, hub)
     assert hub.transfer_calls == []
 
 
+async def test_holder_inquiry(client, user, other_user, hub):
+    target = await open_checking(client, other_user)
+    own = await client.post("/transfers/inquiry", headers=user, json={"to_account_num": target["account_num"]})
+    assert own.json()["data"] == {"to_bank": "901", "bank_name": "AvengersBank", "to_account_num": target["account_num"],
+                                  "holder_name": "브루스 배너"}
+    ext = await client.post("/transfers/inquiry", headers=user, json={"to_bank": "902", "to_account_num": "110-123-0001"})
+    assert (ext.json()["data"]["bank_name"], ext.json()["data"]["holder_name"]) == ("SimBank", "김철수")
+    missing = await client.post("/transfers/inquiry", headers=user, json={"to_bank": "902", "to_account_num": "110-123-0002"})
+    assert missing.status_code == 404 and missing.json()["error"]["code"] == "ACCOUNT_NOT_FOUND"
+    unknown = await client.post("/transfers/inquiry", headers=user, json={"to_bank": "777", "to_account_num": "110-123-0001"})
+    assert unknown.json()["error"]["code"] == "BANK_NOT_FOUND"
+    own_missing = await client.post("/transfers/inquiry", headers=user, json={"to_account_num": "110-000-000000"})
+    assert own_missing.status_code == 404
+
+
 # ── 받기 (허브 → 우리) ─────────────────────────────────────────
 
 async def hub_call(client, method: str, path: str, payload: dict | None = None, secret: str = SECRET):

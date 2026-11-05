@@ -6,9 +6,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from avengers_bank.core.database import get_db
 from avengers_bank.core.dependencies import get_current_user
 from avengers_bank.core.responses import SuccessResponse, error_responses
+from avengers_bank.core.config import get_settings
+from avengers_bank.core.exceptions import NotFoundException
 from avengers_bank.domains.interbank import service as interbank_service
 from avengers_bank.domains.transfers.schemas import (
     DepositPaymentCreate,
+    HolderInquiry,
+    HolderInquiryResponse,
     InterbankBank,
     InterbankTransferResponse,
     SavingsPaymentCreate,
@@ -36,6 +40,24 @@ async def transfer(data: TransferCreate, db: Db, current_user: CurrentUser, requ
     result = await transfer_service.transfer(db, data, current_user, client_ip)
     message = "이체가 완료되었습니다." if result.status == "COMPLETED" else "받는 은행에서 확인 중입니다. 잠시 후 결과를 알려 드려요."
     return SuccessResponse[TransferResponse](data=result, message=message)
+
+
+@router.post("/inquiry", response_model=SuccessResponse[HolderInquiryResponse])
+async def inquiry(data: HolderInquiry, db: Db, current_user: CurrentUser):
+    """받는 분 이름 확인 (이체 화면의 확인 단계). 다른 은행이면 ClearingHub에 묻는다. 돈은 움직이지 않는다."""
+    if interbank_service.is_external(data.to_bank):
+        banks = {b["bank_code"]: b["name"] for b in await interbank_service.list_banks()}
+        if data.to_bank not in banks:
+            raise NotFoundException(code="BANK_NOT_FOUND", message="보낼 수 없는 은행이에요.")
+        name, bank_name = await interbank_service.inquiry(data.to_bank, data.to_account_num), banks[data.to_bank]
+    else:
+        name, bank_name = await interbank_service.holder_name_of(db, data.to_account_num), "AvengersBank"
+        if name is None:
+            raise NotFoundException(code="ACCOUNT_NOT_FOUND", message="받는 계좌를 찾을 수 없습니다.")
+    return SuccessResponse[HolderInquiryResponse](data=HolderInquiryResponse(
+        to_bank=data.to_bank or get_settings().bank_code, bank_name=bank_name,
+        to_account_num=data.to_account_num, holder_name=name,
+    ))
 
 
 @router.get("/banks", response_model=SuccessResponse[list[InterbankBank]])

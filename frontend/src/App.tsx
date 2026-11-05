@@ -14,6 +14,7 @@ import ProductSignupPage from './pages/ProductSignupPage'
 import ProductsPage from './pages/ProductsPage'
 import SettingsPage from './pages/SettingsPage'
 import SignupPage from './pages/SignupPage'
+import TransferPage from './pages/TransferPage'
 import StagePage from './stage/StagePage'
 
 function RequireAuth({ children }: { children: ReactNode }) {
@@ -48,6 +49,7 @@ export default function App() {
         <Route path="/chat" element={<ChatPage />} />
         <Route path="/accounts" element={<AccountsPage />} />
         <Route path="/accounts/:type/:id" element={<AccountDetailPage />} />
+        <Route path="/transfer" element={<TransferPage />} />
         <Route path="/cards" element={<CardsPage />} />
         <Route path="/cards/:type/:id" element={<CardDetailPage />} />
         <Route path="/products" element={<ProductsPage />} />

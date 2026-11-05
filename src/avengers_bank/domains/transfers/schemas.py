@@ -62,6 +62,20 @@ class TransferResponse(BaseModel):
     status: Literal["COMPLETED", "PENDING"] = "COMPLETED"  # PENDING: 출금됐고 받는 은행 확인 중 (타행만)
 
 
+class HolderInquiry(BaseModel):
+    """POST /transfers/inquiry — 보내기 전에 받는 분 이름 확인"""
+
+    to_bank: str | None = Field(default=None, pattern=r"^\d{3}$")
+    to_account_num: str = Field(min_length=1, max_length=20)
+
+
+class HolderInquiryResponse(BaseModel):
+    to_bank: str
+    bank_name: str
+    to_account_num: str
+    holder_name: str
+
+
 class InterbankBank(BaseModel):
     bank_code: str
     name: str

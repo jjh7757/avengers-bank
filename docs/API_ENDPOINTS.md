@@ -128,6 +128,7 @@ PIN이 없으면 `400 PIN_NOT_SET`, 안 보내면 `400 PIN_REQUIRED`, 틀리면 
 | ✅ | POST | `/transfers` | 🔒 | 입출금 → 입출금 이체 (잔액, 1회·1일 한도 검사) |
 | ✅ | POST | `/transfers/savings` | 🔒 | 입출금 → 적금 납입 |
 | ✅ | POST | `/transfers/deposit` | 🔒 | 입출금 → 예금 입금 |
+| ✅ | POST | `/transfers/inquiry` | 🔒 | 보내기 전 받는 분 이름 확인 `{to_bank?, to_account_num}` → `{to_bank, bank_name, to_account_num, holder_name}`. 다른 은행이면 허브에 묻는다. `404 ACCOUNT_NOT_FOUND`, `404 BANK_NOT_FOUND` |
 | ✅ | GET | `/transfers/banks` | 🔒 | 타행 이체로 보낼 수 있는 은행 (ClearingHub 참가 은행, 우리 제외). 허브 설정이 없으면 `503 INTERBANK_UNAVAILABLE` |
 | ✅ | GET | `/transfers/interbank` | 🔒 | 내 타행 이체와 상태 (`PENDING` / `COMPLETED` / `FAILED`) |
 | ✅ | POST | `/interbank/inquiry`, `/interbank/receive` · GET `/interbank/receive/{id}` | 허브 서명 | ClearingHub 전용: 예금주 조회, 입금(같은 ID는 한 번만), 입금 확인 ([INTERBANK.md](INTERBANK.md)) |

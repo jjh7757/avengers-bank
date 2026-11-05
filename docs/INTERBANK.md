@@ -67,6 +67,19 @@ AvengersBank ◀──POST /interbank/inquiry · /interbank/receive · GET /inte
 | `POST /interbank/receive` | 입금 + `TRANSFER_IN` 거래내역 + `interbank_receipts`를 한 트랜잭션으로. **같은 `transfer_id`는 입금하지 않고 같은 응답** (동시에 두 번 와도 기본 키 충돌로 한 번만) |
 | `GET /interbank/receive/{id}` | 입금했으면 `200 COMPLETED`, 아니면 `404 TRANSFER_NOT_FOUND` (허브가 다시 보낸다) |
 
+## 이체 화면 (`/transfer`)
+
+`frontend/src/pages/TransferPage.tsx`. 모아 없이 직접 보내는 화면이다. 내 계좌 → "이체하기", 입출금 계좌 상세 → "이 계좌에서 이체하기"로 들어온다.
+
+1. 입력: 출금 계좌, 받는 은행(우리 은행 + `GET /transfers/banks`), 계좌번호, 금액(+1만·+5만·+10만·전액)
+2. "다음" → `POST /transfers/inquiry`로 **받는 분 이름을 먼저 보여 준다** (다른 은행이면 허브에 물음, 돈은 안 움직임). 계좌가 없으면 입력 화면에 오류
+3. "보내기" → `POST /transfers`. FDS가 PIN을 요구하면 PIN 입력, 차단하면 경고(`FdsAlert`). 결과는 완료 / "확인 중"(PENDING, 출금됐고 받는 은행 확인 중) / 되돌림(`INTERBANK_FAILED`)
+4. 아래 "다른 은행 이체" 목록: 확인 중·완료·돌려받음, 새로고침
+
+허브를 쓸 수 없으면(설정 없음·응답 없음) 받는 은행에 우리 은행만 나오고 안내 문구를 보여 준다. 화면 이체는 확인 카드(채팅)를 거치지 않으므로 목소리 등록 사용자의 음성 승인·PIN 요구는 없고, FDS 판정(MEDIUM이면 PIN)만 적용된다 (자행 이체 화면과 같은 규칙).
+
+로컬에서 확인: `.claude/launch.json`의 `hub-8010`(ClearingHub, `local_hub.db`), `banksim-8100`(가짜 은행), `backend-8001-hub`(허브 설정을 넣은 백엔드), `frontend-8001`. 허브 DB는 901·902를 고정 테스트 키로 등록한 시드로 만든다.
+
 ## 테이블
 
 | 테이블 | 용도 |
@@ -78,12 +91,12 @@ AvengersBank ◀──POST /interbank/inquiry · /interbank/receive · GET /inte
 
 ## 확인한 것
 
-- `tests/test_interbank.py` (13개): 가짜 허브로 완료, 예금주 조회 실패 시 출금 안 함, 받는 은행 거절 → 되돌림 + 한도 복구, PENDING → 확정/실패, 허브 무응답 → PENDING 유지 → 같은 ID 재전송, 잔액 부족, 채팅 이체 거절, 자행 코드는 자행 이체, 입금 멱등, 오류 형식, 서명 거절
+- 브라우저(로컬, 실제 허브·가짜 은행 서버): SimBank `0001` 5만 원 → 받는 분 "김철수" 확인 → 완료, 잔액 반영 / `0005`(입금됐는데 응답 늦음) → "확인 중" → 허브·우리 확인 태스크가 돈 뒤 새로고침하면 "완료" / `0002` → 입력 화면에 "받는 계좌를 찾을 수 없습니다", 출금 없음. 가짜 은행 입금은 건마다 1번
+- `tests/test_interbank.py` (14개): 받는 분 이름 확인(우리 은행·다른 은행·없는 계좌·없는 은행), 가짜 허브로 완료, 예금주 조회 실패 시 출금 안 함, 받는 은행 거절 → 되돌림 + 한도 복구, PENDING → 확정/실패, 허브 무응답 → PENDING 유지 → 같은 ID 재전송, 잔액 부족, 채팅 이체 거절, 자행 코드는 자행 이체, 입금 멱등, 오류 형식, 서명 거절
 - 실제 ClearingHub + bank_sim 코드와 한 프로세스에서 왕복: 정상 입금, 계좌 없음, "입금됐는데 응답 없음"(`0005`) → 허브 확인 → 우리 확인 → 둘 다 `COMPLETED`·입금 1번, 반대 방향(다른 은행 → 허브 → 우리) 입금과 재전송 시 1번만 입금
 
 ## 다음 단계
 
-- 이체 화면: 받는 은행 선택(`GET /transfers/banks`), `PENDING` 표시, 타행 이체 목록
 - 모아(에이전트): 슬롯에 은행 추가, 확인 카드에 은행 표시 (`Confirmation`에 `to_bank`), `prepare_transfer`의 예금주 확인을 허브로
 - 수취인 등록에 은행 코드 (타행 수취인도 "처음 보내는 계좌" 검사를 건너뛸 수 있게)
 - 배포 서버 `.env`에 허브 값 넣기 (허브 배포 후)

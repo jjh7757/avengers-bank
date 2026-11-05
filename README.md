@@ -109,4 +109,4 @@ uv run --group fds python fds_training/train.py           # 모델·임계값·r
 | 상품 가입·이용약관 | ✅ 앱(`/products`)이나 모아가 가져온 가입 화면에서 약관 동의 후 가입. 서버가 약관 버전을 확인하고 동의 기록을 남김 |
 | 약관·FAQ 상담 (RAG) | ✅ knowledge MCP 서버, Gemini 임베딩 검색 + 키워드 대체 (`data/knowledge/`) |
 | 음성 승인(화자 인증) | ✅ 4-4 구현, 기준값은 실제 목소리로 보정 필요 ([VOICE_AUTH.md](docs/VOICE_AUTH.md)) |
-| 타행 이체 (ClearingHub) | ✅ 백엔드: 보내기(`POST /transfers`의 `to_bank`)·받기(`/interbank/*`)·처리 중 확인. 화면·모아 대화는 다음 단계 ([INTERBANK.md](docs/INTERBANK.md)) |
+| 타행 이체 (ClearingHub) | ✅ 보내기(`POST /transfers`의 `to_bank`)·받기(`/interbank/*`)·처리 중 확인, 이체 화면(`/transfer`: 받는 은행 선택, 받는 분 확인, 확인 중 표시). 모아 대화는 다음 단계 ([INTERBANK.md](docs/INTERBANK.md)) |
