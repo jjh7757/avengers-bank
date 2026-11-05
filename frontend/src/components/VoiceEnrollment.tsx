@@ -1,4 +1,5 @@
 import { useCallback, useState, type FormEvent } from 'react'
+import { CircleCheck } from 'lucide-react'
 
 import { ApiError } from '../api/client'
 import { voiceApi } from '../api/endpoints'
@@ -83,7 +84,7 @@ export default function VoiceEnrollment() {
       {shown.enrolled ? (
         <div className="panel">
           <p>
-            ✅ 목소리가 등록되어 있어요 <span className="muted small">({dateTime(shown.updated_at!)})</span>
+            <CircleCheck size={20} aria-hidden="true" className="inline-icon success" /> 목소리가 등록되어 있어요 <span className="muted small">({dateTime(shown.updated_at!)})</span>
           </p>
           <p className="small muted">이체 확인 카드에서 "확인 + 숫자"를 말하면 승인돼요. 승인 버튼으로 할 때는 PIN이 필요해요.</p>
           <div className="button-row">
@@ -121,7 +122,7 @@ export default function VoiceEnrollment() {
                       onClick={() => toggleRecord(i)}
                       disabled={!recorder.supported || (recorder.recording && recordingIndex !== i)}
                     >
-                      {recordingIndex === i ? '⏹ 녹음 끝' : recordings[i] ? '✅ 다시 녹음' : '🎤 녹음'}
+                      {recordingIndex === i ? '녹음 끝' : recordings[i] ? '다시 녹음' : '녹음'}
                     </button>
                   </li>
                 ))}

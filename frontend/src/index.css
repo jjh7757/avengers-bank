@@ -14,8 +14,12 @@
   --caution: #9a5b00;
   --caution-bg: #fff4dc;
   --success: #1b7a3a;
-  --radius: 14px;
-  font-family: 'Pretendard', 'Apple SD Gothic Neo', 'Malgun Gothic', system-ui, sans-serif;
+  --primary-soft: #e8f0fd;
+  --surface-2: #eef1f6;
+  --shadow: 0 1px 2px rgba(16, 24, 40, 0.04), 0 4px 16px rgba(16, 24, 40, 0.06);
+  --radius: 16px;
+  font-family: 'Pretendard Variable', Pretendard, 'Apple SD Gothic Neo', 'Malgun Gothic', system-ui, sans-serif;
+  letter-spacing: -0.01em;
   font-size: 18px;
   line-height: 1.5;
   color: var(--text);
@@ -39,6 +43,9 @@
     --caution: #f5b851;
     --caution-bg: #3a2d14;
     --success: #6ad48c;
+    --primary-soft: #1a2a47;
+    --surface-2: #232a36;
+    --shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
   }
 }
 

@@ -1,10 +1,12 @@
 import { useCallback, useState, type ReactNode } from 'react'
+import { Copy } from 'lucide-react'
 import { Link } from 'react-router-dom'
 
 import { accountApi, cardApi, fdsApi, productApi } from '../api/endpoints'
 import type { AccountDetail, AccountType, CardType, ProductKind, SignupPrefill, UiSelected } from '../api/types'
 import ProductSignup, { type SignupResult } from '../components/ProductSignup'
 import TransferLimitForm from '../components/TransferLimitForm'
+import { AccountIcon, CardVisual, ErrorState, SkeletonList } from '../components/ui'
 import { useLoad } from '../hooks/useLoad'
 import {
   ACCOUNT_TYPE_LABEL,
@@ -49,8 +51,8 @@ function PickButton({
 }
 
 function Loading({ loading, error }: { loading: boolean; error: string | null }) {
-  if (loading) return <p className="muted">불러오는 중…</p>
-  if (error) return <p className="error">{error}</p>
+  if (loading) return <SkeletonList rows={3} />
+  if (error) return <ErrorState message={error} />
   return null
 }
 
@@ -72,11 +74,17 @@ export function AccountsPanel({ pick }: { pick: Pick }) {
       {data && data.length === 0 && <p className="muted">아직 계좌가 없어요.</p>}
       {data && data.length > 0 && (
         <>
+          <div className="hero-card compact">
+            <p className="hero-label">전체 잔액</p>
+            <p className="hero-amount">{won(data.reduce((sum, a) => sum + a.balance, 0))}</p>
+            <p className="hero-sub">계좌 {data.length}개</p>
+          </div>
           <ul className="list">
             {data.map((a) => (
               <li key={`${a.account_type}-${a.account_id}`}>
                 <PickButton
                   pick={pick}
+                  className="list-item rich"
                   selected={{
                     kind: 'account',
                     label: a.nickname ?? `${ACCOUNT_TYPE_LABEL[a.account_type]} 계좌`,
@@ -84,8 +92,8 @@ export function AccountsPanel({ pick }: { pick: Pick }) {
                     account_id: a.account_id,
                   }}
                 >
-                  <span>
-                    <span className="badge">{ACCOUNT_TYPE_LABEL[a.account_type]}</span>
+                  <AccountIcon type={a.account_type} />
+                  <span className="list-item-body">
                     <strong>{a.nickname ?? `${ACCOUNT_TYPE_LABEL[a.account_type]} 계좌`}</strong>
                     <span className="muted small">{a.account_num}</span>
                   </span>
@@ -94,9 +102,6 @@ export function AccountsPanel({ pick }: { pick: Pick }) {
               </li>
             ))}
           </ul>
-          <p className="total">
-            전체 잔액 <strong>{won(data.reduce((sum, a) => sum + a.balance, 0))}</strong>
-          </p>
         </>
       )}
     </>
@@ -123,7 +128,7 @@ function AccountNumber({ num }: { num: string }) {
     <p className="stage-account-num">
       <span className="muted">{num}</span>
       <button type="button" className="button small" onClick={copy}>
-        복사
+        <Copy size={16} aria-hidden="true" /> 복사
       </button>
       {note && (
         <span className="small muted" role="status">
@@ -147,9 +152,14 @@ export function AccountPanel({ type, id }: { type: AccountType; id: number }) {
       <Loading loading={loading} error={error} />
       {account && histories && (
         <>
-          <p className="stage-panel-title">{account.nickname ?? `${ACCOUNT_TYPE_LABEL[type]} 계좌`}</p>
+          <div className="hero-card compact">
+            <p className="hero-label hero-title">
+              <AccountIcon type={type} />
+              {account.nickname ?? `${ACCOUNT_TYPE_LABEL[type]} 계좌`}
+            </p>
+            <p className="hero-amount">{won(account.balance)}</p>
+          </div>
           <AccountNumber num={account.account_num} />
-          <p className="balance">{won(account.balance)}</p>
           {account.per_transfer_limit != null && (
             <p className="muted small">
               이체 한도 1회 {won(account.per_transfer_limit)} · 1일 {won(account.daily_transfer_limit ?? 0)}
@@ -188,14 +198,11 @@ export function CardPanel({ type, id }: { type: CardType; id: number }) {
       {card && histories && (
         <>
           <p className="stage-panel-title">내 카드</p>
-          <div className="stage-card-face">
-            <span>{CARD_TYPE_LABEL[type]}</span>
-            <span className="stage-card-num">**** **** **** {card.card_num.slice(-4)}</span>
-            <span className="small">
-              이번 달 {won(card.accumulated_amount)}
-              {card.payment_date ? ` · 매월 ${card.payment_date}일 결제` : ' · 사용 즉시 출금'}
-            </span>
-          </div>
+          <CardVisual type={type} cardNum={card.card_num} />
+          <p className="stage-card-summary">
+            이번 달 <strong>{won(card.accumulated_amount)}</strong>
+            <span className="muted small">{card.payment_date ? ` · 매월 ${card.payment_date}일 결제` : ' · 사용 즉시 출금'}</span>
+          </p>
           <p className="stage-subtitle">최근 사용</p>
           {histories.length === 0 && <p className="muted">사용내역이 없어요.</p>}
           <ul className="list">
@@ -228,7 +235,7 @@ export function CardsPanel({ pick }: { pick: Pick }) {
           <PickButton
             key={`${c.card_type}-${c.card_id}`}
             pick={pick}
-            className="stage-card-face"
+            className="card-pick"
             selected={{
               kind: 'card',
               label: `${CARD_TYPE_LABEL[c.card_type]} 끝자리 ${c.card_num.slice(-4)}`,
@@ -236,9 +243,11 @@ export function CardsPanel({ pick }: { pick: Pick }) {
               card_id: c.card_id,
             }}
           >
-            <span>{CARD_TYPE_LABEL[c.card_type]}</span>
-            <span className="stage-card-num">**** **** **** {c.card_num.slice(-4)}</span>
-            <span className="small">이번 달 {won(c.accumulated_amount)}</span>
+            <CardVisual type={c.card_type} cardNum={c.card_num} />
+            <span className="card-link-footer">
+              <span className="muted small">이번 달 사용</span>
+              <strong>{won(c.accumulated_amount)}</strong>
+            </span>
           </PickButton>
         ))}
       </div>
@@ -283,7 +292,7 @@ export function ProductsPanel({
       <Loading loading={loading} error={error} />
       <ul className="list">
         {data?.map((p) => (
-          <li key={`${p.type}-${p.product_id}`}>
+          <li key={`${p.type}-${p.product_id}`} className={`product-item ${recommended(p) ? 'recommended' : ''}`}>
             <PickButton
               pick={pick}
               className={`list-item stage-product ${recommended(p) ? 'recommended' : ''}`}
@@ -302,7 +311,7 @@ export function ProductsPanel({
                 <strong>{p.name}</strong>
                 <span className="muted small">{p.description}</span>
               </span>
-              {p.interest_rate && Number(p.interest_rate) > 0 && <span className="amount">연 {Number(p.interest_rate)}%</span>}
+              {p.interest_rate && Number(p.interest_rate) > 0 && <span className="product-rate">연 {Number(p.interest_rate)}%</span>}
             </PickButton>
             <div className="product-actions">
               <button

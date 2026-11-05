@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { CircleCheck } from 'lucide-react'
 import { Link } from 'react-router-dom'
 
 import { ApiError } from '../api/client'
@@ -218,12 +219,12 @@ export default function TransferCard({ card, sessionId, inputMode, active, autoV
             disabled={status.kind === 'voice_checking' || status.kind === 'sending' || card.insufficient_balance}
           >
             {status.kind === 'voice_listening'
-              ? '⏺ 듣는 중… (다 말하면 누르기)'
+              ? '듣는 중… (다 말하면 누르기)'
               : status.kind === 'voice_checking'
                 ? '목소리 확인 중…'
                 : status.kind === 'sending'
                   ? '보내는 중…'
-                  : '🎤 말로 승인하기'}
+                  : '말로 승인하기'}
           </button>
           {voiceNote && <p className="error small">{voiceNote}</p>}
           {!busy && (
@@ -287,7 +288,7 @@ export default function TransferCard({ card, sessionId, inputMode, active, autoV
       )}
       {status.kind === 'done' && status.result.status !== 'PENDING' && (
         <p className="success">
-          ✅ 보냈어요. 남은 잔액 <strong>{won(status.result.balance_after)}</strong>
+          <CircleCheck size={20} aria-hidden="true" /> 보냈어요. 남은 잔액 <strong>{won(status.result.balance_after)}</strong>
         </p>
       )}
       {status.kind === 'cancelled' && <p className="muted">취소했어요.</p>}

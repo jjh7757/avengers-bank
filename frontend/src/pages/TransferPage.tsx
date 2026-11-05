@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
+import { Building2, ChevronLeft, CircleX, Clock, RefreshCw, ShieldAlert, Wallet } from 'lucide-react'
 import { Link, useSearchParams } from 'react-router-dom'
 
 import { ApiError } from '../api/client'
@@ -6,9 +7,10 @@ import { accountApi, transferApi } from '../api/endpoints'
 import type { AccountSummary, Bank, FdsExtra, HolderInquiryResult, InterbankTransfer, OwnAccount, TransferResult } from '../api/types'
 import FdsAlert from '../components/FdsAlert'
 import OwnAccountsPanel from '../components/OwnAccountsPanel'
+import { AccountIcon, EmptyState, ErrorState, SkeletonList } from '../components/ui'
 import { useLoad } from '../hooks/useLoad'
 import { deviceFingerprint } from '../lib/fingerprint'
-import { dateTime, won } from '../lib/format'
+import { dateTime, koreanWon, won } from '../lib/format'
 
 const OWN_BANK = '' // 우리 은행 (to_bank를 보내지 않는다)
 const QUICK_AMOUNTS = [10_000, 50_000, 100_000]
@@ -63,6 +65,12 @@ export default function TransferPage() {
   const canCheck = !!source && toAccount.trim().length > 0 && amountValue > 0 && step.kind === 'form'
 
   useEffect(refreshAccounts, [refreshAccounts])
+
+  // 확인·완료 화면으로 넘어가면 맨 위부터 보이게
+  const stepKind = step.kind
+  useEffect(() => {
+    if (stepKind !== 'form' && stepKind !== 'checking') window.scrollTo({ top: 0, behavior: 'smooth' })
+  }, [stepKind])
 
   useEffect(() => {
     let alive = true
@@ -168,46 +176,66 @@ export default function TransferPage() {
 
   const bankName = (code: string) => banks?.find((b) => b.bank_code === code)?.name ?? code
 
+  const sentAt = step.kind === 'done' ? step.result.transferred_at : null
+  const overBalance = !!source && amountValue > source.balance
+
   return (
     <section className="page transfer-page">
       <Link to="/accounts" className="back">
-        ← 내 계좌
+        <ChevronLeft size={18} aria-hidden="true" /> 내 계좌
       </Link>
       <h1>이체</h1>
-      {accountsError && <p className="error">{accountsError}</p>}
+      {accountsError && <ErrorState message={accountsError} />}
+      {!accounts && !accountsError && <SkeletonList rows={3} height={96} />}
       {accounts && checking.length === 0 && (
-        <p className="muted">
-          보낼 입출금 계좌가 없어요. <Link to="/products?kind=account">계좌 만들기</Link>
-        </p>
+        <EmptyState
+          icon={Wallet}
+          title="보낼 입출금 계좌가 없어요"
+          description="입출금 통장을 만들면 바로 이체할 수 있어요."
+          action={{ to: '/products?kind=account', label: '계좌 만들기' }}
+        />
       )}
 
       {source && (step.kind === 'form' || step.kind === 'checking') && (
         <form
-          className="form transfer-form"
+          className="transfer-form"
           onSubmit={(e) => {
             e.preventDefault()
             if (canCheck) checkHolder()
           }}
         >
-          <label>
-            출금 계좌
-            <select value={String(source.account_id)} onChange={(e) => setFromId(e.target.value)}>
-              {checking.map((a) => (
-                <option key={a.account_id} value={a.account_id}>
-                  {a.nickname ?? '입출금 계좌'} ({a.account_num.slice(-4)}) · {won(a.balance)}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label>
-            받는 은행
+          <div className="tf-section">
+            <label className="tf-label" htmlFor="tf-from">
+              출금 계좌
+            </label>
+            <div className="tf-from">
+              <AccountIcon type="checking" />
+              <select id="tf-from" value={String(source.account_id)} onChange={(e) => setFromId(e.target.value)}>
+                {checking.map((a) => (
+                  <option key={a.account_id} value={a.account_id}>
+                    {a.nickname ?? '입출금 계좌'} ({a.account_num.slice(-4)})
+                  </option>
+                ))}
+              </select>
+            </div>
+            <p className="tf-balance">
+              출금 가능 <strong>{won(source.balance)}</strong>
+            </p>
+          </div>
+
+          <div className="tf-section">
+            <label className="tf-label" htmlFor="tf-bank">
+              받는 분
+            </label>
             <select
+              id="tf-bank"
               value={toBank}
               onChange={(e) => {
                 setToBank(e.target.value)
                 if (ownAccount) clearOwnAccount()
               }}
               disabled={banks === null}
+              aria-label="받는 은행"
             >
               <option value={OWN_BANK}>AvengersBank (우리 은행)</option>
               {(banks ?? []).map((b) => (
@@ -217,13 +245,11 @@ export default function TransferPage() {
               ))}
             </select>
             {banksUnavailable && <span className="muted small">지금은 다른 은행으로 보낼 수 없어요. 우리 은행 계좌로만 보낼 수 있어요.</span>}
-          </label>
-          <label>
-            받는 계좌번호
             <input
               inputMode="numeric"
               autoComplete="off"
-              placeholder="110-123-456789"
+              placeholder="계좌번호 입력"
+              aria-label="받는 계좌번호"
               maxLength={20}
               value={toAccount}
               readOnly={!!ownAccount}
@@ -240,60 +266,142 @@ export default function TransferPage() {
               !banksUnavailable &&
               (banks ?? []).length > 0 && (
                 <button type="button" className="button small own-accounts-open" onClick={() => setOwnPanelOpen(true)}>
-                  다른 은행 내 계좌 불러오기
+                  <Building2 size={16} aria-hidden="true" /> 다른 은행 내 계좌 불러오기
                 </button>
               )
             )}
-          </label>
+          </div>
           {ownPanelOpen && <OwnAccountsPanel bankName={bankName} onPick={pickOwnAccount} onClose={() => setOwnPanelOpen(false)} />}
-          <label>
-            금액
-            <input
-              inputMode="numeric"
-              autoComplete="off"
-              placeholder="0"
-              value={amount ? Number(amount).toLocaleString('ko-KR') : ''}
-              onChange={(e) => setAmount(e.target.value.replace(/\D/g, '').slice(0, 12))}
-            />
+
+          <div className="tf-section">
+            <label className="tf-label" htmlFor="tf-amount">
+              보낼 금액
+            </label>
+            <div className={`tf-amount ${overBalance ? 'over' : ''}`}>
+              <input
+                id="tf-amount"
+                inputMode="numeric"
+                autoComplete="off"
+                placeholder="0"
+                value={amount ? Number(amount).toLocaleString('ko-KR') : ''}
+                onChange={(e) => setAmount(e.target.value.replace(/\D/g, '').slice(0, 12))}
+              />
+              <span className="tf-amount-unit">원</span>
+            </div>
+            <p className={`tf-amount-hint ${overBalance ? 'error' : 'muted'}`}>
+              {overBalance ? '출금 가능 금액보다 많아요' : amountValue > 0 ? koreanWon(amountValue) : ' '}
+            </p>
             <span className="quick-amounts">
               {QUICK_AMOUNTS.map((q) => (
-                <button key={q} type="button" className="button small" onClick={() => setAmount(String(amountValue + q))}>
+                <button key={q} type="button" className="chip" onClick={() => setAmount(String(amountValue + q))}>
                   +{q / 10_000}만
                 </button>
               ))}
-              <button type="button" className="button small" onClick={() => setAmount(String(source.balance))}>
+              <button type="button" className="chip" onClick={() => setAmount(String(source.balance))}>
                 전액
               </button>
+              {amount && (
+                <button type="button" className="chip ghost" onClick={() => setAmount('')}>
+                  지우기
+                </button>
+              )}
             </span>
-          </label>
-          {step.kind === 'form' && step.error && <p className="error">{step.error}</p>}
-          <button className="button primary" disabled={!canCheck}>
+          </div>
+
+          {step.kind === 'form' && step.error && <ErrorState message={step.error}>{null}</ErrorState>}
+          <button className="button primary tf-submit" disabled={!canCheck || overBalance}>
             {step.kind === 'checking' ? '받는 분 확인 중…' : '다음'}
           </button>
         </form>
       )}
 
       {source && 'holder' in step && (
-        <div className={`chat-card transfer-card status-${step.kind}`}>
-          <p className="chat-card-title">이체 확인</p>
-          <dl className="transfer-facts">
+        <div className={`receipt status-${step.kind}`}>
+          {step.kind === 'done' ? (
+            <div className="receipt-head">
+              {step.result.status === 'PENDING' ? (
+                <span className="receipt-icon pending" aria-hidden="true">
+                  <Clock size={36} />
+                </span>
+              ) : (
+                <span className="receipt-icon success" aria-hidden="true">
+                  <svg viewBox="0 0 52 52" width="56" height="56">
+                    <circle className="check-circle" cx="26" cy="26" r="24" fill="none" />
+                    <path className="check-mark" fill="none" d="M15 27 l7 7 l15 -15" />
+                  </svg>
+                </span>
+              )}
+              <p className="receipt-title">
+                <strong>{step.holder.holder_name}</strong>님에게
+                <br />
+                {won(amountValue)}을 {step.result.status === 'PENDING' ? '보내는 중이에요' : '보냈어요'}
+              </p>
+            </div>
+          ) : step.kind === 'blocked' || step.kind === 'refunded' || step.kind === 'failed' ? (
+            <div className="receipt-head">
+              <span className="receipt-icon danger" aria-hidden="true">
+                <CircleX size={36} />
+              </span>
+              <p className="receipt-title">
+                {step.kind === 'blocked' ? '이체를 막았어요' : step.kind === 'refunded' ? '돈을 돌려받았어요' : '이체하지 못했어요'}
+              </p>
+            </div>
+          ) : (
+            <div className="receipt-head">
+              <span className="receipt-avatar" aria-hidden="true">
+                {step.holder.holder_name.slice(0, 1)}
+              </span>
+              <p className="receipt-title">
+                <strong>{step.holder.holder_name}</strong>님에게
+                <br />
+                <span className="receipt-amount">{won(amountValue)}</span>
+                <br />
+                보낼까요?
+              </p>
+            </div>
+          )}
+
+          <dl className="receipt-rows">
             <dt>받는 분</dt>
             <dd>{step.holder.holder_name}</dd>
             <dt>받는 계좌</dt>
             <dd>
-              {step.holder.bank_name} {step.holder.to_account_num}
+              {step.holder.bank_name}
+              <br />
+              <span className="nowrap">{step.holder.to_account_num}</span>
             </dd>
-            <dt>금액</dt>
-            <dd className="transfer-amount">{won(amountValue)}</dd>
             <dt>출금 계좌</dt>
             <dd>
               {source.nickname ?? '입출금'} ({source.account_num.slice(-4)})
             </dd>
+            <dt>{step.kind === 'done' ? '보낸 금액' : '보낼 금액'}</dt>
+            <dd className="strong">{won(amountValue)}</dd>
+            {step.kind === 'done' && (
+              <>
+                <dt>남은 잔액</dt>
+                <dd>{won(step.result.balance_after)}</dd>
+              </>
+            )}
+            {step.kind === 'refunded' && step.balanceAfter != null && (
+              <>
+                <dt>남은 잔액</dt>
+                <dd>{won(step.balanceAfter)}</dd>
+              </>
+            )}
+            {sentAt && (
+              <>
+                <dt>보낸 시각</dt>
+                <dd>{dateTime(sentAt)}</dd>
+              </>
+            )}
           </dl>
 
           {(step.kind === 'confirm' || step.kind === 'sending') && (
             <>
-              <p className="small">받는 분 이름이 맞는지 꼭 확인하세요. 모르는 사람이 시켜서 보내는 돈이라면 보내지 마세요.</p>
+              <p className="receipt-warning">
+                <ShieldAlert size={18} aria-hidden="true" />
+                받는 분 이름이 맞는지 꼭 확인하세요. 모르는 사람이 시켜서 보내는 돈이라면 보내지 마세요.
+              </p>
               <div className="button-row">
                 <button className="button" onClick={() => setStep({ kind: 'form' })} disabled={step.kind === 'sending'}>
                   고치기
@@ -348,21 +456,11 @@ export default function TransferPage() {
 
           {step.kind === 'done' && step.result.status === 'PENDING' && (
             <p className="caution-note">
-              ⏳ 돈은 출금됐고, {step.holder.bank_name}에서 받았는지 확인하고 있어요. 확인되면 아래 "다른 은행 이체"에
+              돈은 출금됐고, {step.holder.bank_name}에서 받았는지 확인하고 있어요. 확인되면 아래 "다른 은행 이체"에
               완료로 바뀌어요. 받는 은행이 거절하면 돈을 돌려드려요.
             </p>
           )}
-          {step.kind === 'done' && step.result.status !== 'PENDING' && (
-            <p className="success">
-              ✅ 보냈어요. 남은 잔액 <strong>{won(step.result.balance_after)}</strong>
-            </p>
-          )}
-          {step.kind === 'refunded' && (
-            <p className="error">
-              {step.message}
-              {step.balanceAfter != null && <> 남은 잔액 {won(step.balanceAfter)}</>}
-            </p>
-          )}
+          {step.kind === 'refunded' && <p className="error">{step.message}</p>}
           {step.kind === 'failed' && <p className="error">{step.message}</p>}
 
           {['done', 'blocked', 'refunded', 'failed'].includes(step.kind) && (
@@ -371,7 +469,7 @@ export default function TransferPage() {
                 거래내역 보기
               </Link>
               <button className="button primary" onClick={reset}>
-                새로 보내기
+                {step.kind === 'done' ? '확인' : '다시 보내기'}
               </button>
             </div>
           )}
@@ -383,7 +481,7 @@ export default function TransferPage() {
           <h2>
             다른 은행 이체{' '}
             <button className="button small" onClick={() => setHistoryRound((n) => n + 1)}>
-              새로고침
+              <RefreshCw size={16} aria-hidden="true" /> 새로고침
             </button>
           </h2>
           <ul className="list">

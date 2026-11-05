@@ -1,3 +1,4 @@
+import { ChevronLeft } from 'lucide-react'
 import { Link, Navigate, useParams } from 'react-router-dom'
 
 import ProductSignup from '../components/ProductSignup'
@@ -13,7 +14,7 @@ export default function ProductSignupPage() {
   return (
     <section className="page">
       <Link to={`/products?kind=${kind}`} className="back">
-        ← 상품 보기
+        <ChevronLeft size={18} aria-hidden="true" /> 상품 보기
       </Link>
       <h1>상품 가입</h1>
       <ProductSignup key={`${kind}-${productId}`} kind={kind} productId={productId} />

@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
+import { CreditCard, Landmark, MessageCircle, Mic, Settings, ShieldAlert, ShoppingBag, Volume2, VolumeX } from 'lucide-react'
 import { Link } from 'react-router-dom'
 
 import { ApiError } from '../api/client'
 import { chatApi } from '../api/endpoints'
 import type { AccountType, CardType, ChatMessage, ProductKind, Screen, SignupPrefill, UiContext, UiSelected } from '../api/types'
 import { useAuth } from '../auth/useAuth'
+import Logo from '../components/Logo'
 import TransferCard, { type Status } from '../components/TransferCard'
 import { useChatSession } from '../hooks/useChatSession'
 import { usePushToTalk } from '../hooks/usePushToTalk'
@@ -278,7 +280,7 @@ export default function StagePage() {
   return (
     <div className="stage-app">
       <header className="stage-header">
-        <span className="stage-brand">AvengersBank</span>
+        <Logo className="stage-brand" size={26} />
         <span className="stage-header-actions">
           <button
             className={`button small toggle ${speech.ttsEnabled && speech.ttsAvailable ? 'on' : ''}`}
@@ -288,7 +290,7 @@ export default function StagePage() {
             aria-label="음성 안내"
             title={speech.ttsAvailable ? '답변을 소리로 읽어 줍니다' : '이 브라우저에는 한국어 음성이 없어요'}
           >
-            {speech.ttsAvailable && speech.ttsEnabled ? '🔊' : '🔈'}
+            {speech.ttsAvailable && speech.ttsEnabled ? <Volume2 size={18} aria-hidden="true" /> : <VolumeX size={18} aria-hidden="true" />}
           </button>
           <button className="button small" onClick={newConversation} disabled={busy}>
             새 대화
@@ -304,7 +306,7 @@ export default function StagePage() {
           <nav className="stage-menu" aria-label="전체 메뉴">
             {MENU.map((item) => (
               <Link key={item.to} to={item.to}>
-                <span aria-hidden="true">{item.icon}</span> {item.label}
+                <item.icon size={20} aria-hidden="true" /> {item.label}
               </Link>
             ))}
           </nav>
@@ -381,7 +383,7 @@ export default function StagePage() {
           {messages.length === 0 && <p className="muted small">아직 대화가 없어요.</p>}
           {messages.map((m) => (
             <p key={m.msg_id} className={`stage-log-line ${m.role}`}>
-              <strong>{m.role === 'user' ? '나' : '모아'}</strong> {m.input_mode === 'voice' && '🎤 '}
+              <strong>{m.role === 'user' ? '나' : '모아'}</strong> {m.input_mode === 'voice' && <Mic size={14} aria-hidden="true" className="inline-icon" />}
               {m.content}
             </p>
           ))}
@@ -413,7 +415,7 @@ export default function StagePage() {
             aria-label={speech.sttSupported ? '누르고 있는 동안 말하기' : '이 브라우저는 음성 입력을 지원하지 않아요'}
             title={speech.sttSupported ? '누르고 있는 동안 말하기' : '음성 입력은 Chrome·Edge에서 쓸 수 있어요'}
           >
-            🎤
+            <Mic size={24} aria-hidden="true" />
           </button>
           <input
             className="stage-input"
@@ -434,12 +436,12 @@ export default function StagePage() {
 
 /** 모아에게 말하지 않고 직접 가고 싶을 때 (기존 화면들) */
 const MENU = [
-  { to: '/chat', label: '대화 기록 (채팅으로 보기)', icon: '💬' },
-  { to: '/accounts', label: '내 계좌', icon: '🏦' },
-  { to: '/cards', label: '내 카드', icon: '💳' },
-  { to: '/products', label: '상품 보기·가입', icon: '🛍️' },
-  { to: '/fds', label: '이상거래 기록', icon: '🛡️' },
-  { to: '/settings', label: '설정 (PIN·목소리 등록)', icon: '⚙️' },
+  { to: '/chat', label: '대화 기록 (채팅으로 보기)', icon: MessageCircle },
+  { to: '/accounts', label: '내 계좌', icon: Landmark },
+  { to: '/cards', label: '내 카드', icon: CreditCard },
+  { to: '/products', label: '상품 보기·가입', icon: ShoppingBag },
+  { to: '/fds', label: '이상거래 기록', icon: ShieldAlert },
+  { to: '/settings', label: '설정 (PIN·목소리 등록)', icon: Settings },
 ]
 
 const MOOD_LABEL: Record<Mood, string> = {

@@ -1,3 +1,5 @@
+import { ShieldX, TriangleAlert } from 'lucide-react'
+
 import type { FdsExtra } from '../api/types'
 
 const AI_REASON_MIN_SCORE = 0.3 // 백엔드 MEDIUM 임계값 (fds_training/model/thresholds.json)
@@ -6,7 +8,10 @@ const AI_REASON_MIN_SCORE = 0.3 // 백엔드 MEDIUM 임계값 (fds_training/mode
 export default function FdsAlert({ extra, blocked }: { extra: FdsExtra; blocked: boolean }) {
   return (
     <div className={`fds-alert ${blocked ? 'blocked' : 'caution'}`} role="alert">
-      <p className="fds-title">{blocked ? '⛔ 이상거래가 의심되어 이체를 막았어요' : '⚠️ 평소와 다른 이체예요'}</p>
+      <p className="fds-title">
+        {blocked ? <ShieldX size={22} aria-hidden="true" /> : <TriangleAlert size={22} aria-hidden="true" />}
+        {blocked ? '이상거래가 의심되어 이체를 막았어요' : '평소와 다른 이체예요'}
+      </p>
       {extra.warning && <p className="fds-warning">{extra.warning}</p>}
       {extra.rule_hits.length > 0 && (
         <>

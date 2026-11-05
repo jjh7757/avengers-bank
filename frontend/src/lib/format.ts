@@ -1,6 +1,16 @@
 export const won = (amount: number) => `${amount.toLocaleString('ko-KR')}원`
 
-export const signedWon = (amount: number) => `${amount > 0 ? '+' : ''}${won(amount)}`
+/** 억·만 단위로 읽기 쉬운 금액: 1,250,000 → "125만원", 105,003,000 → "1억 500만 3,000원" */
+export const koreanWon = (amount: number) => {
+  if (amount <= 0) return ''
+  const eok = Math.floor(amount / 100_000_000)
+  const man = Math.floor((amount % 100_000_000) / 10_000)
+  const rest = amount % 10_000
+  const parts = [eok && `${eok.toLocaleString('ko-KR')}억`, man && `${man.toLocaleString('ko-KR')}만`, rest && rest.toLocaleString('ko-KR')]
+  return `${parts.filter(Boolean).join(' ')}원`
+}
+
+export const signedWon =(amount: number) => `${amount > 0 ? '+' : ''}${won(amount)}`
 
 export const dateTime = (iso: string) =>
   new Date(iso.endsWith('Z') || iso.includes('+') ? iso : `${iso}Z`).toLocaleString('ko-KR', {

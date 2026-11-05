@@ -2,6 +2,7 @@ import { useState, type FormEvent } from 'react'
 import { Link, Navigate, useLocation, useNavigate } from 'react-router-dom'
 
 import { ApiError } from '../api/client'
+import Logo from '../components/Logo'
 import { useAuth } from '../auth/useAuth'
 
 export default function LoginPage() {
@@ -31,8 +32,10 @@ export default function LoginPage() {
 
   return (
     <div className="auth-page">
-      <h1 className="brand">AvengersBank</h1>
-      <p className="muted">말로 하는 은행</p>
+      <h1 className="brand">
+        <Logo size={44} />
+      </h1>
+      <p className="auth-tagline">말로 하는 은행, 모아가 도와드려요</p>
       <form className="form" onSubmit={submit}>
         <label>
           아이디

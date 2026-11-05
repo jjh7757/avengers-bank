@@ -1,8 +1,10 @@
+import { ChevronLeft, ReceiptText } from 'lucide-react'
 import { useCallback } from 'react'
 import { Link, useParams } from 'react-router-dom'
 
 import { cardApi } from '../api/endpoints'
 import type { CardType } from '../api/types'
+import { CardVisual, EmptyState, ErrorState, SkeletonList } from '../components/ui'
 import { useLoad } from '../hooks/useLoad'
 import { CARD_TYPE_LABEL, dateTime, won } from '../lib/format'
 
@@ -18,21 +20,22 @@ export default function CardDetailPage() {
   return (
     <section className="page">
       <Link to="/cards" className="back">
-        ← 내 카드
+        <ChevronLeft size={18} aria-hidden="true" /> 내 카드
       </Link>
-      {loading && <p className="muted">불러오는 중…</p>}
-      {error && <p className="error">{error}</p>}
+      {loading && <SkeletonList rows={3} />}
+      {error && <ErrorState message={error} />}
       {card && histories && (
         <>
           <h1>
             {CARD_TYPE_LABEL[type]} 끝자리 {card.card_num.slice(-4)}
           </h1>
+          <CardVisual type={type} cardNum={card.card_num} />
           <p className="balance">{won(card.accumulated_amount)}</p>
           <p className="muted">
             누적 사용액{card.payment_date ? ` · 매월 ${card.payment_date}일 결제` : ' · 사용 즉시 출금'}
           </p>
           <h2>사용내역</h2>
-          {histories.length === 0 && <p className="muted">사용내역이 없어요.</p>}
+          {histories.length === 0 && <EmptyState icon={ReceiptText} title="아직 사용내역이 없어요" />}
           <ul className="list">
             {histories.map((h) => (
               <li key={h.history_id} className="list-item static">

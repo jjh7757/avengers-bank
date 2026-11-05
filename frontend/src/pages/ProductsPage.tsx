@@ -3,6 +3,7 @@ import { Link, useSearchParams } from 'react-router-dom'
 
 import { productApi } from '../api/endpoints'
 import type { Product } from '../api/types'
+import { ErrorState, SkeletonList } from '../components/ui'
 import { useLoad } from '../hooks/useLoad'
 
 const TYPE_LABEL: Record<Product['type'], string> = {
@@ -32,14 +33,14 @@ export default function ProductsPage() {
   const list = (items: Product[], productKind: 'account' | 'card') => (
     <ul className="list">
       {items.map((p) => (
-        <li key={`${productKind}-${p.product_id}`}>
+        <li key={`${productKind}-${p.product_id}`} className="product-item">
           <div className="list-item static">
             <span>
               <span className="badge">{TYPE_LABEL[p.type]}</span>
               <strong>{p.name}</strong>
               <span className="muted small">{p.description}</span>
             </span>
-            {p.interest_rate && Number(p.interest_rate) > 0 && <span className="amount">연 {Number(p.interest_rate)}%</span>}
+            {p.interest_rate && Number(p.interest_rate) > 0 && <span className="product-rate">연 {Number(p.interest_rate)}%</span>}
           </div>
           <div className="product-actions">
             <Link className="button small primary" to={`/products/${productKind}/${p.product_id}/signup`}>
@@ -54,8 +55,8 @@ export default function ProductsPage() {
   return (
     <section className="page">
       <h1>상품 보기·가입</h1>
-      {loading && <p className="muted">불러오는 중…</p>}
-      {error && <p className="error">{error}</p>}
+      {loading && <SkeletonList rows={4} height={120} />}
+      {error && <ErrorState message={error} />}
       {accounts.length > 0 && (
         <>
           <h2>계좌 상품</h2>

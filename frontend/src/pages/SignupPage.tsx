@@ -4,6 +4,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import { ApiError } from '../api/client'
 import { authApi } from '../api/endpoints'
 import { useAuth } from '../auth/useAuth'
+import Logo from '../components/Logo'
 
 export default function SignupPage() {
   const { login } = useAuth()
@@ -34,14 +35,18 @@ export default function SignupPage() {
 
   return (
     <div className="auth-page">
-      <h1 className="brand">회원가입</h1>
+      <Link to="/login" className="signup-logo" aria-label="로그인 화면으로">
+        <Logo size={32} />
+      </Link>
+      <h1 className="signup-title">회원가입</h1>
+      <p className="auth-tagline">가입하고 모아와 함께 시작해요</p>
       <form className="form" onSubmit={submit}>
         <label>
-          아이디 <span className="muted">(4자 이상)</span>
+          <span>아이디 <span className="muted small">(4자 이상)</span></span>
           <input {...field('login_id')} minLength={4} maxLength={50} autoComplete="username" required />
         </label>
         <label>
-          비밀번호 <span className="muted">(8자 이상)</span>
+          <span>비밀번호 <span className="muted small">(8자 이상)</span></span>
           <input type="password" {...field('password')} minLength={8} autoComplete="new-password" required />
         </label>
         <label>
@@ -49,7 +54,7 @@ export default function SignupPage() {
           <input {...field('name')} maxLength={50} autoComplete="name" required />
         </label>
         <label>
-          닉네임 <span className="muted">(선택)</span>
+          <span>닉네임 <span className="muted small">(선택)</span></span>
           <input {...field('nick_name')} maxLength={50} />
         </label>
         <label>

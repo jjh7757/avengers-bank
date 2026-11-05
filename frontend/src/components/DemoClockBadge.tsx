@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { Clock } from 'lucide-react'
 
 import { api } from '../api/client'
 
@@ -31,7 +32,7 @@ export default function DemoClockBadge() {
   const time = new Date(status.now_kst).toLocaleTimeString('ko-KR', { timeZone: 'Asia/Seoul', hour: '2-digit', minute: '2-digit' })
   return (
     <div className="demo-clock" role="status">
-      🕑 시연 시각 {time}
+      <Clock size={16} aria-hidden="true" /> 시연 시각 {time}
     </div>
   )
 }

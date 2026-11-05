@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
+import { Mic } from 'lucide-react'
 import { Link } from 'react-router-dom'
 
 import { ApiError } from '../api/client'
 import { chatApi } from '../api/endpoints'
 import { useAuth } from '../auth/useAuth'
+import Logo from '../components/Logo'
 import AccountSummaryCardView from '../components/AccountSummaryCardView'
 import TransferCard from '../components/TransferCard'
 import { useChatSession } from '../hooks/useChatSession'
@@ -64,12 +66,12 @@ export default function ChatPage() {
   }
 
   const lastCardIndex = messages.findLastIndex((m) => m.card?.type === 'transfer_confirmation')
-  const ttsLabel = !speech.voicesLoaded ? '음성 확인 중' : speech.ttsAvailable ? (speech.ttsEnabled ? '🔊 음성 켬' : '🔈 음성 끔') : '음성 불가'
+  const ttsLabel = !speech.voicesLoaded ? '음성 확인 중' : speech.ttsAvailable ? (speech.ttsEnabled ? '음성 켬' : '음성 끔') : '음성 불가'
 
   return (
     <section className="chat">
       <header className="chat-header">
-        <h1>AvengersBank</h1>
+        <h1><Logo size={26} /></h1>
         <div className="chat-header-actions">
           <button
             className={`toggle ${speech.ttsEnabled && speech.ttsAvailable ? 'on' : ''}`}
@@ -112,7 +114,7 @@ export default function ChatPage() {
         {messages.map((m, index) => (
           <div key={m.msg_id} className={`bubble-row ${m.role}`}>
             <div className={`bubble ${m.role}`}>
-              {m.role === 'user' && m.input_mode === 'voice' && <span className="voice-tag">🎤 </span>}
+              {m.role === 'user' && m.input_mode === 'voice' && <Mic size={14} aria-hidden="true" className="inline-icon voice-tag" />}
               {m.content}
             </div>
             {m.card?.type === 'transfer_confirmation' && sessionId && (
@@ -159,7 +161,7 @@ export default function ChatPage() {
           aria-label={speech.sttSupported ? '누르고 있는 동안 말하기' : '이 브라우저는 음성 입력을 지원하지 않아요'}
           title={speech.sttSupported ? '누르고 있는 동안 말하기' : '음성 입력은 Chrome·Edge에서 쓸 수 있어요'}
         >
-          🎤
+          <Mic size={24} aria-hidden="true" />
         </button>
         <input
           className="composer-input"

@@ -1,9 +1,11 @@
+import { ArrowLeftRight, ChevronLeft, ReceiptText } from 'lucide-react'
 import { useCallback, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 
 import { accountApi } from '../api/endpoints'
 import type { AccountDetail, AccountType } from '../api/types'
 import TransferLimitForm from '../components/TransferLimitForm'
+import { AccountIcon, EmptyState, ErrorState, SkeletonList } from '../components/ui'
 import { useLoad } from '../hooks/useLoad'
 import { ACCOUNT_TYPE_LABEL, HISTORY_TYPE_LABEL, dateTime, signedWon, won } from '../lib/format'
 
@@ -21,20 +23,29 @@ export default function AccountDetailPage() {
   return (
     <section className="page">
       <Link to="/accounts" className="back">
-        ← 내 계좌
+        <ChevronLeft size={18} aria-hidden="true" /> 내 계좌
       </Link>
-      {loading && <p className="muted">불러오는 중…</p>}
-      {error && <p className="error">{error}</p>}
+      {loading && <SkeletonList rows={4} />}
+      {error && <ErrorState message={error} />}
       {account && histories && (
         <>
-          <h1>{account.nickname ?? `${ACCOUNT_TYPE_LABEL[type]} 계좌`}</h1>
-          <p className="muted">{account.account_num}</p>
-          <p className="balance">{won(account.balance)}</p>
-          {type === 'checking' && (
-            <Link className="button primary" to={`/transfer?from=${account.account_id}`}>
-              이 계좌에서 이체하기
-            </Link>
-          )}
+          <div className="hero-card">
+            <p className="hero-label hero-title">
+              <AccountIcon type={type} />
+              {account.nickname ?? `${ACCOUNT_TYPE_LABEL[type]} 계좌`}
+            </p>
+            <p className="hero-sub">
+              {ACCOUNT_TYPE_LABEL[type]} · {account.account_num}
+            </p>
+            <p className="hero-amount">{won(account.balance)}</p>
+            {type === 'checking' && (
+              <div className="hero-actions">
+                <Link className="button hero-button" to={`/transfer?from=${account.account_id}`}>
+                  <ArrowLeftRight size={18} aria-hidden="true" /> 이 계좌에서 이체하기
+                </Link>
+              </div>
+            )}
+          </div>
           <dl className="facts">
             {account.per_transfer_limit != null && (
               <>
@@ -62,7 +73,7 @@ export default function AccountDetailPage() {
           {type === 'checking' && <TransferLimitForm key={account.account_id} account={account} onSaved={setUpdated} />}
 
           <h2>거래내역</h2>
-          {histories.length === 0 && <p className="muted">거래내역이 없어요.</p>}
+          {histories.length === 0 && <EmptyState icon={ReceiptText} title="아직 거래내역이 없어요" />}
           <ul className="list">
             {histories.map((h) => (
               <li key={h.history_id} className="list-item static">

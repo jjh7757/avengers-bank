@@ -1,3 +1,4 @@
+import { ChevronLeft } from 'lucide-react'
 import { useCallback } from 'react'
 import { Link } from 'react-router-dom'
 
@@ -12,7 +13,7 @@ export default function FdsLogsPage() {
   return (
     <section className="page wide">
       <Link to="/settings" className="back">
-        ← 설정
+        <ChevronLeft size={18} aria-hidden="true" /> 설정
       </Link>
       <h1>이상거래 탐지 기록</h1>
       {loading && <p className="muted">불러오는 중…</p>}
