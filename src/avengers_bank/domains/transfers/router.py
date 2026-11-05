@@ -1,14 +1,16 @@
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Header, Request, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from avengers_bank.core.database import get_db
 from avengers_bank.core.dependencies import get_current_user
 from avengers_bank.core.responses import SuccessResponse, error_responses
 from avengers_bank.core.config import get_settings
-from avengers_bank.core.exceptions import NotFoundException
+from avengers_bank.core.exceptions import ApiException, NotFoundException
+from avengers_bank.core.rate_limit import pin_failures, transfer_requests
 from avengers_bank.domains.interbank import service as interbank_service
+from avengers_bank.domains.transfers import idempotency
 from avengers_bank.domains.transfers.schemas import (
     DepositPaymentCreate,
     HolderInquiry,
@@ -36,14 +38,62 @@ Db = Annotated[AsyncSession, Depends(get_db)]
 CurrentUser = Annotated[UserResponse, Depends(get_current_user)]
 
 
-@router.post("", response_model=SuccessResponse[TransferResponse])
-async def transfer(data: TransferCreate, db: Db, current_user: CurrentUser, request: Request):
+@router.post(
+    "",
+    response_model=SuccessResponse[TransferResponse],
+    responses=error_responses(409, 429),
+)
+async def transfer(
+    data: TransferCreate,
+    db: Db,
+    current_user: CurrentUser,
+    request: Request,
+    response: Response,
+    idempotency_key: Annotated[
+        str | None,
+        Header(
+            alias="Idempotency-Key",
+            description="같은 이체를 다시 보내도 한 번만 처리되게 하는 키 (영문·숫자·-·_ 8~64자, 이체마다 새로). "
+            "같은 키로 다시 오면 처음 결과를 돌려주고 `Idempotent-Replayed: true` 헤더를 붙인다.",
+        ),
+    ] = None,
+):
     """FDS 판정에 따라 400 `FDS_BLOCKED`, `ADDITIONAL_AUTH_REQUIRED`(PIN을 넣어 다시 요청), `INVALID_PIN`이
-    나갈 수 있다. 이때 `error.extra`에 규칙 이름, ML 점수, 주요 요인, 경고 문구가 들어 있다."""
-    client_ip = request.client.host if request.client else None
-    result = await transfer_service.transfer(db, data, current_user, client_ip)
+    나갈 수 있다. 이때 `error.extra`에 규칙 이름, ML 점수, 주요 요인, 경고 문구가 들어 있다.
+
+    요청이 너무 잦으면 429 `TOO_MANY_TRANSFER_REQUESTS`, PIN을 여러 번 틀리면 429 `PIN_LOCKED`.
+    `Idempotency-Key`가 처리 중이면 409 `IDEMPOTENCY_IN_PROGRESS`, 다른 내용에 다시 쓰면 422 `IDEMPOTENCY_KEY_REUSED`."""
+    user_id = current_user.user_id
+    replay_key = idempotency.validate_key(idempotency_key) if idempotency_key is not None else None
+    if replay_key is not None:
+        stored = await idempotency.begin(user_id, replay_key, idempotency.request_hash(data))
+        if stored is not None:
+            response.headers["Idempotent-Replayed"] = "true"
+            return stored
+
+    try:
+        transfer_requests.hit(str(user_id))
+        if data.pin is not None or data.voice_approval_token is not None:
+            pin_failures.check(str(user_id))
+        client_ip = request.client.host if request.client else None
+        result = await transfer_service.transfer(db, data, current_user, client_ip)
+    except ApiException as e:
+        if e.code == "INVALID_PIN":
+            pin_failures.record(str(user_id))
+        if replay_key is not None:
+            await idempotency.release(user_id, replay_key)
+        raise
+    except BaseException:
+        if replay_key is not None:
+            await idempotency.release(user_id, replay_key)
+        raise
+
+    pin_failures.reset(str(user_id))
     message = "이체가 완료되었습니다." if result.status == "COMPLETED" else "받는 은행에서 확인 중입니다. 잠시 후 결과를 알려 드려요."
-    return SuccessResponse[TransferResponse](data=result, message=message)
+    body = SuccessResponse[TransferResponse](data=result, message=message)
+    if replay_key is not None:
+        await idempotency.complete(user_id, replay_key, body.model_dump(mode="json"))
+    return body
 
 
 @router.post("/inquiry", response_model=SuccessResponse[HolderInquiryResponse])

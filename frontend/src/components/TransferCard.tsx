@@ -2,7 +2,8 @@ import { useEffect, useRef, useState } from 'react'
 import { CircleCheck } from 'lucide-react'
 import { Link } from 'react-router-dom'
 
-import { ApiError } from '../api/client'
+import { ApiError, newIdempotencyKey } from '../api/client'
+import PinPad from './PinPad'
 import { transferApi, voiceApi } from '../api/endpoints'
 import type { FdsExtra, TransferConfirmationCard, TransferResult } from '../api/types'
 import { useRecorder } from '../hooks/useRecorder'
@@ -46,6 +47,7 @@ export default function TransferCard({ card, sessionId, inputMode, active, autoV
   const [voiceNote, setVoiceNote] = useState<string | null>(null)
   const [pinMode, setPinMode] = useState(false) // 목소리 등록 사용자가 버튼 + PIN으로 승인
   const voiceTokenRef = useRef<string | undefined>(undefined)
+  const idempotencyKeyRef = useRef(newIdempotencyKey()) // 카드 하나 = 이체 하나. PIN 재시도도 같은 키
   const autoStartedRef = useRef(false)
   const [expired] = useState(() => new Date(card.expires_at).getTime() < Date.now()) // 만료 후 승인은 서버가 거절한다
   const who =
@@ -99,7 +101,7 @@ export default function TransferCard({ card, sessionId, inputMode, active, autoV
       pin: withPin,
       device_fingerprint: await deviceFingerprint(),
       input_mode: inputMode,
-    })
+    }, idempotencyKeyRef.current)
   }
 
   function handleError(e: unknown) {
@@ -256,18 +258,7 @@ export default function TransferCard({ card, sessionId, inputMode, active, autoV
                 approve(pin)
               }}
             >
-              <label>
-                이체 PIN
-                <input
-                  type="password"
-                  inputMode="numeric"
-                  autoComplete="off"
-                  maxLength={6}
-                  value={pin}
-                  onChange={(e) => setPin(e.target.value.replace(/\D/g, ''))}
-                  autoFocus
-                />
-              </label>
+              <PinPad value={pin} onChange={setPin} autoFocus />
               {status.error && <p className="error small">{status.error}</p>}
               <button className="button primary" disabled={pin.length !== 6}>
                 PIN 확인 후 보내기

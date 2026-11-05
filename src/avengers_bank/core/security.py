@@ -1,3 +1,5 @@
+import hashlib
+import secrets
 from datetime import datetime, timedelta, timezone
 
 import jwt
@@ -33,6 +35,18 @@ def create_access_token(user_id: int) -> str:
     return jwt.encode(
         payload, settings.jwt_secret_key.get_secret_value(), algorithm=ALGORITHM
     )
+
+
+REFRESH_COOKIE = "ab_refresh"
+
+
+def new_refresh_token() -> str:
+    """추측할 수 없는 임의 문자열. 쿠키로만 주고 DB에는 hash_refresh_token 값만 둔다."""
+    return secrets.token_urlsafe(32)
+
+
+def hash_refresh_token(token: str) -> str:
+    return hashlib.sha256(token.encode()).hexdigest()
 
 
 def decode_access_token(token: str) -> int:

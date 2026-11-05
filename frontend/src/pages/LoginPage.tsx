@@ -4,9 +4,15 @@ import { Link, Navigate, useLocation, useNavigate } from 'react-router-dom'
 import { ApiError } from '../api/client'
 import Logo from '../components/Logo'
 import { useAuth } from '../auth/useAuth'
+import type { LogoutReason } from '../auth/context'
+
+const LOGOUT_MESSAGE: Record<Exclude<LogoutReason, 'user'>, string> = {
+  idle: '10분 동안 사용하지 않아 안전을 위해 로그아웃했어요.',
+  expired: '로그인 유지 시간이 끝났어요. 다시 로그인해 주세요.',
+}
 
 export default function LoginPage() {
-  const { user, login } = useAuth()
+  const { user, login, logoutReason } = useAuth()
   const navigate = useNavigate()
   const location = useLocation()
   const [loginId, setLoginId] = useState('')
@@ -36,6 +42,11 @@ export default function LoginPage() {
         <Logo size={44} />
       </h1>
       <p className="auth-tagline">말로 하는 은행, 모아가 도와드려요</p>
+      {logoutReason && logoutReason !== 'user' && (
+        <p className="logout-notice" role="status">
+          {LOGOUT_MESSAGE[logoutReason]}
+        </p>
+      )}
       <form className="form" onSubmit={submit}>
         <label>
           아이디
@@ -59,6 +70,13 @@ export default function LoginPage() {
       <p className="center">
         처음이신가요? <Link to="/signup">회원가입</Link>
       </p>
+      <nav className="auth-footer" aria-label="안내">
+        <Link to="/support">고객센터</Link>
+        <Link to="/privacy">
+          <strong>개인정보처리방침</strong>
+        </Link>
+        <Link to="/about">앱 정보</Link>
+      </nav>
     </div>
   )
 }

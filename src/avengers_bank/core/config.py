@@ -7,7 +7,12 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     database_url: str = Field(min_length=1)
     jwt_secret_key: SecretStr = Field(min_length=32)
-    jwt_expire_minutes: int = Field(default=30, gt=0)
+    jwt_expire_minutes: int = Field(default=15, gt=0)  # access 토큰은 짧게. 만료되면 refresh 쿠키로 새로 받는다
+    refresh_token_days: int = Field(default=14, gt=0)  # 로그인 유지 기간 (쓸 때마다 새 토큰으로 바뀐다)
+    # refresh 쿠키의 Secure 속성. HTTPS 운영에서는 꼭 켠다. 브라우저는 http://localhost도 안전한 곳으로 본다
+    refresh_cookie_secure: bool = True
+    # 방금 바꾼 refresh 토큰이 이 시간 안에 다시 오면 탈취가 아니라 탭 여러 개의 동시 갱신으로 본다
+    refresh_reuse_grace_seconds: int = Field(default=20, ge=0)
     db_echo: bool = False
     gemini_api_key: SecretStr | None = None
     gemini_fast_model: str = "gemini-2.5-flash"  # 매 메시지: 의도 분류·슬롯 추출 (빠른 응답)

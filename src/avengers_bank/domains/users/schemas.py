@@ -45,6 +45,8 @@ class UserResponse(BaseModel):
     birth_date: str | None = None
     has_pin: bool = False
     created_at: datetime
+    last_login_at: datetime | None = None
+    previous_login_at: datetime | None = Field(default=None, description="이번 로그인 바로 전 로그인 시각 (\"지난 로그인\")")
 
     model_config = ConfigDict(from_attributes=True)
 

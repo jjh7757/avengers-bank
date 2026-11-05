@@ -976,3 +976,302 @@ a.list-item:active {
   border-color: transparent;
   box-shadow: var(--shadow);
 }
+
+.security-note {
+  display: flex;
+  gap: 0.4rem;
+  align-items: flex-start;
+  margin: -0.4rem 0 1rem;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.security-note svg {
+  flex-shrink: 0;
+  margin-top: 0.2rem;
+  color: var(--success);
+}
+
+/* ---------- 보안 키패드 ---------- */
+.pinpad {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem 0.25rem;
+  border-radius: var(--radius);
+  outline-offset: 4px;
+}
+
+.pinpad-label {
+  margin: 0;
+  font-weight: 700;
+}
+
+.pinpad-dots {
+  display: flex;
+  gap: 0.7rem;
+}
+
+.pinpad-dot {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 2px solid var(--border);
+  transition: background-color 0.1s, border-color 0.1s, transform 0.1s;
+}
+
+.pinpad-dot.filled {
+  background: var(--primary);
+  border-color: var(--primary);
+  transform: scale(1.1);
+}
+
+.pinpad-keys {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.45rem;
+  width: 100%;
+  max-width: 300px;
+}
+
+.pinpad-key {
+  min-height: 56px;
+  border: none;
+  border-radius: 14px;
+  background: var(--surface-2);
+  color: var(--text);
+  font-size: 1.4rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  touch-action: manipulation;
+  user-select: none;
+}
+
+.pinpad-key:active:not(:disabled) {
+  background: var(--primary-soft);
+  transform: scale(0.96);
+}
+
+.pinpad-key.fn {
+  background: transparent;
+  color: var(--muted);
+}
+
+.limit-pin {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+/* ---------- 자동 로그아웃 경고 ---------- */
+.idle-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  background: rgba(10, 15, 25, 0.55);
+  backdrop-filter: blur(2px);
+}
+
+.idle-dialog {
+  width: 100%;
+  max-width: 380px;
+  padding: 1.5rem 1.25rem 1.25rem;
+  border-radius: 20px;
+  background: var(--surface);
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.3);
+  text-align: center;
+}
+
+.idle-icon {
+  width: 60px;
+  height: 60px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--caution-bg);
+  color: var(--caution);
+}
+
+.idle-title {
+  margin: 0.75rem 0 0.35rem;
+  font-size: 1.2rem;
+  font-weight: 800;
+}
+
+.idle-count {
+  color: var(--danger);
+  font-variant-numeric: tabular-nums;
+}
+
+.idle-dialog .button-row {
+  margin-top: 1.25rem;
+}
+
+.idle-dialog .button-row .button {
+  white-space: nowrap;
+  padding-inline: 0.75rem;
+}
+
+/* ---------- 로그인 안내 ---------- */
+.logout-notice {
+  margin: 1rem 0 0;
+  padding: 0.75rem 0.9rem;
+  border-radius: 12px;
+  background: var(--caution-bg);
+  color: var(--caution);
+  font-weight: 600;
+}
+
+.auth-footer {
+  display: flex;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 0.25rem 1rem;
+  margin-top: 2.5rem;
+  font-size: 0.85rem;
+}
+
+.auth-footer a {
+  color: var(--muted);
+  text-decoration: none;
+}
+
+/* ---------- 안내 화면 (정책·고객센터·앱 정보) ---------- */
+.info-page .back.button.link {
+  padding: 0;
+  text-decoration: none;
+  min-height: 0;
+  margin-bottom: 0.75rem;
+}
+
+.demo-notice {
+  display: flex;
+  gap: 0.5rem;
+  align-items: flex-start;
+  padding: 0.75rem 0.9rem;
+  border-radius: 12px;
+  background: var(--primary-soft);
+  color: var(--text);
+  font-size: 0.9rem;
+}
+
+.demo-notice svg {
+  flex-shrink: 0;
+  margin-top: 0.15rem;
+  color: var(--primary);
+}
+
+.info-body {
+  line-height: 1.65;
+}
+
+.info-body ul {
+  padding-left: 1.2rem;
+}
+
+.info-body li + li {
+  margin-top: 0.35rem;
+}
+
+.info-table {
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: var(--shadow);
+  font-size: 0.85rem;
+}
+
+.info-table td,
+.info-table th {
+  white-space: normal;
+  vertical-align: top;
+  word-break: keep-all;
+}
+
+.info-table th {
+  background: var(--surface-2);
+}
+
+.support-alert {
+  display: flex;
+  gap: 0.6rem;
+  padding: 0.9rem 1rem;
+  border-radius: var(--radius);
+  background: var(--danger-bg);
+  color: var(--danger);
+}
+
+.support-alert svg {
+  flex-shrink: 0;
+}
+
+.support-alert p {
+  margin: 0.25rem 0 0;
+  color: var(--text);
+  font-size: 0.9rem;
+}
+
+.faq details {
+  background: var(--surface);
+  border-radius: 12px;
+  box-shadow: var(--shadow);
+  padding: 0.85rem 1rem;
+}
+
+.faq details + details {
+  margin-top: 0.5rem;
+}
+
+.faq summary {
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.faq details p {
+  margin: 0.5rem 0 0;
+  color: var(--muted);
+}
+
+.support-contacts {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.about-head {
+  display: flex;
+  align-items: center;
+  gap: 0.9rem;
+  margin: 1rem 0;
+}
+
+.about-head p {
+  margin: 0;
+}
+
+.about-name {
+  font-size: 1.3rem;
+  font-weight: 800;
+}
+
+.splash {
+  min-height: 100dvh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: splash-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes splash-pulse {
+  50% {
+    opacity: 0.5;
+  }
+}

@@ -2,7 +2,8 @@ import json
 import os
 
 # 앱을 import하기 전에 테스트용 설정을 넣는다 (SQLite 파일 DB).
-os.environ["DATABASE_URL"] = "sqlite+aiosqlite:///./test.db"
+# TEST_DATABASE_URL로 바꿀 수 있다 (같은 폴더에서 테스트를 동시에 돌리면 파일이 겹치므로)
+os.environ["DATABASE_URL"] = os.environ.get("TEST_DATABASE_URL", "sqlite+aiosqlite:///./test.db")
 os.environ["JWT_SECRET_KEY"] = "test-secret-key-test-secret-key-0000"
 os.environ["VOICE_ENCRYPTION_KEY"] = "0nqMmCGBZz4Ii2tmmjnlxxzI5d7Z0r6MWQqv2qD3fWs="  # 테스트 전용 Fernet 키
 os.environ["GEMINI_API_KEY"] = ""  # 테스트는 실제 Gemini를 부르지 않는다
@@ -14,6 +15,7 @@ os.environ["HUB_API_KEY"] = "chk_test_api_key"
 os.environ["HUB_SECRET"] = "test-hub-secret"
 os.environ["HUB_TIMEOUT_SECONDS"] = "0.3"
 os.environ["INTERBANK_CONFIRM_INTERVAL_SECONDS"] = "3600"
+os.environ["REFRESH_COOKIE_SECURE"] = "false"  # 테스트 클라이언트는 http://test라 Secure 쿠키를 보내지 않는다
 
 import pytest
 from httpx import ASGITransport, AsyncClient
@@ -27,7 +29,9 @@ import avengers_bank.domains.interbank.models  # noqa: F401
 import avengers_bank.domains.products.models  # noqa: F401
 import avengers_bank.domains.recipients.models  # noqa: F401
 import avengers_bank.domains.speech.models  # noqa: F401
+import avengers_bank.domains.transfers.models  # noqa: F401
 from avengers_bank.core.database import Base, SessionLocal, engine
+from avengers_bank.core.rate_limit import ALL_LIMITERS
 from avengers_bank.domains.accounts.models import CheckingAccount
 from avengers_bank.domains.chat.confirmation import create_confirmation_token
 from avengers_bank.domains.chat.models import ChatSession
@@ -54,6 +58,14 @@ def terms_version(kind: str, product_id: int) -> str:
 @pytest.fixture
 def anyio_backend():
     return "asyncio"
+
+
+@pytest.fixture(autouse=True)
+def reset_rate_limits():
+    """요청 제한은 메모리에 남으므로 테스트마다 비운다 (DB를 새로 만들면 user_id가 다시 1부터 시작한다)."""
+    for limiter in ALL_LIMITERS:
+        limiter.clear()
+    yield
 
 
 @pytest.fixture(autouse=True)

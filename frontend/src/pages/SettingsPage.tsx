@@ -1,11 +1,19 @@
-import { ChevronRight, KeyRound, LogOut, Mic, ShieldCheck } from 'lucide-react'
+import { ChevronRight, FileText, Headphones, Info, KeyRound, LogOut, Mic, ShieldCheck } from 'lucide-react'
 import { useState, type FormEvent } from 'react'
 import { Link } from 'react-router-dom'
 
 import { ApiError } from '../api/client'
 import { authApi } from '../api/endpoints'
 import { useAuth } from '../auth/useAuth'
+import PinPad from '../components/PinPad'
 import VoiceEnrollment from '../components/VoiceEnrollment'
+import { dateTime } from '../lib/format'
+
+const INFO_LINKS = [
+  { to: '/support', icon: Headphones, title: '고객센터', desc: '자주 묻는 질문, 문의, 사고 신고' },
+  { to: '/privacy', icon: FileText, title: '개인정보처리방침', desc: '어떤 정보를 왜, 얼마나 보관하는지' },
+  { to: '/about', icon: Info, title: '앱 정보', desc: '버전, 오픈소스 라이선스' },
+]
 
 export default function SettingsPage() {
   const { user, logout, refresh } = useAuth()
@@ -43,8 +51,15 @@ export default function SettingsPage() {
           <span className="muted small">
             {user?.login_id} · {user?.phone}
           </span>
+          <span className="muted small">
+            지난 로그인 {user?.previous_login_at ? dateTime(user.previous_login_at) : '없음 (처음 로그인)'}
+          </span>
         </span>
       </div>
+      <p className="security-note">
+        <ShieldCheck size={16} aria-hidden="true" /> 모르는 로그인 기록이 있으면 비밀번호와 PIN을 바로 바꿔 주세요. 10분
+        동안 사용하지 않으면 자동으로 로그아웃돼요.
+      </p>
 
       <div className="section-card">
         <p className="section-title">
@@ -63,19 +78,7 @@ export default function SettingsPage() {
               required
             />
           </label>
-          <label>
-            새 PIN (숫자 6자리)
-            <input
-              type="password"
-              inputMode="numeric"
-              pattern="\d{6}"
-              maxLength={6}
-              value={pin}
-              onChange={(e) => setPin(e.target.value.replace(/\D/g, ''))}
-              autoComplete="off"
-              required
-            />
-          </label>
+          <PinPad value={pin} onChange={setPin} label="새 PIN (숫자 6자리)" />
           {message && (
             <p className={message.ok ? 'success' : 'error'} role="status">
               {message.text}
@@ -110,9 +113,23 @@ export default function SettingsPage() {
             <ChevronRight className="chevron" size={20} aria-hidden="true" />
           </Link>
         </li>
+        {INFO_LINKS.map(({ to, icon: Icon, title, desc }) => (
+          <li key={to}>
+            <Link className="list-item rich" to={to}>
+              <span className="account-icon account-icon-checking" aria-hidden="true">
+                <Icon size={22} />
+              </span>
+              <span className="list-item-body">
+                <strong>{title}</strong>
+                <span className="muted small">{desc}</span>
+              </span>
+              <ChevronRight className="chevron" size={20} aria-hidden="true" />
+            </Link>
+          </li>
+        ))}
       </ul>
 
-      <button className="button logout-button" onClick={logout}>
+      <button className="button logout-button" onClick={() => logout()}>
         <LogOut size={18} aria-hidden="true" /> 로그아웃
       </button>
     </section>

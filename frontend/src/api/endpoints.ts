@@ -31,6 +31,8 @@ export const authApi = {
   me: () => api<User>('/users/me'),
   updateMe: (body: { birth_date?: string | null }) => api<User>('/users/me', { method: 'PATCH', body }),
   setPin: (password: string, pin: string) => api<User>('/users/me/pin', { method: 'PUT', body: { password, pin } }),
+  /** 이 기기의 refresh 쿠키를 폐기한다 */
+  logout: () => api<null>('/users/logout', { method: 'POST' }),
 }
 
 export const accountApi = {
@@ -91,7 +93,13 @@ export interface TransferRequest {
 }
 
 export const transferApi = {
-  transfer: (body: TransferRequest) => api<TransferResult>('/transfers', { method: 'POST', body }),
+  /** idempotencyKey: 이체 한 건마다 newIdempotencyKey()로 만들고, 같은 이체를 다시 보낼 때는 같은 키를 쓴다 */
+  transfer: (body: TransferRequest, idempotencyKey?: string) =>
+    api<TransferResult>('/transfers', {
+      method: 'POST',
+      body,
+      headers: idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : undefined,
+    }),
   /** 보내기 전에 받는 분 이름 확인 (다른 은행이면 ClearingHub에 묻는다) */
   inquiry: (body: { to_bank?: string; to_account_num: string }) =>
     api<HolderInquiryResult>('/transfers/inquiry', { method: 'POST', body }),

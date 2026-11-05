@@ -35,7 +35,8 @@ from avengers_bank.domains.interbank.models import (  # noqa: F401
 from avengers_bank.domains.products.models import AccountProduct, CardProduct, TermsAgreement  # noqa: F401
 from avengers_bank.domains.recipients.models import Recipient  # noqa: F401
 from avengers_bank.domains.speech.models import VoiceProfile  # noqa: F401
-from avengers_bank.domains.users.models import User  # noqa: F401
+from avengers_bank.domains.transfers.models import IdempotencyRecord  # noqa: F401
+from avengers_bank.domains.users.models import RefreshToken, User  # noqa: F401
 
 config = context.config
 config.set_main_option("sqlalchemy.url", get_settings().database_url.replace("%", "%%"))

@@ -9,6 +9,9 @@ export interface User {
   birth_date: string | null
   has_pin: boolean
   created_at: string
+  last_login_at: string | null
+  /** 이번 로그인 바로 전 로그인 ("지난 로그인") */
+  previous_login_at: string | null
 }
 
 export type AccountType = 'checking' | 'deposit' | 'savings'

@@ -34,8 +34,10 @@
 | 상태 | 메서드 | 경로 | 인증 | 설명 |
 |---|---|---|---|---|
 | ✅ | POST | `/users/signup` | | 회원가입 |
-| ✅ | POST | `/users/login` | | 로그인, JWT 발급 |
-| ✅ | GET | `/users/me` | 🔒 | 내 정보 조회 |
+| ✅ | POST | `/users/login` | | 로그인. access 토큰(15분)은 본문, refresh 토큰(14일)은 httpOnly 쿠키 `ab_refresh`. 같은 아이디로 10분에 5번 틀리면 `429 TOO_MANY_LOGIN_ATTEMPTS` |
+| ✅ | POST | `/users/refresh` | 쿠키 | refresh 쿠키로 새 access 토큰. 쿠키도 새로 바뀐다(회전). 이미 쓴 토큰이 다시 오면 `401 REFRESH_TOKEN_REUSED`와 함께 그 사용자의 모든 로그인을 끊는다 |
+| ✅ | POST | `/users/logout` | 쿠키 | 이 기기의 refresh 토큰 폐기, 쿠키 삭제 |
+| ✅ | GET | `/users/me` | 🔒 | 내 정보 조회 (`last_login_at`, `previous_login_at` = 지난 로그인) |
 | ✅ | PATCH | `/users/me` | 🔒 | 이름, 닉네임, 전화번호 수정 |
 | ✅ | PUT | `/users/me/pin` | 🔒 | 이체 PIN(숫자 6자리) 등록·변경. 비밀번호 재확인 `{ "password", "pin" }` |
 
@@ -125,7 +127,7 @@ PIN이 없으면 `400 PIN_NOT_SET`, 안 보내면 `400 PIN_REQUIRED`, 틀리면 
 
 | 상태 | 메서드 | 경로 | 인증 | 설명 |
 |---|---|---|---|---|
-| ✅ | POST | `/transfers` | 🔒 | 입출금 → 입출금 이체 (잔액, 1회·1일 한도 검사) |
+| ✅ | POST | `/transfers` | 🔒 | 입출금 → 입출금 이체 (잔액, 1회·1일 한도 검사). `Idempotency-Key` 헤더로 중복 이체 방지, 사용자당 1분 20번(`429 TOO_MANY_TRANSFER_REQUESTS`), PIN 30분 5번 틀리면 `429 PIN_LOCKED` ([SECURITY.md](SECURITY.md)) |
 | ✅ | POST | `/transfers/savings` | 🔒 | 입출금 → 적금 납입 |
 | ✅ | POST | `/transfers/deposit` | 🔒 | 입출금 → 예금 입금 |
 | ✅ | POST | `/transfers/inquiry` | 🔒 | 보내기 전 받는 분 이름 확인 `{to_bank?, to_account_num}` → `{to_bank, bank_name, to_account_num, holder_name}`. 다른 은행이면 허브에 묻는다. `404 ACCOUNT_NOT_FOUND`, `404 BANK_NOT_FOUND` |

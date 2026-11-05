@@ -11,6 +11,7 @@
 | [docs/PRESENTATION.md](docs/PRESENTATION.md) | 발표 자료 초안 (슬라이드별) |
 | [docs/MCP_SERVERS.md](docs/MCP_SERVERS.md) | MCP 서버 6개, 도구 28개, 안전 규칙, 약관·FAQ 검색(RAG), 가입 시 이용약관 동의 |
 | [docs/VOICE_AUTH.md](docs/VOICE_AUTH.md) | 음성 승인(화자 인증) 설계, 측정 결과, 한계 |
+| [docs/SECURITY.md](docs/SECURITY.md) | 로그인 유지(refresh 쿠키·회전), 요청 제한, 이체 멱등성, 보안 키패드, 자동 로그아웃 |
 | [docs/INTERBANK.md](docs/INTERBANK.md) | 다른 은행 이체: ClearingHub 연동, 돈 흐름, 실패·응답 없음 처리 |
 | [docs/TODO.md](docs/TODO.md) | 계획서를 작업 단위로 쪼갠 체크리스트 |
 | [docs/ERD.md](docs/ERD.md) | ER 다이어그램 (Mermaid), 코드에서 지킬 규칙 · 원본: [AvengersBankDiagram.drawio](docs/AvengersBankDiagram.drawio) |
@@ -64,6 +65,8 @@ uv run python scripts/demo_check.py    # 시나리오 자동 점검 (실제 Gemi
 | 이름 | 필수 | 설명 |
 |---|---|---|
 | `DATABASE_URL`, `JWT_SECRET_KEY` | ✅ | PostgreSQL 주소, JWT 서명 키(32자 이상) |
+| `JWT_EXPIRE_MINUTES`, `REFRESH_TOKEN_DAYS` | | access 토큰 유효 시간(기본 15분), 로그인 유지 기간(기본 14일) |
+| `REFRESH_COOKIE_SECURE`, `REFRESH_REUSE_GRACE_SECONDS` | | refresh 쿠키 `Secure`(기본 true, HTTPS 운영에서는 꼭 켬), 동시 갱신 유예(기본 20초) ([SECURITY.md](docs/SECURITY.md)) |
 | `GEMINI_API_KEY` | 채팅 | 없으면 채팅·음성 숫자 인식만 503 |
 | `GEMINI_FAST_MODEL`, `GEMINI_CHAT_MODEL` | | 의도 분류용 / 조회·상담 답변용 모델 |
 | `VOICE_ENCRYPTION_KEY` | 음성 승인 | 목소리 특징 암호화 Fernet 키. 바꾸면 다시 등록해야 함 |

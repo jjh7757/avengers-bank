@@ -2,11 +2,12 @@ import { useCallback, useEffect, useState } from 'react'
 import { Building2, ChevronLeft, CircleX, Clock, RefreshCw, ShieldAlert, Wallet } from 'lucide-react'
 import { Link, useSearchParams } from 'react-router-dom'
 
-import { ApiError } from '../api/client'
+import { ApiError, newIdempotencyKey } from '../api/client'
 import { accountApi, transferApi } from '../api/endpoints'
 import type { AccountSummary, Bank, FdsExtra, HolderInquiryResult, InterbankTransfer, OwnAccount, TransferResult } from '../api/types'
 import FdsAlert from '../components/FdsAlert'
 import OwnAccountsPanel from '../components/OwnAccountsPanel'
+import PinPad from '../components/PinPad'
 import { AccountIcon, EmptyState, ErrorState, SkeletonList } from '../components/ui'
 import { useLoad } from '../hooks/useLoad'
 import { deviceFingerprint } from '../lib/fingerprint'
@@ -56,6 +57,7 @@ export default function TransferPage() {
   const [amount, setAmount] = useState('')
   const [pin, setPin] = useState('')
   const [step, setStep] = useState<Step>({ kind: 'form' })
+  const [idempotencyKey, setIdempotencyKey] = useState(newIdempotencyKey)
   // 다른 은행 내 계좌를 골랐으면 계좌번호 대신 허브 참조값으로 보낸다 (번호는 가려진 채로 보여 준다)
   const [ownAccount, setOwnAccount] = useState<OwnAccount | null>(null)
   const [ownPanelOpen, setOwnPanelOpen] = useState(false)
@@ -89,6 +91,7 @@ export default function TransferPage() {
 
   async function checkHolder() {
     if (!source) return
+    setIdempotencyKey(newIdempotencyKey()) // 확인 화면 하나 = 이체 하나. 보내기·PIN 재시도는 같은 키를 쓴다
     if (amountValue > source.balance) {
       setStep({ kind: 'form', error: '출금 계좌 잔액이 부족해요.' })
       return
@@ -122,7 +125,7 @@ export default function TransferPage() {
         amount: amountValue,
         pin: withPin,
         device_fingerprint: await deviceFingerprint(),
-      })
+      }, idempotencyKey)
       setStep({ kind: 'done', holder, result })
       refreshAccounts()
       if (toBank) setHistoryRound((n) => n + 1)
@@ -428,18 +431,7 @@ export default function TransferPage() {
                     send(step.holder, pin)
                   }}
                 >
-                  <label>
-                    이체 PIN
-                    <input
-                      type="password"
-                      inputMode="numeric"
-                      autoComplete="off"
-                      maxLength={6}
-                      value={pin}
-                      onChange={(e) => setPin(e.target.value.replace(/\D/g, ''))}
-                      autoFocus
-                    />
-                  </label>
+                  <PinPad value={pin} onChange={setPin} autoFocus />
                   {step.error && <p className="error small">{step.error}</p>}
                   <button className="button primary" disabled={pin.length !== 6}>
                     PIN 확인 후 보내기

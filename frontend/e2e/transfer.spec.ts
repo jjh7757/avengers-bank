@@ -54,12 +54,14 @@ test('로그인 → 계좌 → 내 다른 계좌로 1만원 이체 → 완료', 
   await expect(receipt.getByText('홍길동').first()).toBeVisible()
   await receipt.getByRole('button', { name: '보내기' }).click()
 
-  // FDS가 추가 인증을 요구하면(새 기기·시간대 등) 이체 PIN을 넣는다
-  const pinInput = page.getByLabel('이체 PIN')
+  // FDS가 추가 인증을 요구하면(새 기기·시간대 등) 보안 키패드로 이체 PIN을 누른다 (숫자 배열은 매번 섞인다)
+  const pinPad = page.getByRole('group', { name: /이체 PIN/ })
   const done = receipt.getByText('보냈어요')
-  await expect(done.or(pinInput)).toBeVisible()
-  if (await pinInput.isVisible()) {
-    await pinInput.fill(DEMO_PIN)
+  await expect(done.or(pinPad)).toBeVisible()
+  if (await pinPad.isVisible()) {
+    for (const digit of DEMO_PIN) {
+      await pinPad.getByRole('button', { name: digit, exact: true }).click()
+    }
     await page.getByRole('button', { name: 'PIN 확인 후 보내기' }).click()
   }
 

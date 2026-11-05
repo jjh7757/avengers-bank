@@ -32,6 +32,7 @@ ERROR_EXAMPLES = {
     404: ("NOT_FOUND", "요청한 리소스를 찾을 수 없습니다."),
     409: ("CONFLICT", "요청이 현재 상태와 충돌합니다."),
     422: ("VALIDATION_ERROR", "입력값을 확인해 주세요."),
+    429: ("TOO_MANY_REQUESTS", "요청이 너무 많습니다. 잠시 후 다시 시도해 주세요."),
     500: ("INTERNAL_SERVER_ERROR", "서버에서 오류가 발생했습니다."),
 }
 

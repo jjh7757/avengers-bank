@@ -5,6 +5,7 @@ import { ApiError } from '../api/client'
 import { accountApi } from '../api/endpoints'
 import type { AccountDetail } from '../api/types'
 import { won } from '../lib/format'
+import PinPad from './PinPad'
 
 const MAX_LIMIT = 100_000_000 // 백엔드 MAX_TRANSFER_LIMIT
 
@@ -89,19 +90,10 @@ export default function TransferLimitForm({ account, onSaved }: Props) {
       </label>
       {invalid && <p className="error small">{invalid}</p>}
       {raising && !invalid && (
-        <label>
-          이체 PIN
+        <div className="limit-pin">
           <span className="muted small">한도를 높이려면 본인 확인이 필요해요. 누가 전화로 한도를 올리라고 했다면 멈추세요.</span>
-          <input
-            type="password"
-            inputMode="numeric"
-            autoComplete="off"
-            maxLength={6}
-            value={pin}
-            onChange={(e) => setPin(e.target.value.replace(/\D/g, ''))}
-            aria-label="이체 PIN 6자리"
-          />
-        </label>
+          <PinPad value={pin} onChange={setPin} />
+        </div>
       )}
       {error && (
         <p className="error small" role="alert">
