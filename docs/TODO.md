@@ -214,6 +214,10 @@
 - [x] RAG: knowledge MCP 서버(`search_terms`, `list_documents`), 문서 `data/knowledge/`(상품 약관 요약 7 + FAQ 3), 검색 `knowledge/index.py`
   - Chroma 대신 Gemini 임베딩 + 메모리 안 코사인 유사도 (조각 53개, 배포 메모리 상한 512MB). 임베딩을 못 쓰면 키워드 검색
   - 실제 Gemini: 중도 해지·연회비·청년적금 나이·만기 후 이자는 약관대로, 문서에 없는 해외 수수료는 "약관에 없음"
+- [x] 가입 시 이용약관: 계좌 개설·카드 발급은 동의한 약관 버전(`terms_version`) 필수, `terms_agreements`에 기록 (마이그레이션 `b107ad9d2c56`)
+  - 앱에서 직접: 메뉴 → 상품 보기·가입(`/products`) → 가입 화면(약관 전문 → 동의 → 조건 → 가입하기). 계좌·카드 화면에 "+ 새 계좌 만들기", "+ 카드 발급받기"
+  - 모아: 개설·발급 도구를 LLM에서 빼고 `prepare_signup`으로 같은 가입 화면을 가져옴 (대화에서 들은 조건 미리 채움). "네"로는 가입하지 않음
+  - `scripts/demo_check.py` 시나리오 6을 이 흐름으로 바꿈 (8000번 서버에서 아직 안 돌림)
 - [x] LLM 기반 대화 위험 판별 (키워드 규칙의 상위 버전): `fds/conversation.py`, 규칙 `CONVERSATION_AI_SUSPICIOUS`(MEDIUM)·`CONVERSATION_AI_SCAM`(HIGH), 근거는 `rule_hits[].detail`
   - 이체 트랜잭션 전에 Gemini 호출(계좌 잠금 중 대기 방지), 8초 넘거나 실패하면 키워드 규칙만. LLM이 위험으로 보면 키워드 규칙은 빼서 중복으로 세지 않음
   - 실제 Gemini: 키워드 없는 가족 사칭·대출 선입금 → scam, "경찰서 앞 식당" → none, 1.4~4.7초. `demo_check.py` 시나리오 3-2 추가 → 8/8 통과

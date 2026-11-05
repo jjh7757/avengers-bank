@@ -11,6 +11,9 @@ export default function CardsPage() {
   return (
     <section className="page">
       <h1>내 카드</h1>
+      <Link className="button small" to="/products?kind=card">
+        + 카드 발급받기
+      </Link>
       {loading && <p className="muted">불러오는 중…</p>}
       {error && <p className="error">{error}</p>}
       {cards && cards.length === 0 && <p className="muted">아직 카드가 없어요.</p>}

@@ -3,6 +3,8 @@ from typing import Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from avengers_bank.domains.products.schemas import TERMS_VERSION_FIELD
+
 AccountType = Literal["checking", "deposit", "savings"]
 
 # 이체 한도 기본값 (PROJECT_PLAN.md 8절)
@@ -22,6 +24,7 @@ class _TransferLimits(BaseModel):
 
 class CheckingAccountCreate(_TransferLimits):
     product_id: int
+    terms_version: str = Field(**TERMS_VERSION_FIELD)
     nickname: str | None = Field(default=None, max_length=50)
     per_transfer_limit: int = Field(default=DEFAULT_PER_TRANSFER_LIMIT, gt=0, le=MAX_TRANSFER_LIMIT)
     daily_transfer_limit: int = Field(
@@ -31,12 +34,14 @@ class CheckingAccountCreate(_TransferLimits):
 
 class DepositAccountCreate(BaseModel):
     product_id: int
+    terms_version: str = Field(**TERMS_VERSION_FIELD)
     term_months: int = Field(ge=1, le=60, description="가입 기간(개월). 만기일 = 오늘 + 기간")
     nickname: str | None = Field(default=None, max_length=50)
 
 
 class SavingsAccountCreate(BaseModel):
     product_id: int
+    terms_version: str = Field(**TERMS_VERSION_FIELD)
     term_months: int = Field(ge=1, le=60)
     monthly_payment: int = Field(gt=0, le=MAX_TRANSFER_LIMIT)
     monthly_deposit_date: int = Field(ge=1, le=31, description="매월 납입일")

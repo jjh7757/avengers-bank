@@ -9,6 +9,8 @@ import type {
   CardSummary,
   CardType,
   ChatMessage,
+  ProductKind,
+  ProductTerms,
   FdsLog,
   Product,
   UiContext,
@@ -36,17 +38,25 @@ export const accountApi = {
     body: { nickname?: string; per_transfer_limit?: number; daily_transfer_limit?: number; pin?: string },
   ) => api<AccountDetail>(`/accounts/${type}/${id}`, { method: 'PATCH', body }),
   histories: (type: AccountType, id: number) => api<AccountHistory[]>(`/accounts/${type}/${id}/histories`),
+  /** 계좌 개설. terms_version = 사용자가 동의한 이용약관 버전 (없거나 바뀌었으면 TERMS_NOT_AGREED) */
+  open: (type: AccountType, body: Record<string, unknown> & { product_id: number; terms_version: string }) =>
+    api<AccountDetail>(`/accounts/${type}`, { method: 'POST', body }),
 }
 
 export const cardApi = {
   list: () => api<CardSummary[]>('/cards'),
   get: (type: CardType, id: number) => api<CardDetail>(`/cards/${type}/${id}`),
   histories: (type: CardType, id: number) => api<CardHistory[]>(`/cards/${type}/${id}/histories`),
+  /** 카드 발급. terms_version = 사용자가 동의한 이용약관 버전 */
+  issue: (type: CardType, body: Record<string, unknown> & { product_id: number; terms_version: string }) =>
+    api<CardDetail>(`/cards/${type}`, { method: 'POST', body }),
 }
 
 export const productApi = {
   accounts: () => api<Product[]>('/products/accounts'),
   cards: () => api<Product[]>('/products/cards'),
+  get: (kind: ProductKind, id: number) => api<Product>(`/products/${kind}s/${id}`),
+  terms: (kind: ProductKind, id: number) => api<ProductTerms>(`/products/${kind}s/${id}/terms`),
 }
 
 export const chatApi = {

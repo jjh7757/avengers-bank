@@ -15,7 +15,8 @@ WRITE = ToolAnnotations(readOnlyHint=False, destructiveHint=False)
 
 server = new_server(
     "avengers-cards",
-    "AvengersBank 카드: 내 신용·체크카드와 사용내역 조회, 카드 발급. 카드번호는 뒤 4자리만. 발급은 사용자가 동의한 뒤에만.",
+    "AvengersBank 카드: 내 신용·체크카드와 사용내역 조회, 카드 발급. 카드번호는 뒤 4자리만. "
+    "발급은 prepare_signup(products 서버)으로 받은 이용약관을 사용자에게 보여 주고 동의받은 버전(terms_version)이 있어야 한다.",
 )
 
 
@@ -47,15 +48,16 @@ async def get_card_histories(db, user, card_type: CardType, card_id: int, limit:
 
 
 @bank_tool(server, annotations=WRITE)
-async def issue_debit_card(db, user, product_id: int, checking_account_id: int) -> dict:
-    """체크카드 발급 (연결 계좌 = 본인 입출금 계좌). 사용자가 동의한 뒤에만 호출한다"""
-    return issued_json(await card_service.issue_debit(
-        db, DebitCardCreate(product_id=product_id, checking_account_id=checking_account_id), user
-    ))
+async def issue_debit_card(db, user, product_id: int, checking_account_id: int, terms_version: str = Field(min_length=1, max_length=40, description="사용자가 동의한 이용약관 버전 (prepare_signup의 terms.version)")) -> dict:
+    """체크카드 발급 (연결 계좌 = 본인 입출금 계좌). 이용약관을 사용자에게 보여 주고 동의받은 뒤에만 호출한다"""
+    data = DebitCardCreate(product_id=product_id, checking_account_id=checking_account_id, terms_version=terms_version)
+    return issued_json(await card_service.issue_debit(db, data, user))
 
 
 @bank_tool(server, annotations=WRITE)
-async def issue_credit_card(db, user, product_id: int, checking_account_id: int, payment_date: int = Field(ge=1, le=31)) -> dict:
-    """신용카드 발급 (결제 계좌 = 본인 입출금 계좌, 매월 결제일). 사용자가 동의한 뒤에만 호출한다"""
-    data = CreditCardCreate(product_id=product_id, checking_account_id=checking_account_id, payment_date=payment_date)
+async def issue_credit_card(
+    db, user, product_id: int, checking_account_id: int, terms_version: str = Field(min_length=1, max_length=40, description="사용자가 동의한 이용약관 버전 (prepare_signup의 terms.version)"), payment_date: int = Field(ge=1, le=31),
+) -> dict:
+    """신용카드 발급 (결제 계좌 = 본인 입출금 계좌, 매월 결제일). 이용약관을 사용자에게 보여 주고 동의받은 뒤에만 호출한다"""
+    data = CreditCardCreate(product_id=product_id, checking_account_id=checking_account_id, terms_version=terms_version, payment_date=payment_date)
     return issued_json(await card_service.issue_credit(db, data, user))

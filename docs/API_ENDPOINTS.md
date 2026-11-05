@@ -69,6 +69,10 @@
 | ✅ | GET | `/products/accounts/{product_id}` | | 계좌 상품 상세 |
 | ✅ | GET | `/products/cards?type=` | | 카드 상품 목록 (`type` = CREDIT·DEBIT) |
 | ✅ | GET | `/products/cards/{product_id}` | | 카드 상품 상세 |
+| ✅ | GET | `/products/accounts/{product_id}/terms` | | 계좌 상품 이용약관 (`version`, 소제목별 `sections`) |
+| ✅ | GET | `/products/cards/{product_id}/terms` | | 카드 상품 이용약관 |
+
+**이용약관 동의:** 계좌 개설(`POST /accounts/*`)과 카드 발급(`POST /cards/credit|debit`)은 요청에 `terms_version`(동의한 약관의 `version`)이 필수다. 없으면 `422`, 지금 약관 버전과 다르면 `400 TERMS_NOT_AGREED`(약관이 바뀌었으면 새 약관을 다시 보여 주고 동의받는다). 동의는 개설·발급과 같은 트랜잭션에서 `terms_agreements`에 남는다. 약관 원문은 `data/knowledge/products/*.md`, 버전은 파일 내용 해시(12자리).
 
 ## accounts: 계좌 (`domains/accounts`)
 
@@ -89,15 +93,15 @@
 
 `POST /accounts/checking` (한도 생략 시 1회 500만원, 1일 1,000만원)
 ```json
-{ "product_id": 1, "nickname": "생활비", "per_transfer_limit": 5000000, "daily_transfer_limit": 10000000 }
+{ "product_id": 1, "terms_version": "3f2a9c1b7d4e", "nickname": "생활비", "per_transfer_limit": 5000000, "daily_transfer_limit": 10000000 }
 ```
 `POST /accounts/deposit`
 ```json
-{ "product_id": 2, "term_months": 12, "nickname": null }
+{ "product_id": 2, "terms_version": "…", "term_months": 12, "nickname": null }
 ```
 `POST /accounts/savings`
 ```json
-{ "product_id": 4, "term_months": 12, "monthly_payment": 300000, "monthly_deposit_date": 25 }
+{ "product_id": 4, "terms_version": "…", "term_months": 12, "monthly_payment": 300000, "monthly_deposit_date": 25 }
 ```
 `PATCH /accounts/checking/1`: 보낸 필드만 변경. 이체 한도는 입출금 계좌만 (`400 TRANSFER_LIMIT_NOT_SUPPORTED`)
 ```json
@@ -192,13 +196,13 @@ PIN이 없으면 `400 PIN_NOT_SET`, 안 보내면 `400 PIN_REQUIRED`, 틀리면 
 
 `POST /cards/credit`
 ```json
-{ "product_id": 1, "checking_account_id": 1, "payment_date": 14 }
+{ "product_id": 1, "terms_version": "…", "checking_account_id": 1, "payment_date": 14 }
 ```
 `POST /cards/debit/1/payments`
 ```json
 { "place_of_use": "편의점", "used_amount": 12000 }
 ```
-실패: `400 PRODUCT_TYPE_MISMATCH`, `400 INSUFFICIENT_BALANCE`(체크카드), `403 CARD_FORBIDDEN`, `404 CARD_NOT_FOUND`
+실패: `400 PRODUCT_TYPE_MISMATCH`, `400 TERMS_NOT_AGREED`, `400 INSUFFICIENT_BALANCE`(체크카드), `403 CARD_FORBIDDEN`, `404 CARD_NOT_FOUND`
 </details>
 
 ## recipients: 수취인 (`domains/recipients`)

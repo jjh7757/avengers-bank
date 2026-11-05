@@ -75,7 +75,7 @@ class CardService:
         self, db: AsyncSession, data: CreditCardCreate, current_user: UserResponse
     ) -> CardDetailResponse:
         async with db.begin():
-            await self._validate_issue(db, "credit", data.product_id, data.checking_account_id, current_user)
+            await self._validate_issue(db, "credit", data.product_id, data.checking_account_id, data.terms_version, current_user)
             card = CreditCard(
                 user_id=current_user.user_id,
                 product_id=data.product_id,
@@ -85,13 +85,17 @@ class CardService:
                 payment_date=data.payment_date,
             )
             await card_repository.save(db, card)
+            await product_service.record_agreement(
+                db, user_id=current_user.user_id, kind="card", product_id=data.product_id,
+                terms_version=data.terms_version, target_type="credit", target_id=card.credit_card_id,
+            )
             return to_detail("credit", card)
 
     async def issue_debit(
         self, db: AsyncSession, data: DebitCardCreate, current_user: UserResponse
     ) -> CardDetailResponse:
         async with db.begin():
-            await self._validate_issue(db, "debit", data.product_id, data.checking_account_id, current_user)
+            await self._validate_issue(db, "debit", data.product_id, data.checking_account_id, data.terms_version, current_user)
             card = DebitCard(
                 user_id=current_user.user_id,
                 product_id=data.product_id,
@@ -100,6 +104,10 @@ class CardService:
                 accumulated_amount=0,
             )
             await card_repository.save(db, card)
+            await product_service.record_agreement(
+                db, user_id=current_user.user_id, kind="card", product_id=data.product_id,
+                terms_version=data.terms_version, target_type="debit", target_id=card.debit_card_id,
+            )
             return to_detail("debit", card)
 
     async def get_my_cards(
@@ -188,9 +196,10 @@ class CardService:
         card_type: CardType,
         product_id: int,
         checking_account_id: int,
+        terms_version: str,
         current_user: UserResponse,
     ) -> None:
-        await product_service.validate_card_product(db, product_id, card_type.upper())
+        await product_service.validate_card_product(db, product_id, card_type.upper(), terms_version)
         # 연결할 계좌가 본인 입출금 계좌인지 확인
         await account_service.get_owned_account(
             db, "checking", checking_account_id, current_user.user_id

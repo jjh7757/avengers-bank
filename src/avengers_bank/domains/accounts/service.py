@@ -93,7 +93,7 @@ class AccountService:
         self, db: AsyncSession, data: CheckingAccountCreate, current_user: UserResponse
     ) -> AccountDetailResponse:
         async with db.begin():
-            await product_service.validate_account_product(db, data.product_id, "CHECKING")
+            await product_service.validate_account_product(db, data.product_id, "CHECKING", data.terms_version)
             account = CheckingAccount(
                 user_id=current_user.user_id,
                 product_id=data.product_id,
@@ -104,13 +104,14 @@ class AccountService:
                 nickname=data.nickname,
             )
             await self._save_new(db, account)
+            await self._record_terms(db, data, "checking", account)
             return to_detail("checking", account)
 
     async def open_deposit(
         self, db: AsyncSession, data: DepositAccountCreate, current_user: UserResponse
     ) -> AccountDetailResponse:
         async with db.begin():
-            await product_service.validate_account_product(db, data.product_id, "DEPOSIT")
+            await product_service.validate_account_product(db, data.product_id, "DEPOSIT", data.terms_version)
             account = DepositAccount(
                 user_id=current_user.user_id,
                 product_id=data.product_id,
@@ -120,13 +121,14 @@ class AccountService:
                 nickname=data.nickname,
             )
             await self._save_new(db, account)
+            await self._record_terms(db, data, "deposit", account)
             return to_detail("deposit", account)
 
     async def open_savings(
         self, db: AsyncSession, data: SavingsAccountCreate, current_user: UserResponse
     ) -> AccountDetailResponse:
         async with db.begin():
-            await product_service.validate_account_product(db, data.product_id, "SAVINGS")
+            await product_service.validate_account_product(db, data.product_id, "SAVINGS", data.terms_version)
             account = SavingsAccount(
                 user_id=current_user.user_id,
                 product_id=data.product_id,
@@ -138,6 +140,7 @@ class AccountService:
                 nickname=data.nickname,
             )
             await self._save_new(db, account)
+            await self._record_terms(db, data, "savings", account)
             return to_detail("savings", account)
 
     async def get_my_accounts(
@@ -251,6 +254,12 @@ class AccountService:
                 return account_num
         raise ConflictException(
             code="ACCOUNT_NUM_ISSUE_FAILED", message="계좌번호 발급에 실패했습니다. 다시 시도해 주세요."
+        )
+
+    async def _record_terms(self, db: AsyncSession, data, account_type: AccountType, account: Account) -> None:
+        await product_service.record_agreement(
+            db, user_id=account.user_id, kind="account", product_id=data.product_id, terms_version=data.terms_version,
+            target_type=account_type, target_id=account_id_of(account_type, account),
         )
 
     async def _save_new(self, db: AsyncSession, account: Account) -> None:

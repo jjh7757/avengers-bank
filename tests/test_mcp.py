@@ -24,8 +24,9 @@ async def test_servers_and_llm_tools(client, user):
     mcp = await mcp_for(client, user)
     names = {tool.name for tool in await mcp.llm_tools()}
     assert len(SERVERS) == 6
-    assert {"get_my_accounts", "open_checking_account", "search_products", "get_my_cards", "get_fds_logs",
-            "search_terms"} <= names
+    assert {"get_my_accounts", "search_products", "prepare_signup", "get_my_cards", "get_fds_logs", "search_terms"} <= names
+    # 개설·발급은 LLM에게 주지 않는다 (가입 화면에서 사용자가 약관에 동의하고 직접)
+    assert not {"open_checking_account", "open_savings_account", "issue_debit_card", "issue_credit_card"} & names
     assert not LLM_EXCLUDED & names
 
 
@@ -74,12 +75,20 @@ async def test_limits_can_only_go_down(client, user):
     assert result["per_transfer_limit"] == 1_000_000
 
 
-async def test_open_account_and_issue_card(client, user):
+async def test_open_account_and_issue_card_need_terms(client, user):
+    """외부 클라이언트: prepare_signup으로 약관을 받아 사용자 동의 후 그 버전으로 개설·발급"""
     mcp = await mcp_for(client, user)
-    account = await mcp.call("accounts", "open_checking_account", {"product_id": 1, "nickname": "용돈"})
+    no_terms = await mcp.call("accounts", "open_checking_account", {"product_id": 1, "terms_version": "old"})
+    assert no_terms["error"] == "TERMS_NOT_AGREED"
+
+    signup = await mcp.call("products", "prepare_signup", {"kind": "account", "product_id": 1})
+    account = await mcp.call("accounts", "open_checking_account",
+                             {"product_id": 1, "nickname": "용돈", "terms_version": signup["terms"]["version"]})
     assert account["account_num"].startswith("****")
 
-    card = await mcp.call("cards", "issue_debit_card", {"product_id": DEBIT_PRODUCT, "checking_account_id": account["account_id"]})
+    version = (await mcp.call("products", "prepare_signup", {"kind": "card", "product_id": DEBIT_PRODUCT}))["terms"]["version"]
+    card = await mcp.call("cards", "issue_debit_card",
+                          {"product_id": DEBIT_PRODUCT, "checking_account_id": account["account_id"], "terms_version": version})
     assert card["card_type"] == "debit"
     assert len((await mcp.call("cards", "get_my_cards", {}))["cards"]) == 1
 
@@ -177,3 +186,20 @@ async def test_execute_transfer_blocked_by_fds_returns_reasons(client, user, oth
     assert "송금을 요구하지 않습니다" in result["extra"]["warning"]
     balance = (await client.get(f"/accounts/checking/{mine['account_id']}", headers=user)).json()["data"]["balance"]
     assert balance == 100_000
+
+
+async def test_prepare_signup_brings_terms_without_opening(client, user, other_user):
+    mine = await open_checking(client, user)
+    others = await open_checking(client, other_user)
+    mcp = await mcp_for(client, user)
+
+    result = await mcp.call("products", "prepare_signup", {
+        "kind": "card", "product_id": DEBIT_PRODUCT, "checking_account_id": mine["account_id"], "term_months": 12})
+    assert result["product"]["name"] == "어벤져스 데일리 체크카드"
+    assert result["terms"]["version"] and result["terms"]["sections"]
+    assert result["prefill"] == {"checking_account_id": mine["account_id"]}  # 카드에 맞지 않는 값은 뺀다
+    assert (await mcp.call("cards", "get_my_cards", {}))["cards"] == []  # 발급하지 않는다
+
+    result = await mcp.call("products", "prepare_signup", {
+        "kind": "card", "product_id": DEBIT_PRODUCT, "checking_account_id": others["account_id"]})
+    assert result["error"] == "ACCOUNT_FORBIDDEN"

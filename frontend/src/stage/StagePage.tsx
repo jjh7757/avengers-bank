@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom'
 
 import { ApiError } from '../api/client'
 import { chatApi } from '../api/endpoints'
-import type { AccountType, CardType, ChatMessage, Screen, UiContext, UiSelected } from '../api/types'
+import type { AccountType, CardType, ChatMessage, ProductKind, Screen, SignupPrefill, UiContext, UiSelected } from '../api/types'
 import { useAuth } from '../auth/useAuth'
 import TransferCard, { type Status } from '../components/TransferCard'
 import { useChatSession } from '../hooks/useChatSession'
@@ -18,6 +18,7 @@ import {
   FdsPanel,
   HomePanel,
   ProductsPanel,
+  SignupPanel,
   type ProductFilter,
 } from './panels'
 import { selectionKey, type Pick } from './selection'
@@ -35,6 +36,7 @@ const BRING_MS = 800 // 끌어오기 애니메이션(0.75초)이 끝나고 버�
 interface View {
   screen: Screen
   msgId: number | null // transfer 화면이면 확인 카드가 담긴 메시지
+  params?: Record<string, unknown> // 모아가 아니라 사용자가 연 화면의 대상 (상품 화면의 "가입하기")
   key: number // 바뀔 때마다 패널을 다시 마운트해 끌어오기 연출과 최신 데이터 불러오기
 }
 
@@ -43,6 +45,7 @@ const reducedMotion = () => window.matchMedia('(prefers-reduced-motion: reduce)'
 const ACCOUNT_TYPES: AccountType[] = ['checking', 'deposit', 'savings']
 const CARD_TYPES: CardType[] = ['credit', 'debit']
 const PRODUCT_KINDS = ['account', 'card', 'all'] as const
+const PREFILL_KEYS = ['term_months', 'monthly_payment', 'monthly_deposit_date', 'checking_account_id', 'payment_date'] as const
 
 /** 답변의 screen_params(서버가 도구 인자로 채운 값)를 화면별 대상으로. 모양이 맞지 않으면 목록 화면을 보여 준다 */
 function screenTarget(params: Record<string, unknown>) {
@@ -55,6 +58,16 @@ function screenTarget(params: Record<string, unknown>) {
     card:
       CARD_TYPES.includes(card_type as CardType) && typeof card_id === 'number'
         ? { type: card_type as CardType, id: card_id }
+        : null,
+    signup:
+      (kind === 'account' || kind === 'card') && typeof product_id === 'number'
+        ? {
+            kind: kind as ProductKind,
+            productId: product_id,
+            prefill: Object.fromEntries(
+              PREFILL_KEYS.filter((k) => typeof params[k] === 'number').map((k) => [k, params[k]]),
+            ) as SignupPrefill,
+          }
         : null,
     products: {
       kind: PRODUCT_KINDS.find((k) => k === kind),
@@ -102,7 +115,8 @@ export default function StagePage() {
   const lastCardId = messages.findLast((m) => m.card?.type === 'transfer_confirmation')?.msg_id
   const shownMessage = shown.msgId != null ? messages.find((m) => m.msg_id === shown.msgId) : undefined
   const transferMessage = shown.screen === 'transfer' ? shownMessage : undefined
-  const target = screenTarget(shownMessage?.screen_params ?? {})
+  const shownParams = shown.params ?? shownMessage?.screen_params ?? {}
+  const target = screenTarget(shownParams)
   const bubbleText = bubble ?? lastAssistant?.content ?? GREETING
 
   const pick: Pick = {
@@ -123,7 +137,7 @@ export default function StagePage() {
       .slice(0, 10)
     return {
       screen: shown.screen,
-      screen_params: shownMessage?.screen_params ?? {},
+      screen_params: shownParams,
       selected: selected && { ...selected, label: selected.label.slice(0, 60) },
       visible: labels,
     }
@@ -234,6 +248,13 @@ export default function StagePage() {
     }
   }, [])
 
+  /** 상품 화면의 "가입하기": 모아에게 말하지 않고 바로 가입 화면을 무대로 */
+  function openSignup(kind: ProductKind, productId: number) {
+    setSelected(null)
+    setView((v) => ({ screen: 'signup', msgId: null, params: { kind, product_id: productId }, key: (v?.key ?? 0) + 1 }))
+    setBubble('이용약관을 읽고 동의한 다음, 가입 조건을 채우고 "가입하기"를 눌러 주세요.')
+  }
+
   async function newConversation() {
     requestRef.current++
     timers.current.forEach(clearTimeout)
@@ -317,7 +338,20 @@ export default function StagePage() {
             {shown.screen === 'account' && target.account && <AccountPanel {...target.account} />}
             {(shown.screen === 'cards' || (shown.screen === 'card' && !target.card)) && <CardsPanel pick={pick} />}
             {shown.screen === 'card' && target.card && <CardPanel {...target.card} />}
-            {shown.screen === 'products' && <ProductsPanel reply={shownMessage?.content ?? ''} pick={pick} {...target.products} />}
+            {shown.screen === 'products' && (
+              <ProductsPanel reply={shownMessage?.content ?? ''} pick={pick} onSignup={openSignup} {...target.products} />
+            )}
+            {shown.screen === 'signup' && target.signup && (
+              <SignupPanel
+                key={`${target.signup.kind}-${target.signup.productId}`}
+                {...target.signup}
+                onDone={() => {
+                  setMood('idle')
+                  setBubble('가입했어요! 화면에서 새 계좌·카드를 확인해 보세요.')
+                }}
+              />
+            )}
+            {shown.screen === 'signup' && !target.signup && <ProductsPanel reply="" pick={pick} onSignup={openSignup} />}
             {shown.screen === 'fds' && <FdsPanel />}
             {shown.screen === 'transfer' && transferMessage?.card?.type === 'transfer_confirmation' && sessionId ? (
               <TransferCard
@@ -403,6 +437,7 @@ const MENU = [
   { to: '/chat', label: '대화 기록 (채팅으로 보기)', icon: '💬' },
   { to: '/accounts', label: '내 계좌', icon: '🏦' },
   { to: '/cards', label: '내 카드', icon: '💳' },
+  { to: '/products', label: '상품 보기·가입', icon: '🛍️' },
   { to: '/fds', label: '이상거래 기록', icon: '🛡️' },
   { to: '/settings', label: '설정 (PIN·목소리 등록)', icon: '⚙️' },
 ]

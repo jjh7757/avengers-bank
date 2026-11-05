@@ -21,20 +21,22 @@ React ── REST ──▶ FastAPI ─┬─ /users /accounts /transfers ... (R
 - 계좌·카드번호는 뒤 4자리만 돌려준다 (`****6789`). 예외: `prepare_transfer`의 확인 카드(이체 요청에 그대로 써야 함). `execute_transfer` 결과는 다시 가린다.
 - Host 검사(DNS rebinding 방지): `127.0.0.1`, `localhost`만 허용. 배포할 때 `mcp_servers/common.py`의 `ALLOWED_HOSTS`에 실제 호스트를 더한다.
 
-## 서버와 도구 (26개)
+## 서버와 도구 (27개)
 
 | 서버 | 도구 | 종류 | LLM |
 |---|---|---|---|
 | **accounts** 계좌 | `get_my_accounts`, `get_account`, `get_account_histories` | 조회 | ✅ |
-| | `open_checking_account`, `open_deposit_account`, `open_savings_account`, `rename_account` | 변경 (사용자 동의 후) | ✅ |
+| | `open_checking_account`, `open_deposit_account`, `open_savings_account` | 개설. **`terms_version`(동의한 이용약관 버전) 필수** | ❌ 외부 클라이언트만 |
+| | `rename_account` | 변경 (사용자 동의 후) | ✅ |
 | | `lower_transfer_limits` | 변경. **낮추기만** 가능 (`LIMIT_RAISE_NOT_ALLOWED`) | ✅ |
 | **transfers** 이체 | `list_recipients`, `find_recipient`, `find_account_holder` | 조회 | ✅ |
 | | `prepare_transfer` | 확인 카드 + 승인 토큰 (**실행 아님**). `session_id`를 비우면 새 대화를 만든다 | ❌ 이체 노드만 |
 | | `execute_transfer` | 이체 실행. 카드 값 + 승인 토큰 + **이체 PIN 또는 음성 승인 토큰 필수** | ❌ 외부 클라이언트만 |
 | | `register_recipient`, `rename_recipient`, `delete_recipient` | 변경 | ❌ 앱 화면·외부 클라이언트만 |
 | **products** 상품 | `search_products`, `get_product` | 조회 | ✅ |
+| | `prepare_signup` | 가입 화면 준비: 이용약관 + 대화에서 들은 조건(미리 채움). **개설·발급은 하지 않는다** | ✅ |
 | **cards** 카드 | `get_my_cards`, `get_card_histories` | 조회 | ✅ |
-| | `issue_debit_card`, `issue_credit_card` | 변경 (사용자 동의 후) | ✅ |
+| | `issue_debit_card`, `issue_credit_card` | 발급. **`terms_version` 필수** | ❌ 외부 클라이언트만 |
 | **security** 보안 | `get_fds_logs`, `get_voice_profile_status` | 조회 | ✅ |
 | **knowledge** 상담 지식 | `search_terms`, `list_documents` | 조회 (약관·FAQ 검색, RAG) | ✅ |
 
@@ -62,7 +64,20 @@ React ── REST ──▶ FastAPI ─┬─ /users /accounts /transfers ... (R
 | 카드 결제 | 가맹점 쪽 기능 |
 | 목소리 등록·삭제 | 녹음 파일과 비밀번호가 필요한 앱 화면 기능 |
 
-변경 도구(계좌 개설, 카드 발급, 별칭 변경, 한도 낮추기)는 시스템 프롬프트에서 "무엇을 할지 말하고 사용자가 '네'라고 한 뒤에만 부른다"고 정했다. 실제 Gemini로 "체크카드 만들어줘" → "발급해 드릴까요?" → "네" → 발급 순서를 확인했다. 프롬프트 규칙이라 LLM이 어길 가능성은 남는다. 돈이 움직이는 도구는 이 규칙에 기대지 않고 아예 주지 않는다.
+변경 도구(별칭 변경, 한도 낮추기)는 시스템 프롬프트에서 "무엇을 할지 말하고 사용자가 '네'라고 한 뒤에만 부른다"고 정했다. 프롬프트 규칙이라 LLM이 어길 가능성은 남는다. 돈이 움직이는 도구는 이 규칙에 기대지 않고 아예 주지 않는다.
+
+## 가입: 이용약관 동의는 화면에서
+
+계좌 개설·카드 발급은 이용약관 동의가 있어야 한다. 대화의 "네"는 약관을 읽고 동의한 것이 아니므로 LLM에게 개설·발급 도구를 주지 않는다.
+
+1. 모아: 사용자가 "적금 들고 싶어", "체크카드 만들어줘"라고 하면 `prepare_signup`(상품 + 들은 조건) → 답변의 `screen = "signup"`, `screen_params = {kind, product_id, 미리 채운 조건}`
+2. 모아 화면이 가입 화면을 무대로 가져온다: 이용약관 전문 → "이용약관을 읽었고 동의합니다" 체크 → 조건 확인·입력 → "가입하기"
+3. 화면이 `POST /accounts/*` 또는 `POST /cards/*`에 약관 `version`을 `terms_version`으로 넣어 보낸다. 서버는 지금 버전인지 확인하고 동의 기록(`terms_agreements`)과 함께 만든다
+4. 모아에게 말하지 않고 메뉴 → 상품 보기·가입(`/products`) → "가입하기"로 들어와도 **같은 가입 화면**(`components/ProductSignup.tsx`)이다
+
+- 가입 화면은 같은 턴의 뒤이은 조회 도구(`get_product` 등)가 덮지 않는다 (`agents/graph.py`의 `STICKY_SCREENS`). 실제 Gemini가 `prepare_signup` 다음에 `get_product`를 부르는 경우가 있었다
+- 실제 Gemini: "월급 통장에 연결해서 체크카드 하나 만들어줘" → 가입 화면(연결 계좌 월급 통장 미리 선택) + "연회비 없음, 화면에서 약관 동의 후 가입하기". "네, 동의하니까 만들어 주세요" → 발급하지 않고 화면에서 직접 누르라고 안내. 화면에서 동의 → 발급
+- 외부 MCP 클라이언트: `prepare_signup`으로 약관을 받아 사용자에게 보여 주고, 동의받은 `terms.version`으로 `open_*`/`issue_*`를 부른다
 
 ## 외부 클라이언트의 이체: prepare_transfer → execute_transfer
 

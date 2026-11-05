@@ -10,6 +10,8 @@ import CardsPage from './pages/CardsPage'
 import ChatPage from './pages/ChatPage'
 import FdsLogsPage from './pages/FdsLogsPage'
 import LoginPage from './pages/LoginPage'
+import ProductSignupPage from './pages/ProductSignupPage'
+import ProductsPage from './pages/ProductsPage'
 import SettingsPage from './pages/SettingsPage'
 import SignupPage from './pages/SignupPage'
 import StagePage from './stage/StagePage'
@@ -48,6 +50,8 @@ export default function App() {
         <Route path="/accounts/:type/:id" element={<AccountDetailPage />} />
         <Route path="/cards" element={<CardsPage />} />
         <Route path="/cards/:type/:id" element={<CardDetailPage />} />
+        <Route path="/products" element={<ProductsPage />} />
+        <Route path="/products/:kind/:id/signup" element={<ProductSignupPage />} />
         <Route path="/settings" element={<SettingsPage />} />
         <Route path="/fds" element={<FdsLogsPage />} />
       </Route>

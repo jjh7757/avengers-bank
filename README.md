@@ -9,7 +9,7 @@
 | [docs/PROJECT_PLAN.md](docs/PROJECT_PLAN.md) | 프로젝트 계획서: 목표, 아키텍처, AUI·FDS 설계, 일정, 리스크 |
 | [docs/DEMO.md](docs/DEMO.md) | **시연 대본**: 준비, 시나리오 6개, 비상 대응 |
 | [docs/PRESENTATION.md](docs/PRESENTATION.md) | 발표 자료 초안 (슬라이드별) |
-| [docs/MCP_SERVERS.md](docs/MCP_SERVERS.md) | MCP 서버 6개, 도구 26개, 안전 규칙, 약관·FAQ 검색(RAG) |
+| [docs/MCP_SERVERS.md](docs/MCP_SERVERS.md) | MCP 서버 6개, 도구 27개, 안전 규칙, 약관·FAQ 검색(RAG), 가입 시 이용약관 동의 |
 | [docs/VOICE_AUTH.md](docs/VOICE_AUTH.md) | 음성 승인(화자 인증) 설계, 측정 결과, 한계 |
 | [docs/TODO.md](docs/TODO.md) | 계획서를 작업 단위로 쪼갠 체크리스트 |
 | [docs/ERD.md](docs/ERD.md) | ER 다이어그램 (Mermaid), 코드에서 지킬 규칙 · 원본: [AvengersBankDiagram.drawio](docs/AvengersBankDiagram.drawio) |
@@ -103,6 +103,7 @@ uv run --group fds python fds_training/train.py           # 모델·임계값·r
 | fds | ✅ 2단계 규칙 엔진 + LightGBM, 이체에 연결 ([results.md](fds_training/results.md)) |
 | chat(에이전트) | ✅ 3단계 LangGraph + Gemini, 확인 카드 승인 후 이체 |
 | frontend | ✅ 4단계 채팅·확인 카드·FDS 안내·계좌·카드·음성 입력/안내 ([frontend/README.md](frontend/README.md)) |
-| MCP 서버 | ✅ 은행 기능·상담 지식 도구 26개를 서버 6개로, 에이전트는 MCP로만 사용 ([MCP_SERVERS.md](docs/MCP_SERVERS.md)) |
+| MCP 서버 | ✅ 은행 기능·상담 지식 도구 27개를 서버 6개로, 에이전트는 MCP로만 사용 ([MCP_SERVERS.md](docs/MCP_SERVERS.md)) |
+| 상품 가입·이용약관 | ✅ 앱(`/products`)이나 모아가 가져온 가입 화면에서 약관 동의 후 가입. 서버가 약관 버전을 확인하고 동의 기록을 남김 |
 | 약관·FAQ 상담 (RAG) | ✅ knowledge MCP 서버, Gemini 임베딩 검색 + 키워드 대체 (`data/knowledge/`) |
 | 음성 승인(화자 인증) | ✅ 4-4 구현, 기준값은 실제 목소리로 보정 필요 ([VOICE_AUTH.md](docs/VOICE_AUTH.md)) |

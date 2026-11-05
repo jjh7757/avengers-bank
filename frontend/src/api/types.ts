@@ -61,6 +61,28 @@ export interface Product {
   interest_rate?: string // 계좌 상품만 ("3.50")
 }
 
+export type ProductKind = 'account' | 'card'
+
+/** 상품 이용약관 (GET /products/{accounts|cards}/{id}/terms). 동의하면 version을 개설·발급 요청에 넣는다 */
+export interface ProductTerms {
+  product_kind: ProductKind
+  product_id: number
+  product_type: Product['type']
+  product_name: string
+  title: string
+  version: string
+  sections: { title: string; text: string }[]
+}
+
+/** 가입 화면에 미리 채울 값 (모아가 대화에서 들은 조건) */
+export interface SignupPrefill {
+  term_months?: number
+  monthly_payment?: number
+  monthly_deposit_date?: number
+  checking_account_id?: number
+  payment_date?: number
+}
+
 export interface CardHistory {
   history_id: number
   place_of_use: string
@@ -100,7 +122,7 @@ export interface AccountSummaryCard {
 export type ChatCard = TransferConfirmationCard | AccountSummaryCard
 
 /** 도우미 화면(/stage)에서 답변과 함께 가져올 화면. null이면 지금 화면 유지 */
-export type Screen = 'home' | 'accounts' | 'account' | 'cards' | 'card' | 'products' | 'fds' | 'transfer'
+export type Screen = 'home' | 'accounts' | 'account' | 'cards' | 'card' | 'products' | 'fds' | 'transfer' | 'signup'
 
 /** 모아 화면에서 눌러 고른 항목 (백엔드 chat/schemas.UiSelected) */
 export interface UiSelected {

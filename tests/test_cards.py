@@ -1,6 +1,6 @@
 import pytest
 
-from tests.conftest import CREDIT_PRODUCT, DEBIT_PRODUCT, open_checking
+from tests.conftest import CREDIT_PRODUCT, DEBIT_PRODUCT, open_checking, terms_version
 
 pytestmark = pytest.mark.anyio
 
@@ -9,7 +9,7 @@ async def issue_debit(client, headers, checking_account_id: int) -> dict:
     response = await client.post(
         "/cards/debit",
         headers=headers,
-        json={"product_id": DEBIT_PRODUCT, "checking_account_id": checking_account_id},
+        json={"product_id": DEBIT_PRODUCT, "terms_version": terms_version("card", DEBIT_PRODUCT), "checking_account_id": checking_account_id},
     )
     assert response.status_code == 201, response.text
     return response.json()["data"]
@@ -24,7 +24,7 @@ async def test_issue_and_list_cards(client, user):
     response = await client.post(
         "/cards/credit",
         headers=user,
-        json={"product_id": CREDIT_PRODUCT, "checking_account_id": account["account_id"], "payment_date": 14},
+        json={"product_id": CREDIT_PRODUCT, "terms_version": terms_version("card", CREDIT_PRODUCT), "checking_account_id": account["account_id"], "payment_date": 14},
     )
     assert response.status_code == 201
     assert response.json()["data"]["payment_date"] == 14
@@ -38,7 +38,7 @@ async def test_issue_with_wrong_product_type(client, user):
     response = await client.post(
         "/cards/debit",
         headers=user,
-        json={"product_id": CREDIT_PRODUCT, "checking_account_id": account["account_id"]},
+        json={"product_id": CREDIT_PRODUCT, "terms_version": terms_version("card", CREDIT_PRODUCT), "checking_account_id": account["account_id"]},
     )
     assert response.status_code == 400
     assert response.json()["error"]["code"] == "PRODUCT_TYPE_MISMATCH"
@@ -49,7 +49,7 @@ async def test_issue_linked_to_others_account(client, user, other_user):
     response = await client.post(
         "/cards/debit",
         headers=user,
-        json={"product_id": DEBIT_PRODUCT, "checking_account_id": others["account_id"]},
+        json={"product_id": DEBIT_PRODUCT, "terms_version": terms_version("card", DEBIT_PRODUCT), "checking_account_id": others["account_id"]},
     )
     assert response.status_code == 403
 
@@ -96,7 +96,7 @@ async def test_credit_payment_accumulates_without_withdrawal(client, user):
     response = await client.post(
         "/cards/credit",
         headers=user,
-        json={"product_id": CREDIT_PRODUCT, "checking_account_id": account["account_id"], "payment_date": 25},
+        json={"product_id": CREDIT_PRODUCT, "terms_version": terms_version("card", CREDIT_PRODUCT), "checking_account_id": account["account_id"], "payment_date": 25},
     )
     card = response.json()["data"]
 

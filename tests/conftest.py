@@ -1,3 +1,4 @@
+import json
 import os
 
 # 앱을 import하기 전에 테스트용 설정을 넣는다 (SQLite 파일 DB).
@@ -23,7 +24,8 @@ from avengers_bank.domains.accounts.models import CheckingAccount
 from avengers_bank.domains.chat.confirmation import create_confirmation_token
 from avengers_bank.domains.chat.models import ChatSession
 from avengers_bank.domains.fds.scorer import Score, fds_scorer
-from avengers_bank.domains.products.seed import seed_products
+from avengers_bank.domains.products.seed import SEED_PATH, seed_products
+from avengers_bank.knowledge.terms import find_terms
 from avengers_bank.main import app
 
 # data/seed/products.json 순서대로 product_id가 1부터 붙는다.
@@ -32,6 +34,13 @@ DEPOSIT_PRODUCT = 2
 SAVINGS_PRODUCT = 4
 CREDIT_PRODUCT = 1
 DEBIT_PRODUCT = 2
+_SEED = json.loads(SEED_PATH.read_text(encoding="utf-8"))
+
+
+def terms_version(kind: str, product_id: int) -> str:
+    """그 상품의 지금 이용약관 버전 (가입 화면에서 약관에 동의한 것처럼 개설·발급 요청에 넣는다)"""
+    product = _SEED["account_products" if kind == "account" else "card_products"][product_id - 1]
+    return find_terms(product["name"]).version
 
 
 @pytest.fixture
@@ -79,7 +88,7 @@ async def signup_and_login(client: AsyncClient, login_id: str, name: str = "테�
 async def open_checking(client: AsyncClient, headers: dict, balance: int = 0, **extra) -> dict:
     """입출금 계좌를 열고, API로는 입금할 방법이 없으므로 잔액은 DB에 직접 넣는다."""
     response = await client.post(
-        "/accounts/checking", headers=headers, json={"product_id": CHECKING_PRODUCT, **extra}
+        "/accounts/checking", headers=headers, json={"product_id": CHECKING_PRODUCT, "terms_version": terms_version("account", CHECKING_PRODUCT), **extra}
     )
     assert response.status_code == 201, response.text
     account = response.json()["data"]

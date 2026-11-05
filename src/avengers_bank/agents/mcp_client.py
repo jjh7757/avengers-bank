@@ -23,6 +23,13 @@ LLM_EXCLUDED = {
     "register_recipient",  # 수취인 등록 = FDS "처음 보내는 계좌" 검사를 건너뜀. 붙여넣은 글에 속아 등록하지 않게
     "rename_recipient",  # "엄마"를 다른 계좌로 바꿔치기하지 않게
     "delete_recipient",
+    # 계좌 개설·카드 발급: 모아는 prepare_signup으로 가입 화면(이용약관)을 띄우기만 하고,
+    # 사용자가 화면에서 약관에 동의하고 직접 누른다 (대화의 "네"를 약관 동의로 보지 않는다)
+    "open_checking_account",
+    "open_deposit_account",
+    "open_savings_account",
+    "issue_debit_card",
+    "issue_credit_card",
 }
 
 

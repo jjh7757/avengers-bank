@@ -26,7 +26,7 @@ from avengers_bank.domains.cards.models import (  # noqa: F401
 )
 from avengers_bank.domains.chat.models import ChatMessage, ChatSession  # noqa: F401
 from avengers_bank.domains.fds.models import FdsLog, UserDevice  # noqa: F401
-from avengers_bank.domains.products.models import AccountProduct, CardProduct  # noqa: F401
+from avengers_bank.domains.products.models import AccountProduct, CardProduct, TermsAgreement  # noqa: F401
 from avengers_bank.domains.recipients.models import Recipient  # noqa: F401
 from avengers_bank.domains.speech.models import VoiceProfile  # noqa: F401
 from avengers_bank.domains.users.models import User  # noqa: F401

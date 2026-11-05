@@ -22,7 +22,8 @@ WRITE = ToolAnnotations(readOnlyHint=False, destructiveHint=False)
 server = new_server(
     "avengers-accounts",
     "AvengersBank 계좌: 내 입출금·예금·적금 계좌 조회, 거래내역, 계좌 개설, 별칭 변경, 이체 한도 낮추기. "
-    "계좌번호는 뒤 4자리만 돌려준다. 바꾸는 도구는 사용자가 대화에서 동의한 뒤에만 호출한다.",
+    "계좌번호는 뒤 4자리만 돌려준다. 바꾸는 도구는 사용자가 대화에서 동의한 뒤에만 호출한다. "
+    "개설은 prepare_signup(products 서버)으로 받은 이용약관을 사용자에게 보여 주고 동의받은 버전(terms_version)이 있어야 한다.",
 )
 
 
@@ -54,17 +55,19 @@ async def get_account_histories(
 
 
 @bank_tool(server, annotations=WRITE)
-async def open_checking_account(db, user, product_id: int, nickname: str | None = None) -> dict:
-    """입출금 계좌 개설. 사용자가 대화에서 개설에 동의한 뒤에만 호출한다. 이체 한도는 기본값(1회 500만, 1일 1,000만)"""
-    return summary(await account_service.open_checking(db, CheckingAccountCreate(product_id=product_id, nickname=nickname), user))
+async def open_checking_account(db, user, product_id: int, terms_version: str = Field(min_length=1, max_length=40, description="사용자가 동의한 이용약관 버전 (prepare_signup의 terms.version)"), nickname: str | None = None) -> dict:
+    """입출금 계좌 개설. 이용약관을 사용자에게 보여 주고 동의받은 뒤에만 호출한다. 이체 한도는 기본값(1회 500만, 1일 1,000만)"""
+    data = CheckingAccountCreate(product_id=product_id, terms_version=terms_version, nickname=nickname)
+    return summary(await account_service.open_checking(db, data, user))
 
 
 @bank_tool(server, annotations=WRITE)
 async def open_deposit_account(
-    db, user, product_id: int, term_months: int = Field(ge=1, le=60), nickname: str | None = None
+    db, user, product_id: int, terms_version: str = Field(min_length=1, max_length=40, description="사용자가 동의한 이용약관 버전 (prepare_signup의 terms.version)"),
+    term_months: int = Field(ge=1, le=60), nickname: str | None = None,
 ) -> dict:
-    """예금 계좌 개설. 사용자가 동의한 뒤에만 호출한다. 잔액 0원으로 열린다 (넣기는 대화로 "예금에 ○원 넣어줘" → 확인 카드)"""
-    data = DepositAccountCreate(product_id=product_id, term_months=term_months, nickname=nickname)
+    """예금 계좌 개설. 이용약관을 사용자에게 보여 주고 동의받은 뒤에만 호출한다. 잔액 0원으로 열린다 (넣기는 대화로 "예금에 ○원 넣어줘" → 확인 카드)"""
+    data = DepositAccountCreate(product_id=product_id, terms_version=terms_version, term_months=term_months, nickname=nickname)
     return summary(await account_service.open_deposit(db, data, user))
 
 
@@ -73,14 +76,15 @@ async def open_savings_account(
     db,
     user,
     product_id: int,
+    terms_version: str = Field(min_length=1, max_length=40, description="사용자가 동의한 이용약관 버전 (prepare_signup의 terms.version)"),
     term_months: int = Field(ge=1, le=60),
     monthly_payment: int = Field(gt=0),
     monthly_deposit_date: int = Field(ge=1, le=31),
     nickname: str | None = None,
 ) -> dict:
-    """적금 계좌 개설. 사용자가 동의한 뒤에만 호출한다"""
+    """적금 계좌 개설. 이용약관을 사용자에게 보여 주고 동의받은 뒤에만 호출한다"""
     data = SavingsAccountCreate(
-        product_id=product_id, term_months=term_months, monthly_payment=monthly_payment,
+        product_id=product_id, terms_version=terms_version, term_months=term_months, monthly_payment=monthly_payment,
         monthly_deposit_date=monthly_deposit_date, nickname=nickname,
     )
     return summary(await account_service.open_savings(db, data, user))

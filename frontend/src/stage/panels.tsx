@@ -2,7 +2,8 @@ import { useCallback, useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 
 import { accountApi, cardApi, fdsApi, productApi } from '../api/endpoints'
-import type { AccountDetail, AccountType, CardType, UiSelected } from '../api/types'
+import type { AccountDetail, AccountType, CardType, ProductKind, SignupPrefill, UiSelected } from '../api/types'
+import ProductSignup, { type SignupResult } from '../components/ProductSignup'
 import TransferLimitForm from '../components/TransferLimitForm'
 import { useLoad } from '../hooks/useLoad'
 import {
@@ -261,7 +262,8 @@ export function ProductsPanel({
   keyword,
   productId,
   pick,
-}: { reply: string; pick: Pick } & ProductFilter) {
+  onSignup,
+}: { reply: string; pick: Pick; onSignup: (kind: ProductKind, productId: number) => void } & ProductFilter) {
   const load = useCallback(async () => {
     const [accounts, cards] = await Promise.all([
       kind === 'card' ? [] : productApi.accounts(),
@@ -302,6 +304,15 @@ export function ProductsPanel({
               </span>
               {p.interest_rate && Number(p.interest_rate) > 0 && <span className="amount">연 {Number(p.interest_rate)}%</span>}
             </PickButton>
+            <div className="product-actions">
+              <button
+                type="button"
+                className="button small primary"
+                onClick={() => onSignup(p.type === 'CREDIT' || p.type === 'DEBIT' ? 'card' : 'account', p.product_id)}
+              >
+                가입하기
+              </button>
+            </div>
           </li>
         ))}
       </ul>
@@ -315,6 +326,26 @@ const PRODUCT_TYPE_LABEL: Record<string, string> = {
   SAVINGS: '적금',
   CREDIT: '신용카드',
   DEBIT: '체크카드',
+}
+
+/** 상품 가입 화면: 이용약관 → 동의 → 조건 → 가입하기. 모아가 가져오면 대화에서 들은 조건이 미리 채워져 있다 */
+export function SignupPanel({
+  kind,
+  productId,
+  prefill,
+  onDone,
+}: {
+  kind: ProductKind
+  productId: number
+  prefill: SignupPrefill
+  onDone: (result: SignupResult) => void
+}) {
+  return (
+    <>
+      <p className="stage-panel-title">상품 가입</p>
+      <ProductSignup kind={kind} productId={productId} prefill={prefill} onDone={onDone} />
+    </>
+  )
 }
 
 export function FdsPanel() {

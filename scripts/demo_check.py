@@ -124,14 +124,25 @@ def main() -> None:
           f"{error.get('code') or r.status_code} "
           + (f"{ai[0]['code']}: {ai[0].get('detail')}" if ai else f"규칙 {[h['code'] for h in hits]}"))
 
-    print("\n[시나리오 6] MCP 도구: 체크카드 발급은 먼저 묻고, 동의하면 발급")
+    print("\n[시나리오 6] 가입: 모아는 이용약관이 담긴 가입 화면만 가져오고, 동의·가입은 사용자가 화면에서")
     d.new_session()
-    before = len(d.c.get("/cards", headers=d.h).json()["data"])
-    d.say("월급 통장에 연결해서 체크카드 하나 더 만들어줘")
-    after_ask = len(d.c.get("/cards", headers=d.h).json()["data"])
+
+    def cards() -> int:
+        return len(d.c.get("/cards", headers=d.h).json()["data"])
+
+    before = cards()
+    reply = d.say("월급 통장에 연결해서 체크카드 하나 더 만들어줘")
+    params = reply.get("screen_params") or {}
+    salary = next(a for a in d.c.get("/accounts", headers=d.h).json()["data"] if a["nickname"] == "월급")
+    check("6 가입 화면", reply.get("screen") == "signup" and params.get("kind") == "card" and cards() == before,
+          f"화면 {reply.get('screen')} {params}, 발급 {cards() - before}장")
+    check("6 연결 계좌 미리 채움", params.get("checking_account_id") == salary["account_id"], f"월급 통장 id {salary['account_id']}")
     d.say("네, 만들어 주세요")
-    after_yes = len(d.c.get("/cards", headers=d.h).json()["data"])
-    check("6 동의 후 발급", after_ask == before and after_yes == before + 1, f"묻는 단계 {after_ask - before}장, 동의 후 {after_yes - before}장")
+    check("6 대화로는 발급 안 함", cards() == before, f"'네' 뒤 발급 {cards() - before}장 (약관 동의는 화면에서)")
+    terms = d.c.get(f"/products/cards/{params.get('product_id', 2)}/terms", headers=d.h).json()["data"]
+    r = d.c.post("/cards/debit", headers=d.h, json={"product_id": terms["product_id"], "terms_version": terms["version"],
+                                                     "checking_account_id": salary["account_id"]})
+    check("6 화면에서 동의 후 발급", r.status_code == 201 and cards() == before + 1, f"{r.status_code}, 약관 {terms['version']}")
 
     logs = d.c.get("/fds/logs", headers=d.h).json()["data"]
     check("FDS 기록", any(log["decision"] == "BLOCKED" for log in logs), f"{len(logs)}건 (대시보드 /fds)")

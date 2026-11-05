@@ -5,7 +5,7 @@ from pydantic import BaseModel, Field
 
 Intent = Literal["inquiry", "transfer", "product", "card", "cancel", "general"]
 # 화면 시안(/stage)에서 도우미가 가져올 화면. None이면 지금 화면을 그대로 둔다
-Screen = Literal["home", "accounts", "account", "cards", "card", "products", "fds", "transfer"]
+Screen = Literal["home", "accounts", "account", "cards", "card", "products", "fds", "transfer", "signup"]
 
 
 class Extraction(BaseModel):

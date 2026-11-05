@@ -3,7 +3,7 @@ from datetime import date
 import pytest
 
 from avengers_bank.domains.accounts.service import add_months
-from tests.conftest import DEPOSIT_PRODUCT, SAVINGS_PRODUCT, open_checking
+from tests.conftest import DEPOSIT_PRODUCT, SAVINGS_PRODUCT, open_checking, terms_version
 
 pytestmark = pytest.mark.anyio
 
@@ -22,7 +22,7 @@ async def test_open_checking_and_list(client, user):
 
 async def test_open_deposit_and_savings(client, user):
     response = await client.post(
-        "/accounts/deposit", headers=user, json={"product_id": DEPOSIT_PRODUCT, "term_months": 12}
+        "/accounts/deposit", headers=user, json={"product_id": DEPOSIT_PRODUCT, "terms_version": terms_version("account", DEPOSIT_PRODUCT), "term_months": 12}
     )
     assert response.status_code == 201
     deposit = response.json()["data"]
@@ -34,7 +34,7 @@ async def test_open_deposit_and_savings(client, user):
         "/accounts/savings",
         headers=user,
         json={
-            "product_id": SAVINGS_PRODUCT,
+            "product_id": SAVINGS_PRODUCT, "terms_version": terms_version("account", SAVINGS_PRODUCT),
             "term_months": 12,
             "monthly_payment": 300_000,
             "monthly_deposit_date": 25,
@@ -49,14 +49,14 @@ async def test_open_deposit_and_savings(client, user):
 
 async def test_open_with_wrong_product_type(client, user):
     response = await client.post(
-        "/accounts/checking", headers=user, json={"product_id": DEPOSIT_PRODUCT}
+        "/accounts/checking", headers=user, json={"product_id": DEPOSIT_PRODUCT, "terms_version": terms_version("account", DEPOSIT_PRODUCT)}
     )
     assert response.status_code == 400
     assert response.json()["error"]["code"] == "PRODUCT_TYPE_MISMATCH"
 
 
 async def test_open_with_unknown_product(client, user):
-    response = await client.post("/accounts/checking", headers=user, json={"product_id": 999})
+    response = await client.post("/accounts/checking", headers=user, json={"product_id": 999, "terms_version": "unknown"})
     assert response.status_code == 404
 
 
@@ -64,7 +64,7 @@ async def test_open_with_invalid_limits(client, user):
     response = await client.post(
         "/accounts/checking",
         headers=user,
-        json={"product_id": 1, "per_transfer_limit": 2_000_000, "daily_transfer_limit": 1_000_000},
+        json={"product_id": 1, "terms_version": terms_version("account", 1), "per_transfer_limit": 2_000_000, "daily_transfer_limit": 1_000_000},
     )
     assert response.status_code == 422
 
@@ -154,7 +154,7 @@ async def test_update_limit_on_savings_rejected(client, user):
     response = await client.post(
         "/accounts/savings",
         headers=user,
-        json={"product_id": SAVINGS_PRODUCT, "term_months": 6, "monthly_payment": 100_000, "monthly_deposit_date": 1},
+        json={"product_id": SAVINGS_PRODUCT, "terms_version": terms_version("account", SAVINGS_PRODUCT), "term_months": 6, "monthly_payment": 100_000, "monthly_deposit_date": 1},
     )
     account_id = response.json()["data"]["account_id"]
     response = await client.patch(

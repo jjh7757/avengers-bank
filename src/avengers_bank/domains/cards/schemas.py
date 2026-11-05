@@ -3,17 +3,21 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from avengers_bank.domains.products.schemas import TERMS_VERSION_FIELD
+
 CardType = Literal["credit", "debit"]
 
 
 class CreditCardCreate(BaseModel):
     product_id: int
+    terms_version: str = Field(**TERMS_VERSION_FIELD)
     checking_account_id: int = Field(description="결제 계좌 (본인 입출금 계좌)")
     payment_date: int = Field(ge=1, le=31, description="매월 결제일")
 
 
 class DebitCardCreate(BaseModel):
     product_id: int
+    terms_version: str = Field(**TERMS_VERSION_FIELD)
     checking_account_id: int = Field(description="출금 계좌 (본인 입출금 계좌)")
 
 

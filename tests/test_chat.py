@@ -6,7 +6,7 @@ from langchain_core.messages import AIMessage
 from avengers_bank.agents import llm
 from avengers_bank.agents.mcp_client import LLM_EXCLUDED
 from avengers_bank.agents.state import Extraction
-from tests.conftest import SAVINGS_PRODUCT, new_chat_session, open_checking, signup_and_login
+from tests.conftest import SAVINGS_PRODUCT, new_chat_session, open_checking, signup_and_login, terms_version
 
 pytestmark = pytest.mark.anyio
 
@@ -137,7 +137,7 @@ async def test_move_to_my_other_checking_account(client, user, bank, classify):
 async def test_put_money_into_my_savings(client, user, bank, classify):
     """"적금에 10만원 넣어줘" → 적금 카드 → 승인하면 납입 API"""
     response = await client.post("/accounts/savings", headers=user, json={
-        "product_id": SAVINGS_PRODUCT, "term_months": 12, "monthly_payment": 100_000, "monthly_deposit_date": 1,
+        "product_id": SAVINGS_PRODUCT, "terms_version": terms_version("account", SAVINGS_PRODUCT), "term_months": 12, "monthly_payment": 100_000, "monthly_deposit_date": 1,
     })
     savings = response.json()["data"]
     classify.next(intent="transfer", recipient="적금", amount=100_000)
@@ -346,12 +346,12 @@ async def test_screen_carries_target(client, user, other_user, bank, classify, c
 def test_screen_for_tools():
     from avengers_bank.agents.graph import screen_for
 
-    assert screen_for("issue_debit_card", {"product_id": 2, "checking_account_id": 1}, {"card_type": "debit", "card_id": 7}) == (
-        "card", {"card_type": "debit", "card_id": 7}
+    # 가입 요청 → 가입 화면 (이용약관 + 미리 채운 조건)
+    args = {"kind": "account", "product_id": 4, "term_months": 12, "monthly_payment": 100_000}
+    assert screen_for("prepare_signup", args, {"prefill": {"term_months": 12, "monthly_payment": 100_000}}) == (
+        "signup", {"kind": "account", "product_id": 4, "term_months": 12, "monthly_payment": 100_000}
     )
-    assert screen_for("open_savings_account", {}, {"account_type": "savings", "account_id": 3}) == (
-        "account", {"account_type": "savings", "account_id": 3}
-    )
+    assert screen_for("prepare_signup", args, {"error": "PRODUCT_NOT_FOUND"}) is None
     # 한도 높이기는 거절돼도 그 계좌 화면으로 (거기서 PIN으로 높인다)
     assert screen_for("lower_transfer_limits", {"checking_account_id": 5}, {"error": "LIMIT_RAISE_NOT_ALLOWED"}) == (
         "account", {"account_type": "checking", "account_id": 5}
@@ -359,6 +359,19 @@ def test_screen_for_tools():
     assert screen_for("get_product", {"kind": "card", "product_id": 2}, {}) == ("products", {"kind": "card", "product_id": 2})
     assert screen_for("search_products", {"kind": "all"}, {}) == ("products", {"kind": "all"})
     assert screen_for("find_recipient", {"nickname": "엄마"}, {}) is None
+
+
+def test_signup_screen_is_not_replaced_by_later_lookups():
+    """prepare_signup 다음에 get_product를 불러도 가입 화면을 그대로 둔다 (실제 Gemini에서 본 순서)"""
+    from avengers_bank.agents.graph import next_screen
+
+    signup = ("signup", {"kind": "card", "product_id": 2})
+    assert next_screen((None, None), ("accounts", {})) == ("accounts", {})
+    assert next_screen(("accounts", {}), signup) == signup
+    assert next_screen(signup, ("products", {"kind": "card", "product_id": 2})) == signup
+    assert next_screen(signup, None) == signup
+    other = ("signup", {"kind": "account", "product_id": 4})
+    assert next_screen(signup, other) == other  # 다른 상품 가입 화면으로는 바뀐다
 
 
 async def test_ui_context_reaches_agent_but_not_history(client, user, bank, classify, chat_model):

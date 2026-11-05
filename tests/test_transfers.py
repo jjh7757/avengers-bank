@@ -1,6 +1,6 @@
 import pytest
 
-from tests.conftest import DEPOSIT_PRODUCT, SAVINGS_PRODUCT, open_checking
+from tests.conftest import DEPOSIT_PRODUCT, SAVINGS_PRODUCT, open_checking, terms_version
 
 pytestmark = pytest.mark.anyio
 
@@ -134,7 +134,7 @@ async def test_pay_savings_default_monthly_payment(client, user):
     response = await client.post(
         "/accounts/savings",
         headers=user,
-        json={"product_id": SAVINGS_PRODUCT, "term_months": 12, "monthly_payment": 200_000, "monthly_deposit_date": 10},
+        json={"product_id": SAVINGS_PRODUCT, "terms_version": terms_version("account", SAVINGS_PRODUCT), "term_months": 12, "monthly_payment": 200_000, "monthly_deposit_date": 10},
     )
     savings = response.json()["data"]
 
@@ -163,7 +163,7 @@ async def test_pay_savings_default_monthly_payment(client, user):
 async def test_pay_deposit(client, user):
     source = await open_checking(client, user, balance=1_000_000)
     response = await client.post(
-        "/accounts/deposit", headers=user, json={"product_id": DEPOSIT_PRODUCT, "term_months": 6}
+        "/accounts/deposit", headers=user, json={"product_id": DEPOSIT_PRODUCT, "terms_version": terms_version("account", DEPOSIT_PRODUCT), "term_months": 6}
     )
     deposit = response.json()["data"]
 
@@ -189,7 +189,7 @@ async def test_pay_into_others_savings_forbidden(client, user, other_user):
     response = await client.post(
         "/accounts/savings",
         headers=other_user,
-        json={"product_id": SAVINGS_PRODUCT, "term_months": 12, "monthly_payment": 100_000, "monthly_deposit_date": 1},
+        json={"product_id": SAVINGS_PRODUCT, "terms_version": terms_version("account", SAVINGS_PRODUCT), "term_months": 12, "monthly_payment": 100_000, "monthly_deposit_date": 1},
     )
     others_savings = response.json()["data"]
 

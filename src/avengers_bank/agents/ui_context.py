@@ -17,6 +17,7 @@ SCREEN_LABEL = {
     "products": "상품 목록",
     "fds": "이상거래 검사 기록",
     "transfer": "이체 확인 카드",
+    "signup": "상품 가입 화면 (이용약관 동의 + 가입 조건)",
 }
 
 

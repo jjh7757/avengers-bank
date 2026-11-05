@@ -25,15 +25,13 @@ from avengers_bank.domains.chat.amount import format_korean_amount, normalize_am
 MAX_TOOL_ROUNDS = 4
 FALLBACK_REPLY = "죄송해요, 제가 잘 이해하지 못했어요. 다시 한 번 말씀해 주시겠어요?"
 
-OPEN_ACCOUNT_TYPES = {"open_checking_account": "checking", "open_deposit_account": "deposit", "open_savings_account": "savings"}
-ISSUE_CARD_TYPES = {"issue_debit_card": "debit", "issue_credit_card": "credit"}
 
 
 def screen_for(name: str, args: dict, result: dict) -> tuple[Screen, dict] | None:
     """도구 호출 → 그 결과를 보여 줄 화면과 대상·조건. None이면 화면을 바꾸지 않는다.
 
     "생활비 통장 거래내역"이면 계좌 목록이 아니라 그 계좌 화면을 가져오도록, LLM이 도구에 넘긴 인자를 그대로 쓴다.
-    개설·발급은 결과에 담긴 새 계좌·카드 화면으로 간다 (동의를 묻는 턴은 도구를 안 쓰므로 화면이 안 바뀐다).
+    가입·발급 요청은 가입 화면(이용약관 + 미리 채운 조건)으로 간다. 실제 개설은 사용자가 그 화면에서 한다.
     도구가 실패하면 화면을 바꾸지 않는다. 한도 높이기 거절만 예외: 그 계좌 화면에서 PIN으로 높일 수 있게 가져간다.
     """
     if "error" in result and result["error"] != "LIMIT_RAISE_NOT_ALLOWED":
@@ -45,14 +43,12 @@ def screen_for(name: str, args: dict, result: dict) -> tuple[Screen, dict] | Non
             return "account", {"account_type": args["account_type"], "account_id": args["account_id"]}
         case "lower_transfer_limits":
             return "account", {"account_type": "checking", "account_id": args["checking_account_id"]}
-        case _ if name in OPEN_ACCOUNT_TYPES:
-            return "account", {"account_type": OPEN_ACCOUNT_TYPES[name], "account_id": result["account_id"]}
         case "get_my_cards":
             return "cards", {}
         case "get_card_histories":
             return "card", {"card_type": args["card_type"], "card_id": args["card_id"]}
-        case _ if name in ISSUE_CARD_TYPES:
-            return "card", {"card_type": ISSUE_CARD_TYPES[name], "card_id": result["card_id"]}
+        case "prepare_signup":
+            return "signup", {"kind": args["kind"], "product_id": args["product_id"], **result["prefill"]}
         case "search_products":
             return "products", {k: v for k, v in {"kind": args.get("kind"), "keyword": args.get("keyword")}.items() if v}
         case "get_product":
@@ -60,6 +56,17 @@ def screen_for(name: str, args: dict, result: dict) -> tuple[Screen, dict] | Non
         case "get_fds_logs":
             return "fds", {}
     return None
+
+
+# 사용자가 할 일(약관 동의, 가입)이 있는 화면. 같은 턴에 뒤이어 부른 조회 도구가 이 화면을 덮지 않는다
+# (예: prepare_signup 다음에 get_product로 상품을 다시 확인해도 가입 화면을 그대로 둔다)
+STICKY_SCREENS = {"signup"}
+
+
+def next_screen(current: tuple[Screen | None, dict | None], shown: tuple[Screen, dict] | None) -> tuple[Screen | None, dict | None]:
+    if shown is None or (current[0] in STICKY_SCREENS and shown[0] not in STICKY_SCREENS):
+        return current
+    return shown
 
 
 @dataclass
@@ -267,8 +274,7 @@ def build_graph(ctx: AgentContext):
                 shown = screen_for(call["name"], call["args"], parsed if isinstance(parsed, dict) else {})
             except (ValueError, KeyError, TypeError):
                 shown = None
-            if shown:
-                screen, screen_params = shown
+            screen, screen_params = next_screen((screen, screen_params), shown)
             results.append(ToolMessage(content=output, tool_call_id=call["id"], name=call["name"]))
         return {"messages": [*state["messages"], *results], "card": card, "screen": screen, "screen_params": screen_params,
                 "tool_rounds": state.get("tool_rounds", 0) + 1}

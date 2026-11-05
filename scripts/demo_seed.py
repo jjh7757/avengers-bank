@@ -40,7 +40,9 @@ from avengers_bank.domains.accounts.service import account_service
 from avengers_bank.domains.cards.models import CreditCard, CreditCardHistory, DebitCard, DebitCardHistory
 from avengers_bank.domains.chat.models import ChatMessage, ChatSession
 from avengers_bank.domains.fds.models import FdsLog, UserDevice
+from avengers_bank.domains.products.models import AccountProduct, CardProduct, TermsAgreement
 from avengers_bank.domains.products.seed import seed_products
+from avengers_bank.knowledge.terms import find_terms
 from avengers_bank.domains.recipients.models import Recipient
 from avengers_bank.domains.users.models import User
 from avengers_bank.domains.users.schemas import UserResponse
@@ -84,6 +86,7 @@ async def wipe(db, user_ids: list[int]) -> None:
         delete(ChatMessage).where(ChatMessage.session_id.in_(sessions)),
         delete(ChatSession).where(ChatSession.user_id.in_(user_ids)),
         delete(FdsLog).where(FdsLog.user_id.in_(user_ids)),
+        delete(TermsAgreement).where(TermsAgreement.user_id.in_(user_ids)),
         delete(UserDevice).where(UserDevice.user_id.in_(user_ids)),
         delete(Recipient).where(Recipient.user_id.in_(user_ids)),
         delete(DebitCardHistory).where(DebitCardHistory.debit_card_id.in_(select(DebitCard.debit_card_id).where(DebitCard.user_id.in_(user_ids)))),
@@ -102,8 +105,12 @@ async def wipe(db, user_ids: list[int]) -> None:
 
 async def open_account(db, user: User, nickname: str | None, balance: int, account_num: str) -> CheckingAccount:
     """발표자가 말하기 쉽도록 계좌번호를 고정한다 (시연용 번호대 110-9xx)."""
+    async with db.begin():
+        product = await db.get(AccountProduct, 1)
+    # 시연 사용자가 앱에서 약관에 동의하고 만든 것처럼 지금 약관 버전으로 연다 (동의 기록도 남는다)
     detail = await account_service.open_checking(
-        db, CheckingAccountCreate(product_id=1, nickname=nickname), UserResponse.model_validate(user)
+        db, CheckingAccountCreate(product_id=1, nickname=nickname, terms_version=find_terms(product.name).version),
+        UserResponse.model_validate(user),
     )
     async with db.begin():
         await db.execute(update(CheckingAccount).where(CheckingAccount.checking_account_id == detail.account_id)
@@ -159,6 +166,10 @@ async def main() -> None:
                              accumulated_amount=0)
             db.add(card)
             await db.flush()
+            card_product = await db.get(CardProduct, 2)
+            db.add(TermsAgreement(user_id=demo.user_id, product_kind="card", product_id=2,
+                                  terms_version=find_terms(card_product.name).version, target_type="debit",
+                                  target_id=card.debit_card_id))
             for place, amount, days_ago in [("동네 편의점", 4_500, 3), ("단골 카페", 5_800, 2), ("약국", 12_000, 1)]:
                 db.add(DebitCardHistory(debit_card_id=card.debit_card_id, place_of_use=place, used_amount=amount, time=daytime(days_ago)))
                 card.accumulated_amount += amount
