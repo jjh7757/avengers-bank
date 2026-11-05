@@ -8,6 +8,10 @@ class TransferCreate(BaseModel):
     """POST /transfers — 입출금 → 입출금 이체. 아래 4개 필드는 FDS가 쓴다."""
 
     from_checking_account_id: int
+    to_bank: str | None = Field(
+        default=None, pattern=r"^\d{3}$",
+        description="받는 은행 코드. 비우거나 우리 은행 코드면 자행 이체, 다른 코드면 ClearingHub를 거친 타행 이체",
+    )
     to_account_num: str = Field(min_length=1, max_length=20)
     amount: int = Field(gt=0)
     pin: str | None = Field(
@@ -53,3 +57,24 @@ class TransferResponse(BaseModel):
     balance_after: int  # 보낸 계좌의 이체 후 잔액
     transferred_at: datetime
     risk_level: str | None = None  # 입출금 → 입출금 이체의 FDS 판정 (LOW / MEDIUM)
+    to_bank: str | None = None  # 타행 이체일 때 받는 은행 코드
+    transfer_id: str | None = None  # 타행 이체 ID (GET /transfers/interbank로 상태 확인)
+    status: Literal["COMPLETED", "PENDING"] = "COMPLETED"  # PENDING: 출금됐고 받는 은행 확인 중 (타행만)
+
+
+class InterbankBank(BaseModel):
+    bank_code: str
+    name: str
+
+
+class InterbankTransferResponse(BaseModel):
+    transfer_id: str
+    to_bank: str
+    to_account: str
+    to_holder_name: str | None
+    amount: int
+    status: str
+    fail_code: str | None
+    fail_message: str | None
+    created_at: datetime
+    finished_at: datetime | None

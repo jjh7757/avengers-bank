@@ -1,0 +1,76 @@
+# 다른 은행 이체 (ClearingHub 연동)
+
+AvengersBank는 은행 간 이체 중계 서버 [ClearingHub](https://github.com/jjh7757/clearing-hub)의 참가 은행이다. 연동 규격은 ClearingHub 저장소의 `docs/SPEC.md` (v0.1). 다른 은행 서버를 직접 부르지 않고 허브만 부른다.
+
+```
+AvengersBank ──POST /v1/inquiry · /v1/transfers · GET /v1/transfers/{id}──▶ ClearingHub ──▶ 다른 은행
+AvengersBank ◀──POST /interbank/inquiry · /interbank/receive · GET /interbank/receive/{id}── ClearingHub ◀── 다른 은행
+```
+
+## 설정
+
+허브 관리자에게 은행 이름과 입금 API 주소(`https://<우리 도메인>/api/interbank`, 로컬은 `http://127.0.0.1:8000/interbank`)를 알려 주고 받은 값을 `.env`에 넣는다.
+
+| 이름 | 값 |
+|---|---|
+| `BANK_CODE` | 허브가 배정한 우리 은행 코드 (기본 `901`) |
+| `HUB_URL` | 허브 주소 (`/v1` 없이) |
+| `HUB_API_KEY`, `HUB_SECRET` | 허브가 발급한 API 키와 서명 비밀키. secret은 허브가 우리에게 보내는 요청 검증에도 쓴다 |
+
+셋(`HUB_URL`, `HUB_API_KEY`, `HUB_SECRET`) 중 하나라도 없으면 타행 이체가 꺼진다: `to_bank`가 다른 은행이면 `503 INTERBANK_UNAVAILABLE`, `/interbank/*`는 `503 INTERBANK_DISABLED`. 처리 중 확인 태스크도 돌지 않는다.
+
+## 보내기: `POST /transfers` + `to_bank`
+
+`transfers/service.py`의 `_transfer_interbank`, 돈 흐름은 `interbank/service.py`.
+
+1. **예금주 확인** (`POST /v1/inquiry`). 계좌가 없거나 허브가 응답하지 않으면 여기서 끝. 출금하지 않는다
+2. **[트랜잭션] 한도·FDS → 출금**. 잔액, 1회·1일 한도, FDS는 자행 이체와 같다. 통과하면 잔액을 빼고 `TRANSFER_OUT` 거래내역과 `interbank_transfers`(상태 `PENDING`)를 함께 커밋한다
+3. **허브에 이체 요청** (`POST /v1/transfers`, `transfer_id`는 우리가 만든 UUID)
+
+| 허브 응답 | 처리 | 사용자 응답 |
+|---|---|---|
+| `200 COMPLETED` | `COMPLETED` | `200`, `status: "COMPLETED"` |
+| `4xx` (받는 은행 거절 등) | 잔액을 되돌리고 `TRANSFER_REFUND` 거래내역, `FAILED` | `400 INTERBANK_FAILED` (`extra.balance_after`) |
+| `202 PENDING`, 5xx, 응답 없음 | **그대로 `PENDING`** | `200`, `status: "PENDING"`, "확인 중" |
+
+4. **처리 중 확인** (`interbank/worker.py`, 30초마다 `confirm_pending`): `GET /v1/transfers/{id}`
+   - `COMPLETED` → 완료, `FAILED` → 되돌림
+   - `404`(허브가 모름 = 요청이 닿지 않았음) → 같은 `transfer_id`로 다시 보낸다 (허브·받는 은행이 멱등이라 두 번 들어가지 않음)
+   - 그 밖(허브도 `PENDING`/`UNKNOWN`, 응답 없음) → 다음에 다시
+
+**결과를 모르는 채로 되돌리지 않는다.** 되돌렸는데 받는 은행에 실제로 입금됐다면 돈이 두 배가 된다. 그래서 응답 없음은 실패가 아니라 `PENDING`이다. `PENDING`인 `interbank_transfers` 행이 "타행 송금 중간 계정" 역할을 한다 (출금됐지만 아직 확정되지 않은 돈).
+
+**FDS**: 받는 계좌는 `902:110-123-0001`처럼 은행 코드를 붙여 넘긴다. 우리 은행의 같은 번호 계좌(등록 수취인)로 착각해 "처음 보내는 계좌" 검사를 건너뛰지 않게 하기 위해서다. 그래서 타행 계좌는 지금은 항상 처음 보내는 계좌로 본다 (수취인 등록에 은행이 없음).
+
+**1일 한도**: 되돌려 받은 `TRANSFER_REFUND`는 오늘 보낸 금액에서 뺀다.
+
+## 받기: `/interbank/*` (허브 전용)
+
+`interbank/router.py`. 허브 요청인지 `X-Bank-Code: 000` + `HUB_SECRET` 서명으로 확인한다. 응답은 SPEC 5절 형식(`{"error", "message"}`)이다 (앱의 기본 오류 형식이 아님).
+
+| 경로 | 처리 |
+|---|---|
+| `POST /interbank/inquiry` | 입출금 계좌번호 → 예금주 이름 / `404 ACCOUNT_NOT_FOUND` |
+| `POST /interbank/receive` | 입금 + `TRANSFER_IN` 거래내역 + `interbank_receipts`를 한 트랜잭션으로. **같은 `transfer_id`는 입금하지 않고 같은 응답** (동시에 두 번 와도 기본 키 충돌로 한 번만) |
+| `GET /interbank/receive/{id}` | 입금했으면 `200 COMPLETED`, 아니면 `404 TRANSFER_NOT_FOUND` (허브가 다시 보낸다) |
+
+## 테이블
+
+| 테이블 | 용도 |
+|---|---|
+| `interbank_transfers` | 보낸 타행 이체: transfer_id, user_id, 출금 계좌, to_bank, to_account, 예금주, 금액, status, fail_code/message, check_count |
+| `interbank_receipts` | 받은 타행 입금: transfer_id(멱등 키), 입금 계좌, 보낸 은행·계좌·이름, 금액 |
+
+거래내역 `type`에 `TRANSFER_REFUND`(타행 이체 되돌림, +)를 추가했다.
+
+## 확인한 것
+
+- `tests/test_interbank.py` (13개): 가짜 허브로 완료, 예금주 조회 실패 시 출금 안 함, 받는 은행 거절 → 되돌림 + 한도 복구, PENDING → 확정/실패, 허브 무응답 → PENDING 유지 → 같은 ID 재전송, 잔액 부족, 채팅 이체 거절, 자행 코드는 자행 이체, 입금 멱등, 오류 형식, 서명 거절
+- 실제 ClearingHub + bank_sim 코드와 한 프로세스에서 왕복: 정상 입금, 계좌 없음, "입금됐는데 응답 없음"(`0005`) → 허브 확인 → 우리 확인 → 둘 다 `COMPLETED`·입금 1번, 반대 방향(다른 은행 → 허브 → 우리) 입금과 재전송 시 1번만 입금
+
+## 다음 단계
+
+- 이체 화면: 받는 은행 선택(`GET /transfers/banks`), `PENDING` 표시, 타행 이체 목록
+- 모아(에이전트): 슬롯에 은행 추가, 확인 카드에 은행 표시 (`Confirmation`에 `to_bank`), `prepare_transfer`의 예금주 확인을 허브로
+- 수취인 등록에 은행 코드 (타행 수취인도 "처음 보내는 계좌" 검사를 건너뛸 수 있게)
+- 배포 서버 `.env`에 허브 값 넣기 (허브 배포 후)

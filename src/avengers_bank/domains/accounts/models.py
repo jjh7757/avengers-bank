@@ -14,6 +14,7 @@ class HistoryType(StrEnum):
     WITHDRAW = "WITHDRAW"
     TRANSFER_IN = "TRANSFER_IN"
     TRANSFER_OUT = "TRANSFER_OUT"
+    TRANSFER_REFUND = "TRANSFER_REFUND"  # 다른 은행 이체가 거절돼 출금을 되돌림 (입금 +)
     CARD_PAYMENT = "CARD_PAYMENT"  # 체크카드 결제로 입출금 계좌에서 출금
     SAVINGS_PAYMENT = "SAVINGS_PAYMENT"  # 입출금 → 적금 납입 (입출금 쪽 기록)
     DEPOSIT_PAYMENT = "DEPOSIT_PAYMENT"  # 입출금 → 예금 입금 (입출금 쪽 기록)

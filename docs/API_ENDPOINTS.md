@@ -128,6 +128,9 @@ PIN이 없으면 `400 PIN_NOT_SET`, 안 보내면 `400 PIN_REQUIRED`, 틀리면 
 | ✅ | POST | `/transfers` | 🔒 | 입출금 → 입출금 이체 (잔액, 1회·1일 한도 검사) |
 | ✅ | POST | `/transfers/savings` | 🔒 | 입출금 → 적금 납입 |
 | ✅ | POST | `/transfers/deposit` | 🔒 | 입출금 → 예금 입금 |
+| ✅ | GET | `/transfers/banks` | 🔒 | 타행 이체로 보낼 수 있는 은행 (ClearingHub 참가 은행, 우리 제외). 허브 설정이 없으면 `503 INTERBANK_UNAVAILABLE` |
+| ✅ | GET | `/transfers/interbank` | 🔒 | 내 타행 이체와 상태 (`PENDING` / `COMPLETED` / `FAILED`) |
+| ✅ | POST | `/interbank/inquiry`, `/interbank/receive` · GET `/interbank/receive/{id}` | 허브 서명 | ClearingHub 전용: 예금주 조회, 입금(같은 ID는 한 번만), 입금 확인 ([INTERBANK.md](INTERBANK.md)) |
 
 <details>
 <summary>요청·응답 예시</summary>
@@ -144,6 +147,13 @@ PIN이 없으면 `400 PIN_NOT_SET`, 안 보내면 `400 PIN_REQUIRED`, 틀리면 
 { "data": { "from_account_num": "110-123-456789", "to_account_num": "110-555-000111", "to_holder_name": "브루스 배너", "amount": 10000, "balance_after": 490000, "transferred_at": "...", "risk_level": "LOW" }, "message": "이체가 완료되었습니다." }
 ```
 실패: `400 INSUFFICIENT_BALANCE`, `400 PER_TRANSFER_LIMIT_EXCEEDED`, `400 DAILY_LIMIT_EXCEEDED`, `400 SAME_ACCOUNT`, `403 ACCOUNT_FORBIDDEN`, `404 ACCOUNT_NOT_FOUND`
+
+**타행 이체**: `to_bank`에 다른 은행 코드를 넣으면 ClearingHub를 거친다 (비우거나 `BANK_CODE`와 같으면 자행). 응답에 `to_bank`, `transfer_id`, `status`가 더 붙는다.
+- `status: "COMPLETED"`: 받는 은행 입금 확인. `"PENDING"`: 출금됐고 받는 은행 확인 중 (`message`가 "확인 중", 나중에 `GET /transfers/interbank`로 결과)
+- `404 ACCOUNT_NOT_FOUND` 등: 허브 예금주 조회에서 걸림. 출금하지 않음
+- `400 INTERBANK_FAILED`: 받는 은행이 거절해 **출금을 되돌림** (`extra.fail_code`, `extra.balance_after`). 거래내역에 `TRANSFER_REFUND`
+- `503 INTERBANK_UNAVAILABLE`: 허브 설정이 없거나 허브가 응답하지 않음 (예금주 조회 단계, 출금하지 않음)
+- `400 INTERBANK_CHAT_NOT_SUPPORTED`: 채팅 확인 카드(`session_id`)로는 아직 타행 이체를 할 수 없음
 
 **FDS 판정** (한도 검사를 통과한 뒤)
 
@@ -164,7 +174,7 @@ PIN이 없으면 `400 PIN_NOT_SET`, 안 보내면 `400 PIN_REQUIRED`, 틀리면 
     "warning": "금융기관·검찰·경찰·금융감독원은 전화나 메시지로 송금을 요구하지 않습니다. ..." } } }
 ```
 
-- 1일 한도는 한국 시간 0시부터의 `TRANSFER_OUT` 합계로 계산합니다. 본인 적금·예금 납입은 한도에 포함하지 않습니다.
+- 1일 한도는 한국 시간 0시부터의 `TRANSFER_OUT` 합계(타행 포함)에서 되돌려 받은 `TRANSFER_REFUND`를 뺀 값으로 계산합니다. 본인 적금·예금 납입은 한도에 포함하지 않습니다.
 - 받는 계좌가 등록된 수취인이면 `recipients.last_sent_at`이 갱신됩니다. 등록 안 된 계좌는 자동 등록하지 않습니다.
 
 `POST /transfers/savings`: `amount`를 생략하면 월 납입액

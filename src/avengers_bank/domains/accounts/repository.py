@@ -116,11 +116,12 @@ class AccountRepository:
     async def sum_transfer_out_since(
         self, db: AsyncSession, checking_account_id: int, since: datetime
     ) -> int:
-        """since 이후 TRANSFER_OUT 합계 (양수). 1일 이체 한도 검사용."""
+        """since 이후 이체로 나간 돈 합계 (양수). 1일 이체 한도 검사용.
+        거절돼 되돌려 받은 타행 이체(TRANSFER_REFUND, +)는 빼서 한도를 다시 쓸 수 있게 한다."""
         total = await db.scalar(
             select(func.coalesce(func.sum(-CheckingAccountHistory.change_amount), 0)).where(
                 CheckingAccountHistory.checking_account_id == checking_account_id,
-                CheckingAccountHistory.type == HistoryType.TRANSFER_OUT,
+                CheckingAccountHistory.type.in_([HistoryType.TRANSFER_OUT, HistoryType.TRANSFER_REFUND]),
                 CheckingAccountHistory.date >= since,
             )
         )

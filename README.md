@@ -11,6 +11,7 @@
 | [docs/PRESENTATION.md](docs/PRESENTATION.md) | 발표 자료 초안 (슬라이드별) |
 | [docs/MCP_SERVERS.md](docs/MCP_SERVERS.md) | MCP 서버 6개, 도구 27개, 안전 규칙, 약관·FAQ 검색(RAG), 가입 시 이용약관 동의 |
 | [docs/VOICE_AUTH.md](docs/VOICE_AUTH.md) | 음성 승인(화자 인증) 설계, 측정 결과, 한계 |
+| [docs/INTERBANK.md](docs/INTERBANK.md) | 다른 은행 이체: ClearingHub 연동, 돈 흐름, 실패·응답 없음 처리 |
 | [docs/TODO.md](docs/TODO.md) | 계획서를 작업 단위로 쪼갠 체크리스트 |
 | [docs/ERD.md](docs/ERD.md) | ER 다이어그램 (Mermaid), 코드에서 지킬 규칙 · 원본: [AvengersBankDiagram.drawio](docs/AvengersBankDiagram.drawio) |
 | [docs/API_ENDPOINTS.md](docs/API_ENDPOINTS.md) | API 엔드포인트 목록, 요청·응답 형식, 구현 상태 |
@@ -68,6 +69,7 @@ uv run python scripts/demo_check.py    # 시나리오 자동 점검 (실제 Gemi
 | `VOICE_ENCRYPTION_KEY` | 음성 승인 | 목소리 특징 암호화 Fernet 키. 바꾸면 다시 등록해야 함 |
 | `VOICE_SIMILARITY_THRESHOLD` | | 화자 인증 기준 (기본 0.45, 보정 필요) |
 | `DEMO_MODE` | | true면 `/demo/clock`으로 업무 시각 옮기기 (발표용 로컬에서만) |
+| `BANK_CODE`, `HUB_URL`, `HUB_API_KEY`, `HUB_SECRET` | 타행 이체 | [ClearingHub](https://github.com/jjh7757/clearing-hub) 중계 서버가 발급한 은행 코드·키. 셋 중 하나라도 없으면 타행 이체가 꺼진다 ([INTERBANK.md](docs/INTERBANK.md)) |
 
 ## 테스트
 
@@ -107,3 +109,4 @@ uv run --group fds python fds_training/train.py           # 모델·임계값·r
 | 상품 가입·이용약관 | ✅ 앱(`/products`)이나 모아가 가져온 가입 화면에서 약관 동의 후 가입. 서버가 약관 버전을 확인하고 동의 기록을 남김 |
 | 약관·FAQ 상담 (RAG) | ✅ knowledge MCP 서버, Gemini 임베딩 검색 + 키워드 대체 (`data/knowledge/`) |
 | 음성 승인(화자 인증) | ✅ 4-4 구현, 기준값은 실제 목소리로 보정 필요 ([VOICE_AUTH.md](docs/VOICE_AUTH.md)) |
+| 타행 이체 (ClearingHub) | ✅ 백엔드: 보내기(`POST /transfers`의 `to_bank`)·받기(`/interbank/*`)·처리 중 확인. 화면·모아 대화는 다음 단계 ([INTERBANK.md](docs/INTERBANK.md)) |

@@ -21,6 +21,8 @@ from avengers_bank.domains.fds.conversation import ConversationRisk
 from avengers_bank.domains.fds.models import FdsDecision
 from avengers_bank.domains.fds.rules import RiskLevel
 from avengers_bank.domains.fds.service import FdsResult, fds_service
+from avengers_bank.domains.interbank import service as interbank_service
+from avengers_bank.domains.interbank.models import InterbankStatus
 from avengers_bank.domains.recipients.repository import recipient_repository
 from avengers_bank.domains.speech.approval import verify_voice_approval_token
 from avengers_bank.domains.speech.repository import voice_repository
@@ -61,6 +63,8 @@ class TransferService:
         current_user: UserResponse,
         client_ip: str | None = None,
     ) -> TransferResponse:
+        if interbank_service.is_external(data.to_bank):
+            return await self._transfer_interbank(db, data, current_user, client_ip)
         rejection: FdsDecision | None = None
         conversation_risk = await self._assess_conversation(db, data.session_id, current_user.user_id)
         async with db.begin():
@@ -89,18 +93,7 @@ class TransferService:
             source, target = locked[source.checking_account_id], locked[target.checking_account_id]
 
             # 3. 잔액, 1회 한도, 1일 한도 검사
-            check_balance(source, data.amount)
-            if data.amount > source.per_transfer_limit:
-                raise BadRequestException(
-                    code="PER_TRANSFER_LIMIT_EXCEEDED", message="1회 이체 한도를 초과했습니다."
-                )
-            sent_today = await account_repository.sum_transfer_out_since(
-                db, source.checking_account_id, start_of_today_utc()
-            )
-            if sent_today + data.amount > source.daily_transfer_limit:
-                raise BadRequestException(
-                    code="DAILY_LIMIT_EXCEEDED", message="1일 이체 한도를 초과했습니다."
-                )
+            sent_today = await self._check_limits(db, source, data.amount)
 
             # 4. FDS 판정 → LOW 통과 / MEDIUM 추가 인증(PIN) / HIGH 차단
             user = await user_repository.find_by_id(db, current_user.user_id)
@@ -185,6 +178,90 @@ class TransferService:
                     risk_level=fds.risk_level.name,
                 )
 
+        await self._raise_rejection(db, rejection, log_fields, fds, user)
+
+    async def _transfer_interbank(
+        self, db: AsyncSession, data: TransferCreate, current_user: UserResponse, client_ip: str | None
+    ) -> TransferResponse:
+        """다른 은행으로 이체 (ClearingHub). 한도·FDS는 자행 이체와 같고, 출금을 커밋한 뒤 허브를 부른다.
+        채팅(확인 카드)에서 오는 타행 이체는 아직 지원하지 않는다: 확인 카드에 은행이 없다."""
+        if data.session_id is not None or data.confirmation_token is not None:
+            raise BadRequestException(
+                code="INTERBANK_CHAT_NOT_SUPPORTED", message="다른 은행 이체는 아직 이체 화면에서만 할 수 있습니다."
+            )
+        to_bank = data.to_bank
+        # 0. 받는 사람 확인: 계좌가 없으면 돈을 움직이기 전에 끝낸다
+        holder_name = await interbank_service.inquiry(to_bank, data.to_account_num)
+
+        rejection: FdsDecision | None = None
+        fds_key = interbank_service.fds_account_key(to_bank, data.to_account_num)
+        async with db.begin():
+            source = await account_service.get_owned_account(
+                db, "checking", data.from_checking_account_id, current_user.user_id, for_update=True
+            )
+            sent_today = await self._check_limits(db, source, data.amount)
+            user = await user_repository.find_by_id(db, current_user.user_id)
+            fds = await fds_service.evaluate(
+                db, user=user, source=source, to_account_num=fds_key, amount=data.amount,
+                sent_today=sent_today, session_id=None, device_fingerprint=data.device_fingerprint,
+                input_mode=data.input_mode, session_texts=[],
+            )
+            decision = await self._decide(fds, user, data.pin)
+            log_fields = {
+                "user_id": user.user_id, "session_id": None, "from_account": source.account_num,
+                "to_account": fds_key, "amount": data.amount, "input_mode": data.input_mode,
+                "result": fds, "decision": decision,
+            }
+            if decision in REJECTED:
+                rejection = decision
+            else:
+                transfer = await interbank_service.debit(
+                    db, user_id=user.user_id, source=source, to_bank=to_bank, to_account=data.to_account_num,
+                    amount=data.amount, holder_name=holder_name,
+                )
+                await fds_service.save_log(db, **log_fields)
+                await fds_service.register_device(db, user.user_id, data.device_fingerprint, client_ip)
+                transfer_id, from_account_num = transfer.transfer_id, source.account_num
+        if rejection is not None:
+            await self._raise_rejection(db, rejection, log_fields, fds, user)
+
+        # 1. 출금은 커밋됐다. 허브 호출 결과에 따라 완료 / 되돌림(4xx) / 처리 중(응답 없음)
+        transfer = await interbank_service.deliver(db, transfer_id)
+        async with db.begin():
+            balance_after = (await db.get(CheckingAccount, transfer.checking_account_id)).balance
+        if transfer.status == InterbankStatus.FAILED:
+            raise BadRequestException(
+                code="INTERBANK_FAILED",
+                message=f"받는 은행이 이체를 거절해 보낸 돈을 돌려드렸어요. ({transfer.fail_message})",
+                extra={"fail_code": transfer.fail_code, "transfer_id": transfer.transfer_id, "balance_after": balance_after},
+            )
+        return TransferResponse(
+            from_account_num=from_account_num, to_account_num=transfer.to_account, to_bank=transfer.to_bank,
+            to_holder_name=transfer.to_holder_name, amount=transfer.amount, balance_after=balance_after,
+            transferred_at=transfer.created_at, risk_level=fds.risk_level.name, transfer_id=transfer.transfer_id,
+            status=transfer.status,
+        )
+
+    async def _check_limits(self, db: AsyncSession, source: CheckingAccount, amount: int) -> int:
+        """잔액, 1회 한도, 1일 한도. 오늘 이미 보낸 금액을 돌려준다 (FDS 피처)."""
+        check_balance(source, amount)
+        if amount > source.per_transfer_limit:
+            raise BadRequestException(
+                code="PER_TRANSFER_LIMIT_EXCEEDED", message="1회 이체 한도를 초과했습니다."
+            )
+        sent_today = await account_repository.sum_transfer_out_since(
+            db, source.checking_account_id, start_of_today_utc()
+        )
+        if sent_today + amount > source.daily_transfer_limit:
+            raise BadRequestException(
+                code="DAILY_LIMIT_EXCEEDED", message="1일 이체 한도를 초과했습니다."
+            )
+        return sent_today
+
+    async def _raise_rejection(
+        self, db: AsyncSession, rejection: FdsDecision, log_fields: dict, fds: FdsResult, user: User
+    ) -> None:
+        """FDS 거절 기록은 이체 트랜잭션과 따로 커밋한다 (예외로 롤백되지 않게)."""
         async with db.begin():
             log = await fds_service.save_log(db, **log_fields)
             extra = fds_service.error_extra(

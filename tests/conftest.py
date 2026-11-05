@@ -7,6 +7,13 @@ os.environ["JWT_SECRET_KEY"] = "test-secret-key-test-secret-key-0000"
 os.environ["VOICE_ENCRYPTION_KEY"] = "0nqMmCGBZz4Ii2tmmjnlxxzI5d7Z0r6MWQqv2qD3fWs="  # 테스트 전용 Fernet 키
 os.environ["GEMINI_API_KEY"] = ""  # 테스트는 실제 Gemini를 부르지 않는다
 os.environ["DEMO_MODE"] = "false"  # 시연 모드는 test_demo.py에서만 켠다
+# 타행 이체: 허브 호출은 test_interbank.py의 가짜 허브로 보낸다. 확인 태스크는 테스트가 직접 부른다
+os.environ["BANK_CODE"] = "901"
+os.environ["HUB_URL"] = "http://hub"
+os.environ["HUB_API_KEY"] = "chk_test_api_key"
+os.environ["HUB_SECRET"] = "test-hub-secret"
+os.environ["HUB_TIMEOUT_SECONDS"] = "0.3"
+os.environ["INTERBANK_CONFIRM_INTERVAL_SECONDS"] = "3600"
 
 import pytest
 from httpx import ASGITransport, AsyncClient
@@ -16,6 +23,7 @@ import avengers_bank.domains.accounts.models  # noqa: F401  모든 테이블을 
 import avengers_bank.domains.cards.models  # noqa: F401
 import avengers_bank.domains.chat.models  # noqa: F401
 import avengers_bank.domains.fds.models  # noqa: F401
+import avengers_bank.domains.interbank.models  # noqa: F401
 import avengers_bank.domains.products.models  # noqa: F401
 import avengers_bank.domains.recipients.models  # noqa: F401
 import avengers_bank.domains.speech.models  # noqa: F401

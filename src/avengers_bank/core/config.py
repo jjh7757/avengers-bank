@@ -22,6 +22,17 @@ class Settings(BaseSettings):
     voice_max_attempts: int = Field(default=2, gt=0)  # 카드 하나당 음성 승인 시도 횟수
     # 시연 모드: /demo/clock으로 업무 시각을 옮길 수 있다 (심야 이체 재현). 로그인 없이 바뀌므로 발표용 로컬에서만 켠다
     demo_mode: bool = False
+    # 다른 은행 이체: ClearingHub 중계 서버 (clearing-hub 저장소 docs/SPEC.md). 셋 다 있어야 켜진다
+    bank_code: str = Field(default="901", pattern=r"^\d{3}$")  # 허브가 배정한 우리 은행 코드
+    hub_url: str | None = None  # 예: https://hub.example.com (끝에 /v1 없이)
+    hub_api_key: SecretStr | None = None
+    hub_secret: SecretStr | None = None  # 서명 비밀키. 허브 → 우리 요청 검증에도 쓴다
+    hub_timeout_seconds: float = Field(default=10, gt=0)
+    interbank_confirm_interval_seconds: float = Field(default=30, gt=0)  # 처리 중(PENDING) 타행 이체 확인 간격
+
+    @property
+    def interbank_enabled(self) -> bool:
+        return bool(self.hub_url and self.hub_api_key and self.hub_secret)
 
     model_config = SettingsConfigDict(
         env_file=".env", env_file_encoding="utf-8", extra="ignore"

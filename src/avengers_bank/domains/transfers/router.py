@@ -6,8 +6,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from avengers_bank.core.database import get_db
 from avengers_bank.core.dependencies import get_current_user
 from avengers_bank.core.responses import SuccessResponse, error_responses
+from avengers_bank.domains.interbank import service as interbank_service
 from avengers_bank.domains.transfers.schemas import (
     DepositPaymentCreate,
+    InterbankBank,
+    InterbankTransferResponse,
     SavingsPaymentCreate,
     TransferCreate,
     TransferResponse,
@@ -31,7 +34,25 @@ async def transfer(data: TransferCreate, db: Db, current_user: CurrentUser, requ
     나갈 수 있다. 이때 `error.extra`에 규칙 이름, ML 점수, 주요 요인, 경고 문구가 들어 있다."""
     client_ip = request.client.host if request.client else None
     result = await transfer_service.transfer(db, data, current_user, client_ip)
-    return SuccessResponse[TransferResponse](data=result, message="이체가 완료되었습니다.")
+    message = "이체가 완료되었습니다." if result.status == "COMPLETED" else "받는 은행에서 확인 중입니다. 잠시 후 결과를 알려 드려요."
+    return SuccessResponse[TransferResponse](data=result, message=message)
+
+
+@router.get("/banks", response_model=SuccessResponse[list[InterbankBank]])
+async def list_banks(current_user: CurrentUser):
+    """다른 은행 이체로 보낼 수 있는 은행 (ClearingHub 참가 은행, 우리 은행 제외). 허브 설정이 없으면 503."""
+    banks = await interbank_service.list_banks()
+    return SuccessResponse[list[InterbankBank]](data=[InterbankBank(**b) for b in banks])
+
+
+@router.get("/interbank", response_model=SuccessResponse[list[InterbankTransferResponse]])
+async def list_interbank_transfers(db: Db, current_user: CurrentUser):
+    """내 타행 이체와 상태 (PENDING: 받는 은행 확인 중, COMPLETED, FAILED: 출금 되돌림)"""
+    async with db.begin():
+        rows = await interbank_service.list_my_transfers(db, current_user.user_id)
+    return SuccessResponse[list[InterbankTransferResponse]](
+        data=[InterbankTransferResponse.model_validate(r, from_attributes=True) for r in rows]
+    )
 
 
 @router.post("/savings", response_model=SuccessResponse[TransferResponse])

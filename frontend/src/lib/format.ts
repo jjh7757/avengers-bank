@@ -27,6 +27,7 @@ export const HISTORY_TYPE_LABEL: Record<string, string> = {
   WITHDRAW: '출금',
   TRANSFER_IN: '이체 받음',
   TRANSFER_OUT: '이체 보냄',
+  TRANSFER_REFUND: '이체 반환',
   CARD_PAYMENT: '카드 결제',
   SAVINGS_PAYMENT: '적금 납입',
   DEPOSIT_PAYMENT: '예금 입금',
