@@ -151,6 +151,7 @@ dependencies = [
     { name = "pydantic-settings" },
     { name = "pyjwt" },
     { name = "python-dotenv" },
+    { name = "sentry-sdk" },
     { name = "sqlalchemy", extra = ["asyncio"] },
 ]
 
@@ -188,6 +189,7 @@ requires-dist = [
     { name = "pydantic-settings", specifier = ">=2.0,<3" },
     { name = "pyjwt", specifier = ">=2.10,<3" },
     { name = "python-dotenv", specifier = ">=1.2,<2" },
+    { name = "sentry-sdk", specifier = ">=2.20,<3" },
     { name = "sqlalchemy", extras = ["asyncio"], specifier = ">=2.0,<2.1" },
 ]
 

@@ -19,6 +19,7 @@ dependencies = [
     "cryptography>=44",
     "mcp>=1.10",
     "langchain-mcp-adapters>=0.1",
+    "sentry-sdk>=2.20,<3",
 ]
 
 [dependency-groups]

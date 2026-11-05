@@ -25,3 +25,9 @@ dist-ssr
 
 # 로컬 개발 도구 설정
 .claude/
+
+# Playwright E2E 결과
+test-results/
+playwright-report/
+blob-report/
+playwright/.cache/

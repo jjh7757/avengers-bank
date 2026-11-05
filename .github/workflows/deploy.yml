@@ -1,5 +1,5 @@
 # AWS 배포 (TIL AWS배포환경/templates/deploy.yml 기반)
-# push → arm64 이미지 빌드 → ECR → SSM으로 서버의 /usr/local/bin/deploy-app 실행
+# push → 품질 검사(ci.yml: pytest·tsc·oxlint·build·E2E) → 통과하면 arm64 이미지 빌드 → ECR → SSM으로 서버의 /usr/local/bin/deploy-app 실행
 # 서버 설정(/srv/avengers-bank/docker-compose.yml, .env)은 docs/DEPLOY.md
 name: deploy
 
@@ -23,7 +23,14 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # 검사가 하나라도 실패하면 아래 deploy는 돌지 않는다 (이미지 빌드·서버 배포 없음)
+  checks:
+    uses: ./.github/workflows/ci.yml
+    permissions:
+      contents: read
+
   deploy:
+    needs: checks
     # 네이티브 arm64 러너 (퍼블릭 저장소는 무료). 서버가 Graviton(arm64)이다
     runs-on: ubuntu-24.04-arm
     steps:

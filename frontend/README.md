@@ -11,7 +11,24 @@ npm install
 npm run dev        # http://localhost:5173
 npm run build      # 타입 검사 + 빌드
 npm run lint
+npm run test:e2e   # E2E (아래)
 ```
+
+## E2E 테스트
+
+[Playwright](https://playwright.dev)로 실제 브라우저에서 로그인 → 내 계좌 → 이체 화면에서 내 다른 계좌(생활비 → 월급)로 1만원 이체 → 완료 화면과 잔액 변화까지 확인합니다. 잘못된 비밀번호로 로그인이 안 되는지도 봅니다 (`e2e/transfer.spec.ts`).
+
+```bash
+npx playwright install chromium   # 처음 한 번 (브라우저 내려받기)
+npm run test:e2e                  # 또는 npx playwright test
+npx playwright show-report        # 결과 보기 (실패하면 스크린샷·trace가 남는다)
+```
+
+- 따로 서버를 켤 필요가 없습니다. `playwright.config.ts`가 테스트 전용 백엔드(8020번)와 Vite(5180번)를 띄우고 끝나면 끕니다. 이미 떠 있는 개발 서버(5173·8000 등)는 건드리지 않습니다. 포트는 `E2E_API_PORT`·`E2E_WEB_PORT`로 바꿀 수 있습니다.
+- 백엔드는 저장소 루트의 `e2e.db`(SQLite, git 제외)를 매번 새로 만들고 `scripts/e2e_prepare.py` → `scripts/demo_seed.py`로 시연 데이터를 넣습니다. PostgreSQL·`.env`가 없어도 되고, 개발 DB는 건드리지 않습니다 (SQLite가 아니면 준비 스크립트가 멈춤).
+- 로그인 비밀번호와 이체 PIN은 테스트에 적지 않고 `scripts/demo_seed.py`에서 읽습니다 (`DEMO_SEED_PASSWORD`·`DEMO_SEED_PIN` 환경변수가 있으면 그 값).
+- 외부 서비스는 끕니다: 모아(Gemini), 타행 이체(ClearingHub), Sentry. FDS가 추가 인증을 요구하면 테스트가 PIN을 넣습니다.
+- CI(`.github/workflows/ci.yml`의 `e2e` job)에서도 같은 설정으로 돕니다. 실패하면 리포트·trace가 artifact로 올라갑니다.
 
 음성 입력은 Chrome·Edge에서만 동작합니다 (Web Speech API). 마이크 권한을 허용해야 합니다.
 

@@ -70,6 +70,21 @@ uv run python scripts/demo_check.py    # 시나리오 자동 점검 (실제 Gemi
 | `VOICE_SIMILARITY_THRESHOLD` | | 화자 인증 기준 (기본 0.45, 보정 필요) |
 | `DEMO_MODE` | | true면 `/demo/clock`으로 업무 시각 옮기기 (발표용 로컬에서만) |
 | `BANK_CODE`, `HUB_URL`, `HUB_API_KEY`, `HUB_SECRET` | 타행 이체 | [ClearingHub](https://github.com/jjh7757/clearing-hub) 중계 서버가 발급한 은행 코드·키. 셋 중 하나라도 없으면 타행 이체가 꺼진다 ([INTERBANK.md](docs/INTERBANK.md)) |
+| `LOG_LEVEL` | | 로그 수준 (기본 `INFO`) |
+| `LOG_FORMAT` | | `json`(기본, 한 줄에 JSON 하나) 또는 `text`(로컬에서 읽기 편한 형식) |
+| `SENTRY_DSN` | | 넣으면 처리하지 못한 오류를 Sentry로 보낸다. 비우면 아무것도 하지 않음 |
+| `SENTRY_ENVIRONMENT`, `SENTRY_TRACES_SAMPLE_RATE` | | Sentry 환경 이름(기본 `production`), 성능 추적 비율 0~1(기본 0) |
+
+## 운영·모니터링
+
+- **헬스체크** `GET /health` (운영 컨테이너에서는 `/health`와 `/api/health` 둘 다): DB에 `SELECT 1`까지 보내 확인한다. 정상 200 `{"status": "ok", "checks": {"database": "ok"}}`, DB에 닿지 않거나 3초 넘게 걸리면 503. 인증 없이 부를 수 있고 오류 내용은 응답에 넣지 않는다.
+- **요청 ID**: 요청마다 `X-Request-ID`를 정해(받은 값이 영문·숫자·`.`·`_`·`:`·`-` 128자 이내면 그대로, 아니면 새로 만든다) 응답 헤더에 붙인다. 그 요청에서 남긴 로그에도 `request_id`가 붙어서, 사용자가 알려 준 ID로 로그를 바로 찾을 수 있다.
+- **구조화 로그**: 표준 출력에 한 줄 JSON (`time`, `level`, `logger`, `message`, `request_id` …). 요청마다 접근 로그 `avengers_bank.access`에 `method`·`path`·`status`·`duration_ms`가 남는다 (헬스체크는 DEBUG). 코드는 [core/logging.py](src/avengers_bank/core/logging.py), [core/health.py](src/avengers_bank/core/health.py), [core/sentry.py](src/avengers_bank/core/sentry.py).
+- **Sentry**(선택): `SENTRY_DSN`이 있을 때만 켜진다. 개인정보(요청 본문·쿠키·IP)는 보내지 않고 `request_id` 태그를 붙인다.
+
+```bash
+curl -i http://127.0.0.1:8000/health
+```
 
 ## 테스트
 
@@ -78,6 +93,12 @@ uv run pytest
 ```
 
 테스트는 SQLite로 돌아가서 PostgreSQL 없이도 실행됩니다.
+
+화면 E2E 테스트(Playwright: 로그인 → 계좌 → 내 다른 계좌로 이체 → 완료)는 `frontend`에서 `npm run test:e2e`. 테스트 전용 SQLite DB에 시연 데이터를 넣고 서버를 따로 띄웁니다 ([frontend/README.md](frontend/README.md#e2e-테스트)).
+
+### CI
+
+[`.github/workflows/ci.yml`](.github/workflows/ci.yml)이 백엔드 `pytest`, 프론트 `tsc -b`·`oxlint`·`build`, E2E를 돌립니다. PR과 다른 브랜치 push에는 검사만, `feature/backend-api` push에는 [`deploy.yml`](.github/workflows/deploy.yml)이 이 검사를 먼저 부르고 **모두 통과해야** 이미지 빌드·배포로 넘어갑니다.
 
 음성 승인(화자 인증)을 쓰려면 PyTorch가 든 `voice` 그룹을 함께 설치·실행합니다 (약 1GB). 없으면 승인 버튼 + PIN으로만 동작합니다.
 

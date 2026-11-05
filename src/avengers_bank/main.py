@@ -7,7 +7,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from avengers_bank.core.config import get_settings
 from avengers_bank.core.database import engine
 from avengers_bank.core.exception_handlers import register_exception_handlers
+from avengers_bank.core.health import router as health_router
+from avengers_bank.core.logging import REQUEST_ID_HEADER, RequestContextMiddleware, configure_logging
 from avengers_bank.core.responses import SuccessResponse, error_responses
+from avengers_bank.core.sentry import init_sentry
 from avengers_bank.domains.accounts.router import router as account_router
 from avengers_bank.domains.cards.router import router as card_router
 from avengers_bank.domains.chat.router import router as chat_router
@@ -22,6 +25,9 @@ from avengers_bank.domains.speech.router import router as voice_router
 from avengers_bank.domains.transfers.router import router as transfer_router
 from avengers_bank.domains.users.router import router as user_router
 from avengers_bank.mcp_servers.registry import mount_mcp_servers, run_mcp_servers
+
+configure_logging()  # JSON 로그 (LOG_FORMAT=text면 사람이 읽는 형식)
+init_sentry()  # SENTRY_DSN이 있을 때만
 
 
 @asynccontextmanager
@@ -45,9 +51,13 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://127.0.0.1:5173", "http://localhost:5173"],
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
-    allow_headers=["Authorization", "Content-Type"],
+    allow_headers=["Authorization", "Content-Type", REQUEST_ID_HEADER],
+    expose_headers=[REQUEST_ID_HEADER],
 )
+# 마지막에 단 미들웨어가 가장 바깥이다: CORS 응답(preflight 포함)에도 request ID가 붙는다
+app.add_middleware(RequestContextMiddleware)
 register_exception_handlers(app)
+app.include_router(health_router)
 app.include_router(user_router)
 app.include_router(product_router)
 app.include_router(account_router)
