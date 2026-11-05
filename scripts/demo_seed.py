@@ -44,6 +44,7 @@ from avengers_bank.domains.products.models import AccountProduct, CardProduct, T
 from avengers_bank.domains.products.seed import seed_products
 from avengers_bank.knowledge.terms import find_terms
 from avengers_bank.domains.recipients.models import Recipient
+from avengers_bank.domains.users.ci import ci_of
 from avengers_bank.domains.users.models import User
 from avengers_bank.domains.users.schemas import UserResponse
 
@@ -58,6 +59,7 @@ USERS = {  # login_id: 이름
     "demo_seller": "최판매",
     "demo_scammer": "금융보호센터",
 }
+DEMO_BIRTH_DATE = "19900101"
 rng = random.Random(2026)
 
 
@@ -74,6 +76,9 @@ async def upsert_users(db) -> dict[str, User]:
     await db.flush()
     demo = users["demo"]
     demo.hashed_pin = hash_password(PIN)
+    # 다른 은행 내 계좌 시연: ClearingHub 가짜 은행 902의 시험 고객 홍길동(19900101, 010-0000-0000)과 같은 사람
+    demo.birth_date = DEMO_BIRTH_DATE
+    demo.ci = ci_of(demo.name, demo.birth_date, demo.phone)
     demo.created_at = real_now_utc() - timedelta(days=365 * 3)
     return users
 
