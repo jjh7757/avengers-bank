@@ -1,10 +1,14 @@
 """허브 → 우리 은행 API (SPEC 4절). 응답은 SPEC 5절 형식({"error", "message"})이라 앱의 기본 오류 형식을 쓰지 않는다.
 서명을 원문 바이트로 검증해야 하므로 본문은 직접 읽어 검증한 뒤 Pydantic으로 푼다."""
 
-from typing import Annotated
+import logging
+import sys
+from collections.abc import Callable, Coroutine
+from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Request, Response
 from fastapi.responses import JSONResponse
+from fastapi.routing import APIRoute
 from pydantic import BaseModel, Field, ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -13,7 +17,31 @@ from avengers_bank.core.database import get_db
 from avengers_bank.domains.interbank import service
 from avengers_bank.domains.interbank.signing import HUB_BANK_CODE, verify
 
-router = APIRouter(prefix="/interbank", tags=["interbank (허브 전용)"])
+logger = logging.getLogger(__name__)
+
+
+class SpecErrorRoute(APIRoute):
+    """처리하지 못한 예외도 SPEC 5절 형식(`{"error": "INTERNAL_ERROR", "message"}`)의 500으로 답한다.
+    앱 기본 처리기는 앱 형식(`{"error": {"code"...}}`)으로 답하므로 허브 전용 경로만 여기서 감싼다.
+    허브는 5xx면 재시도한다 (SPEC 4.2 규칙 4). 입금은 transfer_id로 멱등이라 재시도해도 한 번만 들어간다."""
+
+    def get_route_handler(self) -> Callable[[Request], Coroutine[Any, Any, Response]]:
+        handler = super().get_route_handler()
+
+        async def spec_handler(request: Request) -> Response:
+            try:
+                return await handler(request)
+            except Exception as exc:
+                logger.exception("허브 요청 처리 실패: %s %s", request.method, request.url.path)
+                sentry = sys.modules.get("sentry_sdk")  # 켜져 있을 때만 (core/sentry.py). 삼켰으니 직접 보낸다
+                if sentry is not None:
+                    sentry.capture_exception(exc)
+                return _error(500, "INTERNAL_ERROR", "은행 서버에서 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.")
+
+        return spec_handler
+
+
+router = APIRouter(prefix="/interbank", tags=["interbank (허브 전용)"], route_class=SpecErrorRoute)
 Db = Annotated[AsyncSession, Depends(get_db)]
 
 

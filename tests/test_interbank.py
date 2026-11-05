@@ -358,6 +358,22 @@ async def test_receive_errors_use_spec_format(client, user):
     assert res.status_code == 422 and res.json()["error"] == "VALIDATION_ERROR"
 
 
+async def test_unexpected_error_uses_spec_format(client, user, monkeypatch):
+    """처리하지 못한 예외도 SPEC 5절 형식의 500 (허브는 5xx면 재시도한다)"""
+    from avengers_bank.domains.interbank import service
+
+    async def broken(db, data):
+        raise RuntimeError("DB 끊김")
+
+    monkeypatch.setattr(service, "receive", broken)
+    account = await open_checking(client, user)
+    res = await hub_call(client, "POST", "/interbank/receive", receive_payload(account["account_num"]))
+    assert res.status_code == 500
+    body = res.json()
+    assert body["error"] == "INTERNAL_ERROR" and body["message"]
+    assert "DB 끊김" not in res.text  # 내부 사정은 밖으로 내보내지 않는다
+
+
 async def test_receive_rejects_bad_signature(client, user):
     account = await open_checking(client, user)
     res = await hub_call(client, "POST", "/interbank/receive", receive_payload(account["account_num"]), secret="wrong")

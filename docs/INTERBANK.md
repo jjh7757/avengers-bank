@@ -60,7 +60,7 @@ AvengersBank ◀──POST /interbank/inquiry · /interbank/receive · GET /inte
 
 ## 받기: `/interbank/*` (허브 전용)
 
-`interbank/router.py`. 허브 요청인지 `X-Bank-Code: 000` + `HUB_SECRET` 서명으로 확인한다. 응답은 SPEC 5절 형식(`{"error", "message"}`)이다 (앱의 기본 오류 형식이 아님).
+`interbank/router.py`. 허브 요청인지 `X-Bank-Code: 000` + `HUB_SECRET` 서명으로 확인한다. 응답은 SPEC 5절 형식(`{"error", "message"}`)이다 (앱의 기본 오류 형식이 아님). 처리하지 못한 예외도 `500 {"error": "INTERNAL_ERROR"}`로 답한다(`SpecErrorRoute`, 로그·Sentry에는 남김). 허브는 5xx면 재시도하고 입금은 `transfer_id`로 멱등이다.
 
 | 경로 | 처리 |
 |---|---|
@@ -112,7 +112,7 @@ ci = hex(HMAC-SHA256(CI_KEY, 이름(공백 제거, NFC) + "|" + 생년월일(YYY
   - 받는 분 조회(허브 `/v1/inquiry`)는 건너뛴다. 허브가 같은 사람으로 확인해 준 계좌라서다. 예금주는 내 이름으로 저장했다가 허브 응답의 이름으로 바뀐다
   - 허브에는 `to_account` 대신 `to_account_ref`를 보낸다 (`interbank_transfers.to_account_ref`, 확인 태스크의 재전송도 같다). `to_account`에는 가린 번호가 남는다
   - **FDS**: 내 계좌로 본다 (`to_own_account`). 처음 보내는 계좌·심야 고액·잔액 대부분 규칙에 걸리지 않는다
-- **받기(허브 → 우리)** `POST /interbank/accounts {ci}`: 이 CI 고객의 입출금 계좌(`account_num`, `product_name`). 고객이 없어도 `200 {"accounts": []}`
+- **받기(허브 → 우리)** `POST /interbank/accounts {ci}`: 이 CI 고객의 입출금 계좌(`account_num`, `product_name`). 고객이 없어도 `200 {"accounts": []}`. 조회마다 `hub_account_queries`에 시각·`ci`·돌려준 계좌 수를 남긴다 (SPEC 9.4 규칙 5, 고객이 없던 조회도 0개로)
 - **화면**: 이체 화면의 "다른 은행 내 계좌 불러오기" → 동의 체크 → (생년월일) → 목록에서 고르면 받는 은행·가린 번호가 채워지고 "내 계좌" 표시 (`components/OwnAccountsPanel.tsx`)
 
 확인: `tests/test_own_accounts.py` (8개: 생년월일 필요, 동의 필수, 불러오기 → 허브에 CI만 감 → ref 이체 → FDS LOW, 남의 ref·다른 은행·우리 은행·채팅·만료 거절, 허브 429·장애·키 없음, 프로필 변경 시 CI 재계산, 가입 시 생년월일, `/interbank/accounts`). 브라우저(로컬, 실제 ClearingHub + 가짜 은행을 한 프로세스로): 김철수 고객 → 동의 → 생년월일 입력 → SimBank 계좌 2개 → 급여통장 선택 → 3만 원 완료, 허브 거래의 받는 계좌가 실제 번호 `110-456-0001`로 풀린 것 확인

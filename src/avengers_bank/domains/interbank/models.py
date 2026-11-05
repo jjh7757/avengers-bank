@@ -56,6 +56,19 @@ class InterbankReceipt(Base):
     received_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
+class HubAccountQuery(Base):
+    """허브가 우리에게 물어본 본인 명의 계좌 조회 기록 (SPEC 9.4 규칙 5: 시각, ci, 돌려준 계좌 수).
+    허브의 조회 기록(lookup_id·consent_id)과 맞춰 보거나, 누가 어떤 사람을 자주 조회하는지 볼 때 쓴다.
+    ci는 고객 테이블에도 있는 값이라 그대로 두고, 고객이 없었던 조회도 남긴다 (account_count = 0)."""
+
+    __tablename__ = "hub_account_queries"
+
+    query_id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    ci: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
+    account_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    queried_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
 class OwnAccountLookup(Base):
     """다른 은행 내 계좌 불러오기 동의 기록 (SPEC 9.2). consent_id를 허브에 보내고, 허브 조회 기록과 맞춰 볼 수 있다."""
 

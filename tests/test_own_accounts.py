@@ -12,7 +12,7 @@ from sqlalchemy import select, update
 from avengers_bank.core.clock import real_now_utc
 from avengers_bank.core.config import get_settings
 from avengers_bank.core.database import SessionLocal
-from avengers_bank.domains.interbank.models import OwnAccountLookup, OwnAccountRef
+from avengers_bank.domains.interbank.models import HubAccountQuery, OwnAccountLookup, OwnAccountRef
 from avengers_bank.domains.users.ci import virtual_ci
 from avengers_bank.domains.users.models import User
 from tests.conftest import new_chat_session, open_checking
@@ -196,3 +196,9 @@ async def test_interbank_accounts_for_hub(client, user):
     assert res.status_code == 422 and res.json()["error"] == "VALIDATION_ERROR"
     res = await hub_call(client, "POST", "/interbank/accounts", {"ci": ci}, secret="wrong")
     assert res.status_code == 401
+
+    # 조회 기록 (SPEC 9.4 규칙 5): 응답한 조회만, 고객이 없던 조회도 계좌 0개로 남는다
+    async with SessionLocal() as db:
+        queries = (await db.scalars(select(HubAccountQuery).order_by(HubAccountQuery.query_id))).all()
+    assert [(q.ci, q.account_count) for q in queries] == [(ci, 2), ("0" * 64, 0)]
+    assert all(q.queried_at is not None for q in queries)

@@ -26,6 +26,7 @@ from avengers_bank.domains.accounts.models import CheckingAccount, CheckingAccou
 from avengers_bank.domains.accounts.repository import account_repository
 from avengers_bank.domains.interbank.hub_client import HubReply, hub_client
 from avengers_bank.domains.interbank.models import (
+    HubAccountQuery,
     InterbankReceipt,
     InterbankStatus,
     InterbankTransfer,
@@ -334,15 +335,18 @@ async def resolve_own_ref(db: AsyncSession, user_id: int, ref: str, to_bank: str
 
 
 async def own_accounts_by_ci(db: AsyncSession, ci: str) -> list[dict]:
-    """허브 → 우리: 이 CI를 가진 고객의 입출금 계좌 (SPEC 9.4). 고객이 없으면 빈 목록."""
+    """허브 → 우리: 이 CI를 가진 고객의 입출금 계좌 (SPEC 9.4). 고객이 없으면 빈 목록.
+    조회 기록(시각, ci, 돌려준 계좌 수)을 같은 트랜잭션에 남긴다 (9.4 규칙 5)."""
     async with db.begin():
+        accounts: list[dict] = []
         users = list(await db.scalars(select(User).where(User.ci == ci)))
-        if not users:
-            return []
-        rows = await db.execute(
-            select(CheckingAccount.account_num, AccountProduct.name)
-            .join(AccountProduct, AccountProduct.product_id == CheckingAccount.product_id)
-            .where(CheckingAccount.user_id.in_([u.user_id for u in users]))
-            .order_by(CheckingAccount.created_at)
-        )
-        return [{"account_num": num, "product_name": (name or "")[:50]} for num, name in rows]
+        if users:
+            rows = await db.execute(
+                select(CheckingAccount.account_num, AccountProduct.name)
+                .join(AccountProduct, AccountProduct.product_id == CheckingAccount.product_id)
+                .where(CheckingAccount.user_id.in_([u.user_id for u in users]))
+                .order_by(CheckingAccount.created_at)
+            )
+            accounts = [{"account_num": num, "product_name": (name or "")[:50]} for num, name in rows]
+        db.add(HubAccountQuery(ci=ci, account_count=len(accounts), queried_at=real_now_utc()))
+        return accounts
