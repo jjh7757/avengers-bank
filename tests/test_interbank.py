@@ -31,12 +31,14 @@ class FakeHub:
         self.transfers: dict[str, dict] = {}  # 허브가 저장한 거래
         self.transfer_calls: list[dict] = []
         self.hub_down = False
+        self.request_ids: list[tuple[str, str | None]] = []  # (경로, 받은 X-Request-ID)
         self._routes()
 
     def _routes(self):
         app = self.app
 
         async def check(request: Request) -> bytes | JSONResponse:
+            self.request_ids.append((request.url.path, request.headers.get("x-request-id")))
             body = await request.body()
             ok = (request.headers.get("x-bank-code") == "901" and request.headers.get("x-api-key") == "chk_test_api_key"
                   and verify(SECRET, request.headers.get("x-timestamp"), body, request.headers.get("x-signature")) is None)
@@ -139,6 +141,17 @@ async def test_send_completed(client, user, hub):
     assert (call["from_account"], call["amount"], call["sender_name"]) == (source["account_num"], 30_000, "토니 스타크")
     assert await history_types(client, user, source["account_id"]) == [("TRANSFER_OUT", -30_000)]
     assert (await interbank_list(client, user))[0]["status"] == "COMPLETED"
+
+
+async def test_request_id_passed_to_hub(client, user, hub):
+    """앱이 보낸 X-Request-ID가 예금주 조회·이체 요청에 그대로 실려 허브로 간다 (SPEC 2.4)"""
+    source = await open_checking(client, user, balance=100_000)
+    traced = {**user, "X-Request-ID": "app-trace-0001"}
+    res = await send(client, traced, source["account_id"], "110-123-0001")
+    assert res.status_code == 200, res.text
+    assert res.headers["x-request-id"] == "app-trace-0001"
+    sent = [rid for path, rid in hub.request_ids if path in ("/v1/inquiry", "/v1/transfers")]
+    assert sent and set(sent) == {"app-trace-0001"}
 
 
 async def test_send_account_not_found_before_debit(client, user, hub):

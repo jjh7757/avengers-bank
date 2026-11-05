@@ -60,6 +60,8 @@ AvengersBank ◀──POST /interbank/inquiry · /interbank/receive · GET /inte
 
 ## 받기: `/interbank/*` (허브 전용)
 
+허브를 부를 때는 지금 요청의 `X-Request-ID`를 함께 보낸다 (SPEC 2.4, 서명 대상 아님). 허브가 받는 은행까지 같은 값을 넘기므로 세 서버 로그를 한 ID로 찾을 수 있다. 처리 중 확인 태스크처럼 요청 밖에서 부르면 보내지 않고 허브가 새로 만든다.
+
 `interbank/router.py`. 허브 요청인지 `X-Bank-Code: 000` + `HUB_SECRET` 서명으로 확인한다. 응답은 SPEC 5절 형식(`{"error", "message"}`)이다 (앱의 기본 오류 형식이 아님). 처리하지 못한 예외도 `500 {"error": "INTERNAL_ERROR"}`로 답한다(`SpecErrorRoute`, 로그·Sentry에는 남김). 허브는 5xx면 재시도하고 입금은 `transfer_id`로 멱등이다.
 
 | 경로 | 처리 |

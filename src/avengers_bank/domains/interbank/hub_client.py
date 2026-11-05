@@ -9,6 +9,7 @@ from typing import Any
 import httpx
 
 from avengers_bank.core.config import get_settings
+from avengers_bank.core.logging import REQUEST_ID_HEADER, get_request_id
 from avengers_bank.domains.interbank.signing import sign
 
 logger = logging.getLogger(__name__)
@@ -58,6 +59,11 @@ class HubClient:
             "Content-Type": "application/json; charset=utf-8",
             **sign(settings.hub_secret.get_secret_value(), body),
         }
+        # 추적 ID (SPEC 2.4, 서명 대상 아님): 이 요청의 ID를 허브에 넘기면 허브가 받는 은행까지 그대로 전달한다.
+        # 처리 중 확인 태스크처럼 요청 밖에서 부르면 없고, 그때는 허브가 새로 만든다
+        request_id = get_request_id()
+        if request_id:
+            headers[REQUEST_ID_HEADER] = request_id
         url = settings.hub_url.rstrip("/") + "/v1" + path
         timeout = settings.hub_timeout_seconds
         try:
