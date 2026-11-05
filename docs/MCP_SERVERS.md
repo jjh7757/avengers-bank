@@ -21,7 +21,7 @@ React ── REST ──▶ FastAPI ─┬─ /users /accounts /transfers ... (R
 - 계좌·카드번호는 뒤 4자리만 돌려준다 (`****6789`). 예외: `prepare_transfer`의 확인 카드(이체 요청에 그대로 써야 함). `execute_transfer` 결과는 다시 가린다.
 - Host 검사(DNS rebinding 방지): `127.0.0.1`, `localhost`만 허용. 배포할 때 `mcp_servers/common.py`의 `ALLOWED_HOSTS`에 실제 호스트를 더한다.
 
-## 서버와 도구 (27개)
+## 서버와 도구 (28개)
 
 | 서버 | 도구 | 종류 | LLM |
 |---|---|---|---|
@@ -29,8 +29,8 @@ React ── REST ──▶ FastAPI ─┬─ /users /accounts /transfers ... (R
 | | `open_checking_account`, `open_deposit_account`, `open_savings_account` | 개설. **`terms_version`(동의한 이용약관 버전) 필수** | ❌ 외부 클라이언트만 |
 | | `rename_account` | 변경 (사용자 동의 후) | ✅ |
 | | `lower_transfer_limits` | 변경. **낮추기만** 가능 (`LIMIT_RAISE_NOT_ALLOWED`) | ✅ |
-| **transfers** 이체 | `list_recipients`, `find_recipient`, `find_account_holder` | 조회 | ✅ |
-| | `prepare_transfer` | 확인 카드 + 승인 토큰 (**실행 아님**). `session_id`를 비우면 새 대화를 만든다 | ❌ 이체 노드만 |
+| **transfers** 이체 | `list_recipients`, `find_recipient`, `find_account_holder`(`bank_code`면 ClearingHub로 예금주), `find_bank`(은행 이름 → 코드) | 조회 | ✅ |
+| | `prepare_transfer` | 확인 카드 + 승인 토큰 (**실행 아님**). `to_bank`면 다른 은행 계좌(카드·토큰에 은행이 들어감). `session_id`를 비우면 새 대화를 만든다 | ❌ 이체 노드만 |
 | | `execute_transfer` | 이체 실행. 카드 값 + 승인 토큰 + **이체 PIN 또는 음성 승인 토큰 필수** | ❌ 외부 클라이언트만 |
 | | `register_recipient`, `rename_recipient`, `delete_recipient` | 변경 | ❌ 앱 화면·외부 클라이언트만 |
 | **products** 상품 | `search_products`, `get_product` | 조회 | ✅ |

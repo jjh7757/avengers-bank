@@ -19,6 +19,7 @@ from avengers_bank.domains.interbank.hub_client import hub_client
 from avengers_bank.domains.interbank.service import confirm_pending
 from avengers_bank.domains.interbank.signing import sign, verify
 from tests.conftest import new_chat_session, open_checking
+from tests.test_chat import approve, classify, say  # noqa: F401  classify는 fixture
 
 pytestmark = pytest.mark.anyio
 SECRET = os.environ["HUB_SECRET"]
@@ -216,11 +217,78 @@ async def test_send_respects_limits_and_balance(client, user, hub):
     assert hub.transfer_calls == []
 
 
-async def test_chat_interbank_not_supported_yet(client, user, hub):
+# ── 모아 대화 (확인 카드) ───────────────────────────────────────
+
+async def test_chat_interbank_card_and_approve(client, user, hub, classify):
+    """"SimBank 110-123-0001로 5만원 보내줘" → 받는 분 확인(허브) → 확인 카드(은행 포함) → 승인 → 완료"""
     source = await open_checking(client, user, balance=100_000)
     session_id = await new_chat_session(client, user)
-    res = await send(client, user, source["account_id"], "110-123-0001", session_id=session_id, confirmation_token="x")
-    assert res.json()["error"]["code"] == "INTERBANK_CHAT_NOT_SUPPORTED"
+    classify.next(intent="transfer", bank_name="SimBank", to_account_num="110-123-0001", amount=50_000)
+    reply = await say(client, user, session_id, "SimBank 110-123-0001로 5만원 보내줘")
+    card = reply["card"]
+    assert (card["to_bank"], card["to_bank_name"], card["holder_name"], card["to_account_num"]) == (
+        "902", "SimBank", "김철수", "110-123-0001")
+    assert "SimBank 김철수님께 5만원을 보낼까요?" in reply["content"]
+    assert card["tts_text"].startswith("SimBank 김철수님께 5만원을 보냅니다.")
+    assert hub.transfer_calls == []  # 카드까지는 돈이 안 움직인다
+
+    # 카드와 다른 은행으로 바꿔 보내면 거절 (같은 번호의 우리 은행 계좌로 바꿔치기 방지)
+    res = await client.post("/transfers", headers=user, json=approve(card, session_id))
+    assert res.json()["error"]["code"] == "CONFIRMATION_MISMATCH"
+
+    res = await client.post("/transfers", headers=user, json=approve(card, session_id, to_bank="902"))
+    assert res.status_code == 200, res.text
+    assert res.json()["data"]["status"] == "COMPLETED"
+    assert await balance_of(client, user, source["account_id"]) == 50_000
+    [call] = hub.transfer_calls
+    assert (call["to_account"], call["amount"]) == ("110-123-0001", 50_000)
+
+    res = await client.post("/transfers", headers=user, json=approve(card, session_id, to_bank="902"))
+    assert res.json()["error"]["code"] == "CONFIRMATION_USED"  # 카드는 한 번만
+
+
+async def test_chat_interbank_asks_account_number(client, user, hub, classify):
+    await open_checking(client, user, balance=100_000)
+    session_id = await new_chat_session(client, user)
+    classify.next(intent="transfer", bank_name="simbank 은행", amount=50_000)  # 대소문자·띄어쓰기·"은행"은 무시
+    reply = await say(client, user, session_id, "SimBank로 5만원 보내줘")
+    assert reply["card"] is None and "SimBank 계좌번호를 알려 주세요" in reply["content"]
+
+    classify.next(intent="transfer", to_account_num="110-123-0001")
+    reply = await say(client, user, session_id, "110-123-0001이야")
+    assert reply["card"], reply["content"]
+    assert reply["card"]["to_bank"] == "902" and reply["card"]["amount"] == 50_000
+
+
+async def test_chat_interbank_unknown_bank_and_account(client, user, hub, classify):
+    await open_checking(client, user, balance=100_000)
+    session_id = await new_chat_session(client, user)
+    classify.next(intent="transfer", bank_name="없는은행", to_account_num="110-123-0001", amount=50_000)
+    reply = await say(client, user, session_id, "없는은행 110-123-0001로 5만원")
+    assert reply["card"] is None and "찾지 못했어요" in reply["content"] and "SimBank" in reply["content"]
+
+    classify.next(intent="transfer", bank_name="SimBank", to_account_num="110-123-0002", amount=50_000)
+    reply = await say(client, user, session_id, "SimBank 110-123-0002로 5만원")
+    assert reply["card"] is None and "SimBank에서 그 계좌를 찾을 수 없어요" in reply["content"]
+
+
+async def test_chat_interbank_pending_and_fds(client, user, hub, classify, monkeypatch):
+    """처리 중(PENDING)도 카드 승인으로 가고, 대화 속 보이스피싱 정황은 타행 이체에도 FDS로 걸린다"""
+    source = await open_checking(client, user, balance=100_000)
+    session_id = await new_chat_session(client, user)
+    classify.next(intent="transfer", bank_name="SimBank", to_account_num="110-123-0003", amount=30_000)
+    card = (await say(client, user, session_id, "SimBank 110-123-0003으로 3만원"))["card"]
+    res = await client.post("/transfers", headers=user, json=approve(card, session_id, to_bank="902"))
+    assert res.json()["data"]["status"] == "PENDING"
+
+    other = await new_chat_session(client, user)
+    classify.next(intent="transfer", bank_name="SimBank", to_account_num="110-123-0001", amount=60_000)
+    card = (await say(client, user, other, "검찰청에서 안전계좌로 옮기래요. SimBank 110-123-0001로 6만원"))["card"]
+    res = await client.post("/transfers", headers=user, json=approve(card, other, to_bank="902"))
+    error = res.json()["error"]
+    assert error["code"] in ("FDS_BLOCKED", "ADDITIONAL_AUTH_REQUIRED")
+    assert any(h["code"].startswith("CONVERSATION") for h in error["extra"]["rule_hits"])
+    assert await balance_of(client, user, source["account_id"]) == 70_000  # 막힌 이체는 출금 안 됨
 
 
 async def test_own_bank_code_is_internal_transfer(client, user, other_user, hub):

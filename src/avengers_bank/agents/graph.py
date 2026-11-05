@@ -105,6 +105,19 @@ def find_own_account(words: str, accounts: list[dict]) -> dict | None:
     return by_kind[0] if len(by_kind) == 1 else None
 
 
+def take_amount(ex, text: str, slots: PendingTransfer) -> bool:
+    """이번 말의 금액을 slots에 반영한다. LLM 값과 정규식 값이 다르면 금액을 비우고 False (되묻는다)."""
+    heard = normalize_amount(text)
+    if ex.amount is not None and ex.amount != slots.amount:
+        if heard != ex.amount:
+            slots.amount = None
+            return False
+        slots.amount = heard
+    elif ex.amount is None and heard is not None:
+        slots.amount = heard
+    return True
+
+
 def tool_text(output) -> str:
     """MCP 도구 결과(문자열 또는 content block 목록) → 문자열"""
     if isinstance(output, str):
@@ -119,7 +132,44 @@ async def handle_transfer(ctx: AgentContext, state: AgentState) -> dict:
 
     accounts = (await ctx.mcp.call("accounts", "get_my_accounts", {})).get("accounts", [])
 
-    # 1. 받는 사람: 계좌번호를 직접 말했으면 그 예금주, 내 계좌 별칭("월급 통장으로")이면 내 계좌, 아니면 수취인 별칭
+    # 0. 받는 은행: 말했으면 찾는다 (우리 은행이면 None). 바뀌면 받는 분 이름을 새 은행에서 다시 확인한다
+    recheck = False
+    if ex.bank_name:
+        bank = await ctx.mcp.call("transfers", "find_bank", {"name": ex.bank_name})
+        if "error" in bank:
+            return _ask(slots, bank["message"])
+        new_bank = None if bank["own"] else bank["bank_code"]
+        if new_bank != slots.to_bank:
+            slots.to_bank, slots.to_bank_name = new_bank, None if bank["own"] else bank["name"]
+            slots.holder_name, recheck = None, True
+
+    # 1-a. 다른 은행: 계좌번호로만 보낸다 (등록 수취인·내 계좌는 우리 은행에만 있다). 예금주는 ClearingHub로 확인
+    if slots.to_bank:
+        slots.recipient_nickname = slots.to_own_account_type = slots.to_own_account_id = None
+        num = ex.to_account_num or slots.to_account_num
+        if not num:
+            take_amount(ex, text, slots)  # "SimBank로 5만원" → 금액은 기억해 두고 계좌번호만 묻는다
+            return _ask(slots, f"{slots.to_bank_name} 계좌번호를 알려 주세요.")
+        if recheck or num != slots.to_account_num or slots.holder_name is None:
+            found = await ctx.mcp.call("transfers", "find_account_holder", {"account_num": num, "bank_code": slots.to_bank})
+            if "error" in found:
+                slots.to_account_num = slots.holder_name = None
+                return _ask(slots, f"{slots.to_bank_name}에서 그 계좌를 찾을 수 없어요. 계좌번호를 다시 확인해 주세요."
+                            if found["error"] == "ACCOUNT_NOT_FOUND" else found["message"])
+            slots.to_account_num, slots.holder_name = num, found["holder_name"]
+    else:
+        reply = await _resolve_own_bank_recipient(ctx, ex, slots, accounts, recheck)
+        if reply is not None:
+            return reply
+    return await _finish_transfer(ctx, state, ex, text, slots, accounts)
+
+
+async def _resolve_own_bank_recipient(ctx: AgentContext, ex, slots: PendingTransfer, accounts: list[dict], recheck: bool) -> dict | None:
+    """1-b. 우리 은행: 계좌번호를 직접 말했으면 그 예금주, 내 계좌 별칭("월급 통장으로")이면 내 계좌, 아니면 수취인 별칭.
+    되물어야 하면 그 응답을, 아니면 None."""
+    if recheck and not ex.to_account_num and slots.to_account_num:  # 다른 은행 → 우리 은행으로 바꿨으면 같은 번호를 다시 확인
+        ex = ex.model_copy(update={"to_account_num": slots.to_account_num})
+        slots.to_account_num = None
     own = find_own_account(ex.recipient, accounts) if ex.recipient else None
     kind_word = next((w for w in ("적금", "예금", "통장", "계좌") if ex.recipient and w in ex.recipient), None)
     if own is None and kind_word:
@@ -146,16 +196,13 @@ async def handle_transfer(ctx: AgentContext, state: AgentState) -> dict:
             return _ask(slots, f'"{ex.recipient}"(으)로 등록된 분이 없어요. 받는 분의 계좌번호를 알려 주세요.')
         slots.recipient_nickname, slots.holder_name, slots.to_account_num = found["nickname"], found["holder_name"], None
         slots.to_own_account_type = slots.to_own_account_id = None
+    return None
 
+
+async def _finish_transfer(ctx: AgentContext, state: AgentState, ex, text: str, slots: PendingTransfer, accounts: list[dict]) -> dict:
     # 2. 금액: LLM이 뽑은 값과 정규식으로 다시 계산한 값이 같아야 받아들인다
-    heard = normalize_amount(text)
-    if ex.amount is not None and ex.amount != slots.amount:
-        if heard != ex.amount:
-            slots.amount = None
-            return _ask(slots, "금액을 정확히 확인하고 싶어요. 보낼 금액을 \"5만원\"처럼 다시 말씀해 주세요.")
-        slots.amount = heard
-    elif ex.amount is None and heard is not None:
-        slots.amount = heard
+    if not take_amount(ex, text, slots):
+        return _ask(slots, "금액을 정확히 확인하고 싶어요. 보낼 금액을 \"5만원\"처럼 다시 말씀해 주세요.")
 
     # 3. 출금 계좌: 입출금 계좌가 하나면 그것, 여러 개면 별칭으로 고르거나 묻는다
     checking = [a for a in accounts if a["account_type"] == "checking"]
@@ -196,12 +243,14 @@ async def handle_transfer(ctx: AgentContext, state: AgentState) -> dict:
         "to_account_num": None if slots.recipient_nickname or own_target else slots.to_account_num,
         "to_own_account_type": slots.to_own_account_type if own_target else None,
         "to_own_account_id": slots.to_own_account_id if own_target else None,
+        "to_bank": slots.to_bank,
     })
     if "error" in card:
         return _ask(slots, card["message"])
     jti = card.pop("confirmation_jti")
 
-    name = f"{slots.recipient_nickname}({slots.holder_name})" if slots.recipient_nickname else slots.holder_name
+    name = (f"{slots.recipient_nickname}({slots.holder_name})" if slots.recipient_nickname
+            else f"{slots.to_bank_name} {slots.holder_name}" if slots.to_bank else slots.holder_name)
     if card["voice_challenge"]:
         how = f"맞으면 \"확인 {card['voice_challenge_text']}\"이라고 말씀해 주세요."
     elif card["voice_enrolled"]:

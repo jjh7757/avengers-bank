@@ -58,6 +58,37 @@ async def list_banks() -> list[dict]:
     return [b for b in reply.body.get("banks", []) if b.get("bank_code") != own]
 
 
+OWN_BANK_ALIASES = ("avengers", "어벤저스", "어벤져스")
+
+
+def _bank_key(name: str) -> str:
+    key = name.lower().replace(" ", "")
+    for word in ("은행", "bank", "으로", "로", "에서"):
+        key = key.replace(word, "")
+    return key
+
+
+async def find_bank(name: str) -> dict:
+    """사용자가 말한 은행 이름("심뱅크", "SimBank", "B은행") → {bank_code, name, own}.
+    우리 은행이면 own=True (허브 설정이 없어도 된다). 하나로 정해지지 않으면 BANK_NOT_FOUND와 보낼 수 있는 은행 목록."""
+    key = _bank_key(name)
+    if key and any(alias in key or key in alias for alias in OWN_BANK_ALIASES):
+        return {"bank_code": get_settings().bank_code, "name": "AvengersBank", "own": True}
+    banks = await list_banks() if get_settings().interbank_enabled else []
+    matched = [b for b in banks if key and (key in _bank_key(b["name"]) or _bank_key(b["name"]) in key or key == b["bank_code"])]
+    if len(matched) == 1:
+        return {**matched[0], "own": False}
+    names = ", ".join(b["name"] for b in banks) or "없음 (다른 은행 이체를 쓸 수 없어요)"
+    raise NotFoundException(code="BANK_NOT_FOUND", message=f'"{name}" 은행을 찾지 못했어요. 보낼 수 있는 다른 은행: {names}')
+
+
+async def bank_name(bank_code: str) -> str:
+    for b in await list_banks():
+        if b["bank_code"] == bank_code:
+            return b["name"]
+    raise NotFoundException(code="BANK_NOT_FOUND", message="보낼 수 없는 은행이에요.")
+
+
 async def inquiry(to_bank: str, to_account: str) -> str:
     """받는 사람 이름. 돈을 움직이기 전에 부른다."""
     _require_enabled()

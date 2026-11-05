@@ -28,6 +28,7 @@ class Confirmation:
     to_account_num: str
     amount: int
     voice_challenge: str | None  # 음성 승인 때 말해야 하는 무작위 숫자 (목소리 미등록이면 None)
+    to_bank: str | None = None  # 다른 은행으로 보내는 카드면 그 은행 코드 (우리 은행이면 None)
 
 
 def create_confirmation_token(
@@ -38,6 +39,7 @@ def create_confirmation_token(
     to_account_num: str,
     amount: int,
     voice_challenge: str | None = None,
+    to_bank: str | None = None,
 ) -> tuple[str, str, datetime]:
     """(토큰, jti, 만료 시각)"""
     settings = get_settings()
@@ -53,6 +55,7 @@ def create_confirmation_token(
         "to": to_account_num,
         "amt": amount,
         "vc": voice_challenge,
+        "bk": to_bank,
         "iat": now,
         "exp": expires_at,
     }
@@ -86,4 +89,5 @@ def decode_confirmation_token(token: str) -> Confirmation:
         to_account_num=payload["to"],
         amount=payload["amt"],
         voice_challenge=payload.get("vc"),
+        to_bank=payload.get("bk"),
     )

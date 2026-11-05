@@ -17,6 +17,7 @@ class Extraction(BaseModel):
     amount: int | None = Field(default=None, gt=0)
     amount_text: str | None = Field(default=None, max_length=50)
     from_account_hint: str | None = Field(default=None, max_length=50)
+    bank_name: str | None = Field(default=None, max_length=50)  # 받는 계좌의 은행을 말했을 때 ("SimBank")
 
 
 class PendingTransfer(BaseModel):
@@ -25,6 +26,9 @@ class PendingTransfer(BaseModel):
     recipient_nickname: str | None = None
     to_account_num: str | None = None
     holder_name: str | None = None
+    # 다른 은행 계좌로 보낼 때 (ClearingHub). None이면 우리 은행
+    to_bank: str | None = None
+    to_bank_name: str | None = None
     amount: int | None = None
     from_checking_account_id: int | None = None
     # 내 다른 계좌로 옮길 때 ("월급 통장으로", "적금에"). 있으면 recipient_nickname·to_account_num은 비운다

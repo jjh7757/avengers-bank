@@ -183,19 +183,20 @@ class TransferService:
     async def _transfer_interbank(
         self, db: AsyncSession, data: TransferCreate, current_user: UserResponse, client_ip: str | None
     ) -> TransferResponse:
-        """다른 은행으로 이체 (ClearingHub). 한도·FDS는 자행 이체와 같고, 출금을 커밋한 뒤 허브를 부른다.
-        채팅(확인 카드)에서 오는 타행 이체는 아직 지원하지 않는다: 확인 카드에 은행이 없다."""
-        if data.session_id is not None or data.confirmation_token is not None:
-            raise BadRequestException(
-                code="INTERBANK_CHAT_NOT_SUPPORTED", message="다른 은행 이체는 아직 이체 화면에서만 할 수 있습니다."
-            )
+        """다른 은행으로 이체 (ClearingHub). 확인 카드·음성 승인·한도·FDS는 자행 이체와 같고,
+        출금을 커밋한 뒤 허브를 부른다."""
         to_bank = data.to_bank
         # 0. 받는 사람 확인: 계좌가 없으면 돈을 움직이기 전에 끝낸다
         holder_name = await interbank_service.inquiry(to_bank, data.to_account_num)
+        conversation_risk = await self._assess_conversation(db, data.session_id, current_user.user_id)
 
         rejection: FdsDecision | None = None
         fds_key = interbank_service.fds_account_key(to_bank, data.to_account_num)
         async with db.begin():
+            # 채팅(모아)에서 온 이체면 확인 카드 토큰(받는 은행 포함), 목소리 등록 사용자는 음성 승인 또는 PIN
+            chat_session, confirmation = await self._check_confirmation(db, data, current_user.user_id)
+            if confirmation is not None:
+                await self._check_voice_or_pin(db, data, confirmation, current_user.user_id)
             source = await account_service.get_owned_account(
                 db, "checking", data.from_checking_account_id, current_user.user_id, for_update=True
             )
@@ -203,12 +204,14 @@ class TransferService:
             user = await user_repository.find_by_id(db, current_user.user_id)
             fds = await fds_service.evaluate(
                 db, user=user, source=source, to_account_num=fds_key, amount=data.amount,
-                sent_today=sent_today, session_id=None, device_fingerprint=data.device_fingerprint,
-                input_mode=data.input_mode, session_texts=[],
+                sent_today=sent_today, session_id=data.session_id, device_fingerprint=data.device_fingerprint,
+                input_mode=data.input_mode,
+                session_texts=await chat_repository.find_user_texts(db, chat_session.session_id) if chat_session else [],
+                conversation=conversation_risk,
             )
             decision = await self._decide(fds, user, data.pin)
             log_fields = {
-                "user_id": user.user_id, "session_id": None, "from_account": source.account_num,
+                "user_id": user.user_id, "session_id": data.session_id, "from_account": source.account_num,
                 "to_account": fds_key, "amount": data.amount, "input_mode": data.input_mode,
                 "result": fds, "decision": decision,
             }
@@ -221,6 +224,10 @@ class TransferService:
                 )
                 await fds_service.save_log(db, **log_fields)
                 await fds_service.register_device(db, user.user_id, data.device_fingerprint, client_ip)
+                if chat_session is not None:  # 확인 카드는 출금과 함께 한 번 쓰면 끝
+                    chat_session.state = {
+                        **(chat_session.state or {}), "confirmation_jti": None, "pending_transfer": None
+                    }
                 transfer_id, from_account_num = transfer.transfer_id, source.account_num
         if rejection is not None:
             await self._raise_rejection(db, rejection, log_fields, fds, user)
@@ -308,6 +315,8 @@ class TransferService:
             or confirmation.from_checking_account_id != data.from_checking_account_id
             or confirmation.to_account_num != data.to_account_num
             or confirmation.amount != data.amount
+            # 받는 은행도 카드와 같아야 한다 (우리 은행은 None으로 맞춘다)
+            or confirmation.to_bank != (data.to_bank if interbank_service.is_external(data.to_bank) else None)
         ):
             raise BadRequestException(code="CONFIRMATION_MISMATCH", message="확인 카드와 요청 내용이 다릅니다.")
         if (session.state or {}).get("confirmation_jti") != confirmation.jti:

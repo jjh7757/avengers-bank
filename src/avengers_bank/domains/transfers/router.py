@@ -46,10 +46,8 @@ async def transfer(data: TransferCreate, db: Db, current_user: CurrentUser, requ
 async def inquiry(data: HolderInquiry, db: Db, current_user: CurrentUser):
     """받는 분 이름 확인 (이체 화면의 확인 단계). 다른 은행이면 ClearingHub에 묻는다. 돈은 움직이지 않는다."""
     if interbank_service.is_external(data.to_bank):
-        banks = {b["bank_code"]: b["name"] for b in await interbank_service.list_banks()}
-        if data.to_bank not in banks:
-            raise NotFoundException(code="BANK_NOT_FOUND", message="보낼 수 없는 은행이에요.")
-        name, bank_name = await interbank_service.inquiry(data.to_bank, data.to_account_num), banks[data.to_bank]
+        bank_name = await interbank_service.bank_name(data.to_bank)
+        name = await interbank_service.inquiry(data.to_bank, data.to_account_num)
     else:
         name, bank_name = await interbank_service.holder_name_of(db, data.to_account_num), "AvengersBank"
         if name is None:

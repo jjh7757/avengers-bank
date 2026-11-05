@@ -112,6 +112,8 @@ export interface TransferConfirmationCard {
   to_own: boolean // 내 다른 계좌로 옮기기
   to_account_id: number | null // to_own일 때 받는 내 계좌 id
   to_label: string | null // "내 월급 통장"
+  to_bank?: string | null // 다른 은행 이체면 은행 코드 (승인 때 POST /transfers에 그대로)
+  to_bank_name?: string | null // "SimBank"
 }
 
 export interface AccountSummaryCard {

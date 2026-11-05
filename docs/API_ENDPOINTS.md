@@ -154,7 +154,6 @@ PIN이 없으면 `400 PIN_NOT_SET`, 안 보내면 `400 PIN_REQUIRED`, 틀리면 
 - `404 ACCOUNT_NOT_FOUND` 등: 허브 예금주 조회에서 걸림. 출금하지 않음
 - `400 INTERBANK_FAILED`: 받는 은행이 거절해 **출금을 되돌림** (`extra.fail_code`, `extra.balance_after`). 거래내역에 `TRANSFER_REFUND`
 - `503 INTERBANK_UNAVAILABLE`: 허브 설정이 없거나 허브가 응답하지 않음 (예금주 조회 단계, 출금하지 않음)
-- `400 INTERBANK_CHAT_NOT_SUPPORTED`: 채팅 확인 카드(`session_id`)로는 아직 타행 이체를 할 수 없음
 
 **FDS 판정** (한도 검사를 통과한 뒤)
 

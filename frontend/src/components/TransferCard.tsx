@@ -47,7 +47,13 @@ export default function TransferCard({ card, sessionId, inputMode, active, autoV
   const voiceTokenRef = useRef<string | undefined>(undefined)
   const autoStartedRef = useRef(false)
   const [expired] = useState(() => new Date(card.expires_at).getTime() < Date.now()) // 만료 후 승인은 서버가 거절한다
-  const who = card.to_label ?? (card.recipient_nickname ? `${card.recipient_nickname}(${card.holder_name})` : card.holder_name)
+  const who =
+    card.to_label ??
+    (card.recipient_nickname
+      ? `${card.recipient_nickname}(${card.holder_name})`
+      : card.to_bank_name
+        ? `${card.to_bank_name} ${card.holder_name}`
+        : card.holder_name)
   const voiceReady = card.voice_enrolled && !!card.voice_challenge && recorder.supported && !pinMode
 
   async function approve(withPin?: string) {
@@ -55,7 +61,11 @@ export default function TransferCard({ card, sessionId, inputMode, active, autoV
     try {
       const result = await send(withPin)
       setStatus({ kind: 'done', result })
-      speech.speak(`${card.to_own ? '옮겼어요' : '이체를 완료했어요'}. 남은 잔액은 ${won(result.balance_after)}입니다.`)
+      if (result.status === 'PENDING') {
+        speech.speak(`보냈어요. ${card.to_bank_name ?? '받는 은행'}에서 받았는지 확인하고 있어요.`)
+      } else {
+        speech.speak(`${card.to_own ? '옮겼어요' : '이체를 완료했어요'}. 남은 잔액은 ${won(result.balance_after)}입니다.`)
+      }
     } catch (e) {
       handleError(e)
     }
@@ -79,6 +89,7 @@ export default function TransferCard({ card, sessionId, inputMode, active, autoV
     }
     return transferApi.transfer({
       from_checking_account_id: card.from_checking_account_id,
+      to_bank: card.to_bank ?? undefined,
       to_account_num: card.to_account_num,
       amount: card.amount,
       session_id: sessionId,
@@ -268,7 +279,13 @@ export default function TransferCard({ card, sessionId, inputMode, active, autoV
         </>
       )}
       {status.kind === 'blocked' && <FdsAlert extra={status.extra} blocked />}
-      {status.kind === 'done' && (
+      {status.kind === 'done' && status.result.status === 'PENDING' && (
+        <p className="caution-note">
+          ⏳ 출금됐고, {card.to_bank_name ?? '받는 은행'}에서 받았는지 확인하고 있어요. 결과는{' '}
+          <Link to="/transfer">이체 화면</Link>의 "다른 은행 이체"에서 볼 수 있어요. 거절되면 돈을 돌려드려요.
+        </p>
+      )}
+      {status.kind === 'done' && status.result.status !== 'PENDING' && (
         <p className="success">
           ✅ 보냈어요. 남은 잔액 <strong>{won(status.result.balance_after)}</strong>
         </p>

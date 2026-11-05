@@ -25,6 +25,7 @@ from avengers_bank.domains.chat.amount import format_korean_amount
 from avengers_bank.domains.chat.confirmation import create_confirmation_token
 from avengers_bank.domains.chat.models import ChatSession
 from avengers_bank.domains.chat.repository import chat_repository
+from avengers_bank.domains.interbank import service as interbank_service
 from avengers_bank.domains.recipients.schemas import RecipientCreate, RecipientUpdate
 from avengers_bank.domains.recipients.service import recipient_service
 from avengers_bank.domains.speech import digits
@@ -64,9 +65,22 @@ async def find_recipient(db, user, nickname: str = Field(min_length=1, max_lengt
 
 
 @bank_tool(server, annotations=READ)
-async def find_account_holder(db, user, account_num: str = Field(min_length=1, max_length=20)) -> dict:
-    """입출금 계좌번호의 예금주 이름 (사용자가 계좌번호를 직접 말했을 때 확인용)"""
+async def find_account_holder(
+    db, user, account_num: str = Field(min_length=1, max_length=20),
+    bank_code: str | None = Field(default=None, pattern=r"^\d{3}$", description="다른 은행이면 그 은행 코드 (find_bank)"),
+) -> dict:
+    """입출금 계좌번호의 예금주 이름 (사용자가 계좌번호를 직접 말했을 때 확인용). 다른 은행이면 ClearingHub에 묻는다"""
+    if interbank_service.is_external(bank_code):
+        return {"account_num": mask(account_num), "bank_code": bank_code,
+                "holder_name": await interbank_service.inquiry(bank_code, account_num)}
     return {"account_num": mask(account_num), "holder_name": await account_service.find_checking_holder(db, account_num)}
+
+
+@bank_tool(server, annotations=READ)
+async def find_bank(db, user, name: str = Field(min_length=1, max_length=50)) -> dict:
+    """은행 이름("SimBank", "심뱅크은행") → {bank_code, name, own}. own이면 우리 은행(AvengersBank).
+    다른 은행은 ClearingHub에 참가한 은행만 보낼 수 있다. 없으면 error BANK_NOT_FOUND (message에 보낼 수 있는 은행)"""
+    return await interbank_service.find_bank(name)
 
 
 @bank_tool(server, annotations=WRITE)
@@ -101,14 +115,24 @@ async def prepare_transfer(
     session_id: str | None = Field(default=None, min_length=1, max_length=64),
     to_own_account_type: Literal["checking", "savings", "deposit"] | None = None,
     to_own_account_id: int | None = Field(default=None, gt=0),
+    to_bank: str | None = Field(default=None, pattern=r"^\d{3}$", description="다른 은행 계좌로 보낼 때 그 은행 코드 (to_account_num과 함께)"),
 ) -> dict:
     """이체 확인 카드 만들기 (실행 아님). recipient_nickname, to_account_num, 내 계좌(to_own_account_type+id) 중 하나.
+    다른 은행 계좌는 to_bank + to_account_num (예금주는 ClearingHub로 확인, 승인하면 POST /transfers에 to_bank).
     내 적금·예금으로 넣는 카드는 승인하면 앱이 POST /transfers/savings·/transfers/deposit을 부른다 (destination_type).
     카드의 confirmation_token은 이 대화(session_id)의 최신 카드 1장만 유효하다.
     session_id를 비우면 새 대화를 만들고 카드의 session_id로 돌려준다 (외부 MCP 클라이언트용)."""
     # 1. 받는 사람 (내 계좌면 서버가 번호를 찾는다. 에이전트는 계좌번호를 뒤 4자리만 안다)
     own = None
-    if to_own_account_type and to_own_account_id:
+    external_bank = to_bank if interbank_service.is_external(to_bank) else None
+    bank_name = None
+    if external_bank:
+        if not to_account_num:
+            raise BadRequestException(code="ACCOUNT_NUM_REQUIRED", message="다른 은행으로 보낼 때는 계좌번호가 필요해요.")
+        bank_name = await interbank_service.bank_name(external_bank)
+        to_num, holder = to_account_num, await interbank_service.inquiry(external_bank, to_account_num)
+        recipient_nickname = None
+    elif to_own_account_type and to_own_account_id:
         own = await account_service.get_account(db, to_own_account_type, to_own_account_id, user)
         to_num, holder = own.account_num, user.name
         recipient_nickname = None
@@ -122,7 +146,7 @@ async def prepare_transfer(
 
     # 2. 출금 계좌 (본인 입출금 계좌)
     account = await account_service.get_account(db, "checking", from_checking_account_id, user)
-    if account.account_num == to_num:
+    if account.account_num == to_num and not external_bank:
         raise BadRequestException(code="SAME_ACCOUNT", message="같은 계좌로는 이체할 수 없습니다.")
 
     # 3. 대화: 없으면 새로 만든다 (외부 MCP 클라이언트). 승인 토큰이 이 대화에 묶인다
@@ -136,7 +160,7 @@ async def prepare_transfer(
     challenge = digits.new_challenge() if voice_enrolled and voice_available() else None
     token, jti, expires_at = create_confirmation_token(
         user_id=user.user_id, session_id=session_id, from_checking_account_id=account.account_id,
-        to_account_num=to_num, amount=amount, voice_challenge=challenge,
+        to_account_num=to_num, amount=amount, voice_challenge=challenge, to_bank=external_bank,
     )
 
     # 4. 이 대화의 최신 카드로 등록 (이전 카드는 무효)
@@ -154,7 +178,7 @@ async def prepare_transfer(
     if own is not None:
         kind = {"checking": "통장", "savings": "적금", "deposit": "예금"}[to_own_account_type]
         own_label = f"내 {own.nickname} {kind}" if own.nickname and kind not in own.nickname else f"내 {own.nickname or kind}"
-    who = own_label or recipient_nickname or holder
+    who = own_label or recipient_nickname or (f"{bank_name} {holder}" if bank_name else holder)
     spoken = format_korean_amount(amount)
     return {
         "type": "transfer_confirmation",
@@ -163,6 +187,8 @@ async def prepare_transfer(
         "to_own": own is not None,
         "to_account_id": own.account_id if own is not None else None,
         "to_label": own_label,  # "내 월급 통장"
+        "to_bank": external_bank,  # 다른 은행이면 은행 코드 (승인 때 POST /transfers에 그대로)
+        "to_bank_name": bank_name,
 
         "from_checking_account_id": account.account_id,
         "from_account_num": account.account_num,
@@ -200,6 +226,7 @@ async def execute_transfer(
     pin: str | None = Field(default=None, pattern=r"^\d{6}$", description="사용자가 직접 입력한 이체 PIN 6자리"),
     voice_approval_token: str | None = Field(default=None, max_length=2000, description="POST /voice/approvals에서 받은 토큰"),
     device_fingerprint: str | None = Field(default=None, max_length=128),
+    to_bank: str | None = Field(default=None, pattern=r"^\d{3}$", description="카드의 to_bank (다른 은행 이체)"),
 ) -> dict:
     """이체 실행 (돈이 실제로 움직인다). prepare_transfer 카드의 값과 confirmation_token을 그대로 넣는다.
     사용자가 카드 내용(받는 사람·금액·출금 계좌)을 확인하고 직접 입력한 이체 PIN이나 음성 승인 토큰이 반드시 필요하다.
@@ -218,7 +245,7 @@ async def execute_transfer(
     result = await transfer_service.transfer(
         db,
         TransferCreate(
-            from_checking_account_id=from_checking_account_id, to_account_num=to_account_num, amount=amount,
+            from_checking_account_id=from_checking_account_id, to_bank=to_bank, to_account_num=to_account_num, amount=amount,
             pin=pin, session_id=session_id, confirmation_token=confirmation_token,
             voice_approval_token=voice_approval_token, device_fingerprint=device_fingerprint,
         ),
