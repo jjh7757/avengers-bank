@@ -12,6 +12,7 @@ from avengers_bank.core.security import (
     hash_password,
     verify_password,
 )
+from avengers_bank.domains.users.ci import ci_of
 from avengers_bank.domains.users.models import User
 from avengers_bank.domains.users.repository import user_repository
 from avengers_bank.domains.users.schemas import PinUpdate, UserCreate, UserLogin, UserUpdate
@@ -33,6 +34,8 @@ class UserService:
                 name=data.name,
                 nick_name=data.nick_name,
                 phone=data.phone,
+                birth_date=data.birth_date,
+                ci=ci_of(data.name, data.birth_date, data.phone),
             )
             await user_repository.save(db, user)
             await db.refresh(user)
@@ -96,6 +99,7 @@ class UserService:
                     )
             for field, value in changes.items():
                 setattr(user, field, value)
+            user.ci = ci_of(user.name, user.birth_date, user.phone)  # 이름·휴대폰·생년월일이 바뀌면 CI도 바뀐다
             await db.flush()
         return user
 

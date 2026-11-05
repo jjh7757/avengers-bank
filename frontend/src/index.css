@@ -888,3 +888,21 @@ select {
 .badge.interbank-failed {
   color: var(--danger);
 }
+
+/* 다른 은행 내 계좌 불러오기 (이체 화면) */
+.own-accounts-open {
+  align-self: flex-start;
+  margin-top: 0.4rem;
+}
+
+.own-accounts {
+  width: 100%;
+  margin: 0;
+}
+
+.own-accounts .list-item {
+  width: 100%;
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+}

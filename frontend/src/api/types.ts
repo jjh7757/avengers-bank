@@ -6,6 +6,7 @@ export interface User {
   name: string
   nick_name: string | null
   phone: string
+  birth_date: string | null
   has_pin: boolean
   created_at: string
 }
@@ -243,4 +244,19 @@ export interface FdsLog {
   decision: string
   input_mode: string
   created_at: string
+}
+
+/** 다른 은행 내 계좌 (ClearingHub SPEC 9절). 계좌번호는 가려서 오고, 이체는 account_ref로 한다 */
+export interface OwnAccount {
+  bank_code: string
+  bank_name: string
+  account_masked: string
+  product_name: string
+  account_ref: string
+  expires_at: string
+}
+
+export interface OwnAccountsResult {
+  accounts: OwnAccount[]
+  banks: { bank_code: string; result: 'OK' | 'UNSUPPORTED' | 'TIMEOUT' | 'ERROR'; count: number | null }[]
 }

@@ -29,6 +29,8 @@ class Settings(BaseSettings):
     hub_secret: SecretStr | None = None  # 서명 비밀키. 허브 → 우리 요청 검증에도 쓴다
     hub_timeout_seconds: float = Field(default=10, gt=0)
     interbank_confirm_interval_seconds: float = Field(default=30, gt=0)  # 처리 중(PENDING) 타행 이체 확인 간격
+    # 본인 명의 계좌 조회(SPEC 9절)의 가상 CI 키. 허브 관리자가 secret과 같은 경로로 준다. 없으면 이 기능만 꺼진다
+    ci_key: SecretStr | None = None
 
     @property
     def interbank_enabled(self) -> bool:

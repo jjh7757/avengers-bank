@@ -15,6 +15,10 @@ from avengers_bank.domains.transfers.schemas import (
     HolderInquiryResponse,
     InterbankBank,
     InterbankTransferResponse,
+    OwnAccount,
+    OwnAccountBankResult,
+    OwnAccountsRequest,
+    OwnAccountsResponse,
     SavingsPaymentCreate,
     TransferCreate,
     TransferResponse,
@@ -63,6 +67,20 @@ async def list_banks(current_user: CurrentUser):
     """다른 은행 이체로 보낼 수 있는 은행 (ClearingHub 참가 은행, 우리 은행 제외). 허브 설정이 없으면 503."""
     banks = await interbank_service.list_banks()
     return SuccessResponse[list[InterbankBank]](data=[InterbankBank(**b) for b in banks])
+
+
+@router.post("/own-accounts", response_model=SuccessResponse[OwnAccountsResponse])
+async def own_accounts(data: OwnAccountsRequest, db: Db, current_user: CurrentUser):
+    """다른 은행 내 계좌 불러오기 (ClearingHub SPEC 9절). 동의를 기록하고 내 가상 CI로 허브에 묻는다.
+    생년월일이 없으면 400 `BIRTH_DATE_REQUIRED`, 하루 횟수를 넘으면 429 `TOO_MANY_LOOKUPS`.
+    계좌번호는 가려서 오고, 이체할 때는 `account_ref`를 `to_account_ref`로 보낸다."""
+    refs, banks = await interbank_service.lookup_own_accounts(db, current_user.user_id)
+    return SuccessResponse[OwnAccountsResponse](data=OwnAccountsResponse(
+        accounts=[OwnAccount(bank_code=r.bank_code, bank_name=r.bank_name, account_masked=r.account_masked,
+                             product_name=r.product_name, account_ref=r.ref, expires_at=r.expires_at) for r in refs],
+        banks=[OwnAccountBankResult(bank_code=str(b.get("bank_code")), result=str(b.get("result")), count=b.get("count"))
+               for b in banks],
+    ))
 
 
 @router.get("/interbank", response_model=SuccessResponse[list[InterbankTransferResponse]])

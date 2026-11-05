@@ -83,4 +83,5 @@ docker stats --no-stream avengers-bank                          # 메모리
 - `/srv/avengers-bank/.env`에 `BANK_CODE=901`, `HUB_URL`, `HUB_API_KEY`, `HUB_SECRET` 추가 (등록 응답을 서버 안에서 바로 파일에 씀, 출력 안 함. 원래 파일은 `.env.bak-*`). 그다음 같은 태그로 `deploy-app avengers-bank <태그>` (`restart`로는 env가 바뀌지 않는다)
 - 확인: 허브 `POST /admin/banks/901/ping` → `reachable=true, status=404 ACCOUNT_NOT_FOUND`(서명 통과, 없는 계좌), 컨테이너 안에서 `hub_client.banks()` 200(901·902), `inquiry("902","110-123-0001")` 200 김철수. 서명 없는 `POST /api/interbank/inquiry`는 401
 - 키를 다시 받아야 하면: 허브 `POST /admin/banks/901/keys` → `.env`의 `HUB_API_KEY`·`HUB_SECRET` 교체 → 같은 태그로 `deploy-app`
+- 다른 은행 내 계좌(SPEC 9절): `.env`에 `CI_KEY` (허브 서버 `/srv/clearing-hub/.env`의 `CI_KEY`와 같은 값, 서버 안에서 복사). 없으면 이 기능만 503
 - 서버 가짜 은행(SimBank 902)은 메모리 저장이라 허브를 재배포하면 입금 기록이 사라진다. 지연(`…0003`, `…0005`)은 8초

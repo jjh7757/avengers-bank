@@ -73,6 +73,23 @@ async def inquiry(request: Request, db: Db):
     return {"holder_name": name}
 
 
+class AccountsBody(BaseModel):
+    ci: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+
+@router.post("/accounts")
+async def accounts(request: Request, db: Db):
+    """본인 명의 계좌 조회 (SPEC 9.4): 이 CI를 가진 고객의 입출금 계좌. 고객이 없어도 200 빈 목록."""
+    body = await _verified_body(request)
+    if isinstance(body, JSONResponse):
+        return body
+    try:
+        data = AccountsBody.model_validate_json(body)
+    except ValidationError as exc:
+        return _validation_error(exc)
+    return {"accounts": await service.own_accounts_by_ci(db, data.ci)}
+
+
 @router.post("/receive")
 async def receive(request: Request, db: Db):
     body = await _verified_body(request)

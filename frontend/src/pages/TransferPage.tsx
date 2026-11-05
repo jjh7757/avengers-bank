@@ -3,8 +3,9 @@ import { Link, useSearchParams } from 'react-router-dom'
 
 import { ApiError } from '../api/client'
 import { accountApi, transferApi } from '../api/endpoints'
-import type { AccountSummary, Bank, FdsExtra, HolderInquiryResult, InterbankTransfer, TransferResult } from '../api/types'
+import type { AccountSummary, Bank, FdsExtra, HolderInquiryResult, InterbankTransfer, OwnAccount, TransferResult } from '../api/types'
 import FdsAlert from '../components/FdsAlert'
+import OwnAccountsPanel from '../components/OwnAccountsPanel'
 import { useLoad } from '../hooks/useLoad'
 import { deviceFingerprint } from '../lib/fingerprint'
 import { dateTime, won } from '../lib/format'
@@ -53,6 +54,9 @@ export default function TransferPage() {
   const [amount, setAmount] = useState('')
   const [pin, setPin] = useState('')
   const [step, setStep] = useState<Step>({ kind: 'form' })
+  // 다른 은행 내 계좌를 골랐으면 계좌번호 대신 허브 참조값으로 보낸다 (번호는 가려진 채로 보여 준다)
+  const [ownAccount, setOwnAccount] = useState<OwnAccount | null>(null)
+  const [ownPanelOpen, setOwnPanelOpen] = useState(false)
 
   const source: AccountSummary | undefined = checking.find((a) => String(a.account_id) === fromId) ?? checking[0]
   const amountValue = Number(amount)
@@ -81,6 +85,14 @@ export default function TransferPage() {
       setStep({ kind: 'form', error: '출금 계좌 잔액이 부족해요.' })
       return
     }
+    if (ownAccount) {
+      // 허브가 같은 사람(가상 CI)의 계좌로 확인해 준 것이라 받는 분 조회를 따로 하지 않는다
+      setStep({ kind: 'confirm', holder: {
+        to_bank: ownAccount.bank_code, bank_name: ownAccount.bank_name,
+        to_account_num: ownAccount.account_masked, holder_name: '본인 (내 계좌)',
+      } })
+      return
+    }
     setStep({ kind: 'checking' })
     try {
       const holder = await transferApi.inquiry({ to_bank: toBank || undefined, to_account_num: toAccount.trim() })
@@ -98,6 +110,7 @@ export default function TransferPage() {
         from_checking_account_id: source.account_id,
         to_bank: toBank || undefined,
         to_account_num: holder.to_account_num,
+        to_account_ref: ownAccount?.account_ref,
         amount: amountValue,
         pin: withPin,
         device_fingerprint: await deviceFingerprint(),
@@ -133,7 +146,20 @@ export default function TransferPage() {
     }
   }
 
+  function pickOwnAccount(account: OwnAccount) {
+    setToBank(account.bank_code)
+    setToAccount(account.account_masked)
+    setOwnAccount(account)
+    setOwnPanelOpen(false)
+  }
+
+  function clearOwnAccount() {
+    setOwnAccount(null)
+    setToAccount('')
+  }
+
   function reset() {
+    setOwnAccount(null)
     setToAccount('')
     setAmount('')
     setPin('')
@@ -175,7 +201,14 @@ export default function TransferPage() {
           </label>
           <label>
             받는 은행
-            <select value={toBank} onChange={(e) => setToBank(e.target.value)} disabled={banks === null}>
+            <select
+              value={toBank}
+              onChange={(e) => {
+                setToBank(e.target.value)
+                if (ownAccount) clearOwnAccount()
+              }}
+              disabled={banks === null}
+            >
               <option value={OWN_BANK}>AvengersBank (우리 은행)</option>
               {(banks ?? []).map((b) => (
                 <option key={b.bank_code} value={b.bank_code}>
@@ -193,9 +226,26 @@ export default function TransferPage() {
               placeholder="110-123-456789"
               maxLength={20}
               value={toAccount}
+              readOnly={!!ownAccount}
               onChange={(e) => setToAccount(e.target.value.replace(/[^\d-]/g, ''))}
             />
+            {ownAccount ? (
+              <span className="muted small">
+                내 계좌 · {ownAccount.product_name || '입출금 계좌'}{' '}
+                <button type="button" className="button link small" onClick={clearOwnAccount}>
+                  다른 계좌 입력
+                </button>
+              </span>
+            ) : (
+              !banksUnavailable &&
+              (banks ?? []).length > 0 && (
+                <button type="button" className="button small own-accounts-open" onClick={() => setOwnPanelOpen(true)}>
+                  다른 은행 내 계좌 불러오기
+                </button>
+              )
+            )}
           </label>
+          {ownPanelOpen && <OwnAccountsPanel bankName={bankName} onPick={pickOwnAccount} onClose={() => setOwnPanelOpen(false)} />}
           <label>
             금액
             <input

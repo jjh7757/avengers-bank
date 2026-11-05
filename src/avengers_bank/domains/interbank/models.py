@@ -24,7 +24,9 @@ class InterbankTransfer(Base):
         ForeignKey("checking_accounts.checking_account_id"), nullable=False
     )
     to_bank: Mapped[str] = mapped_column(String(3), nullable=False)
-    to_account: Mapped[str] = mapped_column(String(50), nullable=False)
+    to_account: Mapped[str] = mapped_column(String(50), nullable=False)  # 내 다른 은행 계좌로 보낼 때는 가린 번호
+    # 본인 계좌 조회로 받은 허브 참조값 (SPEC 9.3). 있으면 허브에 to_account 대신 이것을 보낸다
+    to_account_ref: Mapped[str | None] = mapped_column(String(64))
     to_holder_name: Mapped[str | None] = mapped_column(String(50))
     amount: Mapped[int] = mapped_column(BigInteger, nullable=False)
     memo: Mapped[str] = mapped_column(String(100), default="", nullable=False)
@@ -52,3 +54,30 @@ class InterbankReceipt(Base):
     amount: Mapped[int] = mapped_column(BigInteger, nullable=False)
     memo: Mapped[str] = mapped_column(String(100), default="", nullable=False)
     received_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class OwnAccountLookup(Base):
+    """다른 은행 내 계좌 불러오기 동의 기록 (SPEC 9.2). consent_id를 허브에 보내고, 허브 조회 기록과 맞춰 볼 수 있다."""
+
+    __tablename__ = "own_account_lookups"
+
+    consent_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.user_id"), index=True, nullable=False)
+    hub_lookup_id: Mapped[str | None] = mapped_column(String(36))
+    account_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    consented_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class OwnAccountRef(Base):
+    """허브가 준 account_ref를 받은 사용자에게 묶어 둔다. 같은 은행의 다른 고객이 쓰지 못하게 한다."""
+
+    __tablename__ = "own_account_refs"
+
+    ref: Mapped[str] = mapped_column(String(64), primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.user_id"), index=True, nullable=False)
+    consent_id: Mapped[str] = mapped_column(ForeignKey("own_account_lookups.consent_id"), nullable=False)
+    bank_code: Mapped[str] = mapped_column(String(3), nullable=False)
+    bank_name: Mapped[str] = mapped_column(String(50), nullable=False)
+    account_masked: Mapped[str] = mapped_column(String(50), nullable=False)
+    product_name: Mapped[str] = mapped_column(String(50), default="", nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)

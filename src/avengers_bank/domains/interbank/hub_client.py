@@ -86,5 +86,9 @@ class HubClient:
     async def get_transfer(self, transfer_id: str) -> HubReply:
         return await self._request("GET", f"/transfers/{transfer_id}")
 
+    async def lookup_accounts(self, ci: str, consent_id: str) -> HubReply:
+        """본인 명의 다른 은행 계좌 (SPEC 9.2)"""
+        return await self._request("POST", "/accounts/lookup", {"ci": ci, "consent_id": consent_id})
+
 
 hub_client = HubClient()

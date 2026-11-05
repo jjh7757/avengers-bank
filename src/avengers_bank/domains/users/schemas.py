@@ -3,6 +3,8 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+BIRTH_DATE = r"^(19|20)\d{2}(0[1-9]|1[0-2])(0[1-9]|[12]\d|3[01])$"
+
 
 class UserCreate(BaseModel):
     login_id: str = Field(min_length=4, max_length=50)
@@ -10,14 +12,16 @@ class UserCreate(BaseModel):
     name: str = Field(min_length=1, max_length=50)
     nick_name: str | None = Field(default=None, max_length=50)
     phone: str = Field(min_length=9, max_length=20)
+    birth_date: str | None = Field(default=None, pattern=BIRTH_DATE, description="YYYYMMDD (선택). 다른 은행 내 계좌 불러오기에 필요")
 
 
 class UserUpdate(BaseModel):
-    """PATCH /users/me — 보낸 필드만 바꾼다. nick_name은 null로 지울 수 있다."""
+    """PATCH /users/me — 보낸 필드만 바꾼다. nick_name·birth_date는 null로 지울 수 있다."""
 
     name: str | None = Field(default=None, min_length=1, max_length=50)
     nick_name: str | None = Field(default=None, max_length=50)
     phone: str | None = Field(default=None, min_length=9, max_length=20)
+    birth_date: str | None = Field(default=None, pattern=BIRTH_DATE, description="YYYYMMDD")
 
 
 class PinUpdate(BaseModel):
@@ -38,6 +42,7 @@ class UserResponse(BaseModel):
     name: str
     nick_name: str | None
     phone: str
+    birth_date: str | None = None
     has_pin: bool = False
     created_at: datetime
 

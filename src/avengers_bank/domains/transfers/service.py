@@ -63,6 +63,10 @@ class TransferService:
         current_user: UserResponse,
         client_ip: str | None = None,
     ) -> TransferResponse:
+        if data.to_account_ref is not None and (not interbank_service.is_external(data.to_bank) or data.session_id):
+            raise BadRequestException(
+                code="ACCOUNT_REF_NOT_ALLOWED", message="다른 은행 내 계좌 참조값은 이체 화면의 다른 은행 이체에만 쓸 수 있어요."
+            )
         if interbank_service.is_external(data.to_bank):
             return await self._transfer_interbank(db, data, current_user, client_ip)
         rejection: FdsDecision | None = None
@@ -186,12 +190,20 @@ class TransferService:
         """다른 은행으로 이체 (ClearingHub). 확인 카드·음성 승인·한도·FDS는 자행 이체와 같고,
         출금을 커밋한 뒤 허브를 부른다."""
         to_bank = data.to_bank
-        # 0. 받는 사람 확인: 계좌가 없으면 돈을 움직이기 전에 끝낸다
-        holder_name = await interbank_service.inquiry(to_bank, data.to_account_num)
+        own_ref = None
+        if data.to_account_ref is not None:
+            # 내 다른 은행 계좌 (SPEC 9.3): 허브가 같은 사람(CI)의 계좌로 확인해 준 것이라 예금주는 나다
+            async with db.begin():
+                own_ref = await interbank_service.resolve_own_ref(db, current_user.user_id, data.to_account_ref, to_bank)
+                to_account, holder_name = own_ref.account_masked, current_user.name
+        else:
+            # 0. 받는 사람 확인: 계좌가 없으면 돈을 움직이기 전에 끝낸다
+            to_account = data.to_account_num
+            holder_name = await interbank_service.inquiry(to_bank, to_account)
         conversation_risk = await self._assess_conversation(db, data.session_id, current_user.user_id)
 
         rejection: FdsDecision | None = None
-        fds_key = interbank_service.fds_account_key(to_bank, data.to_account_num)
+        fds_key = interbank_service.fds_account_key(to_bank, to_account)
         async with db.begin():
             # 채팅(모아)에서 온 이체면 확인 카드 토큰(받는 은행 포함), 목소리 등록 사용자는 음성 승인 또는 PIN
             chat_session, confirmation = await self._check_confirmation(db, data, current_user.user_id)
@@ -207,7 +219,7 @@ class TransferService:
                 sent_today=sent_today, session_id=data.session_id, device_fingerprint=data.device_fingerprint,
                 input_mode=data.input_mode,
                 session_texts=await chat_repository.find_user_texts(db, chat_session.session_id) if chat_session else [],
-                conversation=conversation_risk,
+                conversation=conversation_risk, to_own_account=own_ref is not None,
             )
             decision = await self._decide(fds, user, data.pin)
             log_fields = {
@@ -219,8 +231,8 @@ class TransferService:
                 rejection = decision
             else:
                 transfer = await interbank_service.debit(
-                    db, user_id=user.user_id, source=source, to_bank=to_bank, to_account=data.to_account_num,
-                    amount=data.amount, holder_name=holder_name,
+                    db, user_id=user.user_id, source=source, to_bank=to_bank, to_account=to_account,
+                    amount=data.amount, holder_name=holder_name, to_account_ref=own_ref.ref if own_ref else None,
                 )
                 await fds_service.save_log(db, **log_fields)
                 await fds_service.register_device(db, user.user_id, data.device_fingerprint, client_ip)

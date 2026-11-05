@@ -29,6 +29,7 @@ AvengersBank ◀──POST /interbank/inquiry · /interbank/receive · GET /inte
 | `BANK_CODE` | 허브가 배정한 우리 은행 코드 (기본 `901`) |
 | `HUB_URL` | 허브 주소 (`/v1` 없이) |
 | `HUB_API_KEY`, `HUB_SECRET` | 허브가 발급한 API 키와 서명 비밀키. secret은 허브가 우리에게 보내는 요청 검증에도 쓴다 |
+| `CI_KEY` | 가상 CI 키 (다른 은행 내 계좌, 아래). 허브 관리자가 secret과 같은 경로로 준다. 없으면 이 기능만 꺼진다 (`503 INTERBANK_UNAVAILABLE`) |
 
 셋(`HUB_URL`, `HUB_API_KEY`, `HUB_SECRET`) 중 하나라도 없으면 타행 이체가 꺼진다: `to_bank`가 다른 은행이면 `503 INTERBANK_UNAVAILABLE`, `/interbank/*`는 `503 INTERBANK_DISABLED`. 처리 중 확인 태스크도 돌지 않는다.
 
@@ -92,12 +93,38 @@ AvengersBank ◀──POST /interbank/inquiry · /interbank/receive · GET /inte
 
 실제 Gemini 확인 (로컬, 실제 허브·가짜 은행): "SimBank 110-123-0001로 3만원 보내줘" → "생활비 통장에서 SimBank 김철수님께 3만원을 보낼까요?" → 승인 → 완료. "SimBank로 2만원 보내고 싶어" → "SimBank 계좌번호를 알려 주세요." → "110-123-0005" → 2만원 카드 → 승인 → "확인 중".
 
+## 다른 은행 내 계좌 (SPEC 9절)
+
+고객 동의를 받아 같은 사람 명의로 다른 참가 은행에 있는 계좌를 불러오고, 그 계좌로 보낸다. 실제 금융권의 CI(연계정보) 대신 **가상 CI**를 쓴다.
+
+```
+ci = hex(HMAC-SHA256(CI_KEY, 이름(공백 제거, NFC) + "|" + 생년월일(YYYYMMDD) + "|" + 휴대폰번호(숫자만)))
+```
+
+- **저장**: `users.birth_date`(선택), `users.ci`(인덱스). 가입·`PATCH /users/me`에서 이름·휴대폰·생년월일이 바뀌면 다시 계산한다 (`users/ci.py`). 생년월일이나 `CI_KEY`가 없으면 `ci`는 비어 있다
+- **불러오기** `POST /transfers/own-accounts {"consent": true}` (`interbank/service.py`의 `lookup_own_accounts`)
+  1. 생년월일이 없으면 `400 BIRTH_DATE_REQUIRED` (화면이 생년월일을 받아 저장하고 다시 부른다)
+  2. 동의 기록 `own_account_lookups`(`consent_id = avb-<uuid>`)를 먼저 커밋하고, 허브 `POST /v1/accounts/lookup {ci, consent_id}`. 원본 개인정보는 보내지 않는다
+  3. 허브가 준 계좌(가린 번호 + `account_ref`)를 `own_account_refs`에 **이 사용자에게 묶어** 29분 저장 (허브는 30분). 같은 은행의 다른 고객이 남의 ref를 쓰지 못하게 하기 위해서다
+  4. 허브 `429` → `429 TOO_MANY_LOOKUPS`, 그 밖의 실패 → `503`
+- **보내기** `POST /transfers`에 `to_account_ref` (+ `to_bank`, `to_account_num`에는 가린 번호)
+  - ref가 내 것·은행 일치·만료 전인지 확인 → 아니면 `400 ACCOUNT_REF_INVALID`. 채팅(`session_id`)이나 우리 은행으로는 못 쓴다 (`ACCOUNT_REF_NOT_ALLOWED`)
+  - 받는 분 조회(허브 `/v1/inquiry`)는 건너뛴다. 허브가 같은 사람으로 확인해 준 계좌라서다. 예금주는 내 이름으로 저장했다가 허브 응답의 이름으로 바뀐다
+  - 허브에는 `to_account` 대신 `to_account_ref`를 보낸다 (`interbank_transfers.to_account_ref`, 확인 태스크의 재전송도 같다). `to_account`에는 가린 번호가 남는다
+  - **FDS**: 내 계좌로 본다 (`to_own_account`). 처음 보내는 계좌·심야 고액·잔액 대부분 규칙에 걸리지 않는다
+- **받기(허브 → 우리)** `POST /interbank/accounts {ci}`: 이 CI 고객의 입출금 계좌(`account_num`, `product_name`). 고객이 없어도 `200 {"accounts": []}`
+- **화면**: 이체 화면의 "다른 은행 내 계좌 불러오기" → 동의 체크 → (생년월일) → 목록에서 고르면 받는 은행·가린 번호가 채워지고 "내 계좌" 표시 (`components/OwnAccountsPanel.tsx`)
+
+확인: `tests/test_own_accounts.py` (8개: 생년월일 필요, 동의 필수, 불러오기 → 허브에 CI만 감 → ref 이체 → FDS LOW, 남의 ref·다른 은행·우리 은행·채팅·만료 거절, 허브 429·장애·키 없음, 프로필 변경 시 CI 재계산, 가입 시 생년월일, `/interbank/accounts`). 브라우저(로컬, 실제 ClearingHub + 가짜 은행을 한 프로세스로): 김철수 고객 → 동의 → 생년월일 입력 → SimBank 계좌 2개 → 급여통장 선택 → 3만 원 완료, 허브 거래의 받는 계좌가 실제 번호 `110-456-0001`로 풀린 것 확인
+
 ## 테이블
 
 | 테이블 | 용도 |
 |---|---|
 | `interbank_transfers` | 보낸 타행 이체: transfer_id, user_id, 출금 계좌, to_bank, to_account, 예금주, 금액, status, fail_code/message, check_count |
 | `interbank_receipts` | 받은 타행 입금: transfer_id(멱등 키), 입금 계좌, 보낸 은행·계좌·이름, 금액 |
+| `own_account_lookups` | 다른 은행 내 계좌 불러오기 동의 기록: consent_id, user_id, 허브 lookup_id, 계좌 수 |
+| `own_account_refs` | 허브가 준 account_ref를 사용자에게 묶음: 은행, 가린 번호, 상품명, 만료 |
 
 거래내역 `type`에 `TRANSFER_REFUND`(타행 이체 되돌림, +)를 추가했다.
 

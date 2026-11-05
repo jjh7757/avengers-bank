@@ -66,7 +66,7 @@ class FakeHub:
             tid = data["transfer_id"]
             if tid in self.transfers:  # 멱등
                 return self._result(self.transfers[tid])
-            suffix = data["to_account"][-4:]
+            suffix = data.get("to_account", "")[-4:]  # 참조값(to_account_ref)으로 오면 계좌번호가 없다 → 완료
             if suffix == "0006" and self.hub_down:
                 await asyncio.sleep(1)  # 우리 타임아웃(0.3초)보다 길게, 저장도 안 함
                 return {}

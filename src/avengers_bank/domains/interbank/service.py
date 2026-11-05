@@ -13,18 +13,28 @@
 
 import logging
 import uuid
+from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from avengers_bank.core.clock import now_utc
+from avengers_bank.core.clock import now_utc, real_now_utc
 from avengers_bank.core.config import get_settings
 from avengers_bank.core.exceptions import ApiException, BadRequestException, NotFoundException
 from avengers_bank.domains.accounts.models import CheckingAccount, CheckingAccountHistory, HistoryType
 from avengers_bank.domains.accounts.repository import account_repository
 from avengers_bank.domains.interbank.hub_client import HubReply, hub_client
-from avengers_bank.domains.interbank.models import InterbankReceipt, InterbankStatus, InterbankTransfer
+from avengers_bank.domains.interbank.models import (
+    InterbankReceipt,
+    InterbankStatus,
+    InterbankTransfer,
+    OwnAccountLookup,
+    OwnAccountRef,
+)
+from avengers_bank.domains.products.models import AccountProduct
+from avengers_bank.domains.users.ci import ci_of
+from avengers_bank.domains.users.models import User
 from avengers_bank.domains.users.repository import user_repository
 
 logger = logging.getLogger(__name__)
@@ -104,7 +114,7 @@ async def inquiry(to_bank: str, to_account: str) -> str:
 
 async def debit(
     db: AsyncSession, *, user_id: int, source: CheckingAccount, to_bank: str, to_account: str,
-    amount: int, holder_name: str | None,
+    amount: int, holder_name: str | None, to_account_ref: str | None = None,
 ) -> InterbankTransfer:
     """출금 + 송금 기록(PENDING). 호출하는 쪽의 트랜잭션 안에서, 잠근 source로 부른다."""
     now = now_utc()
@@ -115,8 +125,8 @@ async def debit(
     ))
     transfer = InterbankTransfer(
         transfer_id=str(uuid.uuid4()), user_id=user_id, checking_account_id=source.checking_account_id,
-        to_bank=to_bank, to_account=to_account, to_holder_name=holder_name, amount=amount,
-        status=InterbankStatus.PENDING,
+        to_bank=to_bank, to_account=to_account, to_account_ref=to_account_ref, to_holder_name=holder_name,
+        amount=amount, status=InterbankStatus.PENDING,
     )
     db.add(transfer)
     await db.flush()
@@ -126,8 +136,10 @@ async def debit(
 async def _payload(db: AsyncSession, transfer: InterbankTransfer) -> dict:
     source = await db.get(CheckingAccount, transfer.checking_account_id)
     user = await user_repository.find_by_id(db, transfer.user_id)
+    # 내 다른 은행 계좌로 보낼 때는 실제 계좌번호를 모르므로 허브가 준 참조값을 보낸다 (SPEC 9.3)
+    destination = {"to_account_ref": transfer.to_account_ref} if transfer.to_account_ref else {"to_account": transfer.to_account}
     return {
-        "transfer_id": transfer.transfer_id, "to_bank": transfer.to_bank, "to_account": transfer.to_account,
+        "transfer_id": transfer.transfer_id, "to_bank": transfer.to_bank, **destination,
         "from_account": source.account_num, "amount": transfer.amount, "sender_name": user.name[:50],
         "memo": transfer.memo,
     }
@@ -263,5 +275,74 @@ async def receipt_status(db: AsyncSession, transfer_id: str) -> dict | None:
         receipt = await db.get(InterbankReceipt, transfer_id)
         if receipt is None:
             return None
-        return {"transfer_id": transfer_id, "status": "COMPLETED",
+        account = await db.get(CheckingAccount, receipt.checking_account_id)
+        user = await user_repository.find_by_id(db, account.user_id)
+        return {"transfer_id": transfer_id, "status": "COMPLETED", "holder_name": user.name if user else "",
                 "received_at": receipt.received_at.isoformat(timespec="seconds")}
+
+
+# ── 다른 은행 내 계좌 (SPEC 9절) ───────────────────────────────────
+
+REF_TTL = timedelta(minutes=29)  # 허브는 30분. 경계에서 만료가 엇갈리지 않게 조금 짧게 둔다
+
+
+def _as_utc(value: datetime) -> datetime:
+    return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+
+
+async def lookup_own_accounts(db: AsyncSession, user_id: int) -> tuple[list[OwnAccountRef], list[dict]]:
+    """동의를 기록하고 허브에 내 CI로 다른 은행 계좌를 묻는다. (계좌 목록, 은행별 결과)."""
+    _require_enabled()
+    if get_settings().ci_key is None:
+        raise InterbankUnavailable("다른 은행 내 계좌 불러오기가 설정되지 않았습니다.")
+    async with db.begin():
+        user = await user_repository.find_by_id(db, user_id)
+        if not user.birth_date:
+            raise BadRequestException(code="BIRTH_DATE_REQUIRED", message="생년월일을 등록해야 다른 은행 내 계좌를 불러올 수 있어요.")
+        user.ci = ci_of(user.name, user.birth_date, user.phone)  # 키를 나중에 넣은 사용자도 여기서 채운다
+        ci = user.ci
+        consent_id = "avb-" + str(uuid.uuid4())
+        db.add(OwnAccountLookup(consent_id=consent_id, user_id=user_id, consented_at=real_now_utc()))
+
+    reply = await hub_client.lookup_accounts(ci, consent_id)
+    if reply.status == 429:
+        raise ApiException(status_code=429, code="TOO_MANY_LOOKUPS", message="오늘은 더 불러올 수 없어요. 내일 다시 시도해 주세요.")
+    if not reply.ok:
+        raise InterbankUnavailable()
+
+    expires_at = real_now_utc() + REF_TTL
+    refs = [
+        OwnAccountRef(ref=str(a["account_ref"]), user_id=user_id, consent_id=consent_id, bank_code=str(a["bank_code"]),
+                      bank_name=str(a.get("bank_name") or a["bank_code"])[:50], account_masked=str(a["account_masked"])[:50],
+                      product_name=str(a.get("product_name") or "")[:50], expires_at=expires_at)
+        for a in reply.body.get("accounts", []) if isinstance(a, dict) and a.get("account_ref")
+    ]
+    async with db.begin():
+        lookup = await db.get(OwnAccountLookup, consent_id)
+        lookup.hub_lookup_id, lookup.account_count = reply.body.get("lookup_id"), len(refs)
+        await db.execute(delete(OwnAccountRef).where(OwnAccountRef.user_id == user_id, OwnAccountRef.expires_at < real_now_utc()))
+        db.add_all(refs)
+    return refs, [b for b in reply.body.get("banks", []) if isinstance(b, dict)]
+
+
+async def resolve_own_ref(db: AsyncSession, user_id: int, ref: str, to_bank: str) -> OwnAccountRef:
+    """이체에 쓸 참조값이 이 사용자 것이고, 받는 은행이 맞고, 만료 전인지. 호출하는 쪽의 트랜잭션 안에서 부른다."""
+    row = await db.get(OwnAccountRef, ref)
+    if row is None or row.user_id != user_id or row.bank_code != to_bank or _as_utc(row.expires_at) <= real_now_utc():
+        raise BadRequestException(code="ACCOUNT_REF_INVALID", message="계좌 정보가 만료됐어요. 다른 은행 내 계좌를 다시 불러와 주세요.")
+    return row
+
+
+async def own_accounts_by_ci(db: AsyncSession, ci: str) -> list[dict]:
+    """허브 → 우리: 이 CI를 가진 고객의 입출금 계좌 (SPEC 9.4). 고객이 없으면 빈 목록."""
+    async with db.begin():
+        users = list(await db.scalars(select(User).where(User.ci == ci)))
+        if not users:
+            return []
+        rows = await db.execute(
+            select(CheckingAccount.account_num, AccountProduct.name)
+            .join(AccountProduct, AccountProduct.product_id == CheckingAccount.product_id)
+            .where(CheckingAccount.user_id.in_([u.user_id for u in users]))
+            .order_by(CheckingAccount.created_at)
+        )
+        return [{"account_num": num, "product_name": (name or "")[:50]} for num, name in rows]

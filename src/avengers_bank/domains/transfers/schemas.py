@@ -12,7 +12,14 @@ class TransferCreate(BaseModel):
         default=None, pattern=r"^\d{3}$",
         description="받는 은행 코드. 비우거나 우리 은행 코드면 자행 이체, 다른 코드면 ClearingHub를 거친 타행 이체",
     )
-    to_account_num: str = Field(min_length=1, max_length=20)
+    to_account_num: str = Field(
+        min_length=1, max_length=50,
+        description="받는 계좌번호. to_account_ref로 보낼 때는 화면에 보인 가린 번호를 그대로 넣는다 (서버는 참조값의 번호를 쓴다)",
+    )
+    to_account_ref: str | None = Field(
+        default=None, max_length=64,
+        description="POST /transfers/own-accounts로 받은 다른 은행 내 계좌의 참조값. 이체 화면에서만 쓴다 (채팅 불가)",
+    )
     amount: int = Field(gt=0)
     pin: str | None = Field(
         default=None, pattern=r"^\d{6}$", repr=False,
@@ -92,3 +99,29 @@ class InterbankTransferResponse(BaseModel):
     fail_message: str | None
     created_at: datetime
     finished_at: datetime | None
+
+
+class OwnAccountsRequest(BaseModel):
+    """POST /transfers/own-accounts — 다른 은행 내 계좌 불러오기. 화면에서 동의를 받은 뒤 부른다."""
+
+    consent: Literal[True] = Field(description="'다른 은행에 내 명의 계좌가 있는지 확인하는 데 동의' 체크")
+
+
+class OwnAccount(BaseModel):
+    bank_code: str
+    bank_name: str
+    account_masked: str
+    product_name: str
+    account_ref: str  # POST /transfers의 to_account_ref로 보낸다 (29분 동안)
+    expires_at: datetime
+
+
+class OwnAccountBankResult(BaseModel):
+    bank_code: str
+    result: str  # OK / UNSUPPORTED / TIMEOUT / ERROR
+    count: int | None = None
+
+
+class OwnAccountsResponse(BaseModel):
+    accounts: list[OwnAccount]
+    banks: list[OwnAccountBankResult]
