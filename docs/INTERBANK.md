@@ -1,6 +1,6 @@
 # 다른 은행 이체 (ClearingHub 연동)
 
-AvengersBank는 은행 간 이체 중계 서버 [ClearingHub](https://github.com/jjh7757/clearing-hub)의 참가 은행이다. 연동 규격은 ClearingHub 저장소의 `docs/SPEC.md` (v0.1). 다른 은행 서버를 직접 부르지 않고 허브만 부른다.
+AvengersBank는 은행 간 이체 중계 서버 [ClearingHub](https://github.com/jjh7757/clearing-hub)의 참가 은행이다. 연동 규격은 ClearingHub 저장소의 `docs/SPEC.md` (v1.0 초안). 다른 은행 서버를 직접 부르지 않고 허브만 부른다.
 
 ```
 AvengersBank ──POST /v1/inquiry · /v1/transfers · GET /v1/transfers/{id}──▶ ClearingHub ──▶ 다른 은행
@@ -31,6 +31,7 @@ AvengersBank ◀──POST /interbank/inquiry · /interbank/receive · GET /inte
 | `HUB_URL` | 허브 주소 (`/v1` 없이) |
 | `HUB_API_KEY`, `HUB_SECRET` | 허브가 발급한 API 키와 서명 비밀키. secret은 허브가 우리에게 보내는 요청 검증에도 쓴다 |
 | `CI_KEY` | 가상 CI 키 (다른 은행 내 계좌, 아래). 허브 관리자가 secret과 같은 경로로 준다. 없으면 이 기능만 꺼진다 (`503 INTERBANK_UNAVAILABLE`) |
+| `INTERBANK_SIGNING_KEY`, `HUB_PUBLIC_KEY`, `INTERBANK_SIGNATURE_MODE` | 부인방지(Ed25519). 아래 "부인방지(Ed25519)". 비워 두면 예전처럼 HMAC만 |
 | `INTERBANK_SETTLEMENT_SYNC_INTERVAL_SECONDS` | 허브 정산 대사 간격 (기본 3600) |
 | `INTERBANK_SETTLEMENT_SYNC_STARTUP_DELAY_SECONDS` | 시작 뒤 첫 대사까지 (기본 60). 꺼져 있던 동안 놓친 run을 이때 이어서 본다 |
 
@@ -145,6 +146,91 @@ settlement_sync_loop (시작 60초 뒤 한 번, 그 뒤 1시간마다)
 | `POST /interbank/receive` | 입금 + `TRANSFER_IN` 거래내역 + `interbank_receipts`를 한 트랜잭션으로. **같은 `transfer_id`는 입금하지 않고 같은 응답** (동시에 두 번 와도 기본 키 충돌로 한 번만) |
 | `GET /interbank/receive/{id}` | 입금했으면 `200 COMPLETED`, 아니면 `404 TRANSFER_NOT_FOUND` (허브가 다시 보낸다) |
 
+## 부인방지(Ed25519) (SPEC v1.0 2.3·2.5·2.6)
+
+HMAC secret은 허브와 나눠 가진 값이라, 허브도 "AvengersBank가 보낸" 요청을 만들 수 있고 우리도 "허브가 보낸" 입금 요청을 만들 수 있다. Ed25519는 개인키를 가진 쪽만 서명할 수 있어서, 서명된 요청·응답이 있으면 보낸 사실과 답한 내용을 부인할 수 없다. 서명 메시지는 HMAC과 같은 문자열이고 서명 함수와 `X-Signature-Alg` 헤더만 다르다 (`signing.py`).
+
+### 설정
+
+| 이름 | 값 |
+|---|---|
+| `INTERBANK_SIGNING_KEY` | 우리 Ed25519 개인키 (raw 32바이트 base64, 44자). `keys generate`로 만든다. **있으면 모드와 상관없이** `/interbank/*` 2xx·4xx 응답에 응답 서명을 붙인다 (`response_signing.py`). 5xx는 붙이지 않는다 |
+| `HUB_PUBLIC_KEY` | 허브 공개키. `keys hub-key`로 받아 **허브 관리자가 따로 알려 준 지문**과 같을 때만 넣는다 |
+| `INTERBANK_SIGNATURE_MODE` | `hmac`(기본) · `both` · `ed25519`. **허브 관리자가 우리에게 정한 모드와 같게 둔다** |
+
+| 모드 | 우리 → 허브 요청 | 허브 → 우리 요청 (받는 것) | 허브 응답 서명 |
+|---|---|---|---|
+| `hmac` | HMAC (`X-Signature-Alg` 없음, 예전과 똑같다) | HMAC만 | 보지 않는다 |
+| `both` | Ed25519 (키가 없으면 HMAC + 경고) | HMAC·Ed25519 둘 다 | 있으면 검증해 증거에 `signature_valid`만 남긴다. 동작은 바꾸지 않는다 |
+| `ed25519` | Ed25519 | Ed25519만 (HMAC은 허브 secret으로 만든 진짜라도 401 `SIGNATURE_INVALID`) | **필수**. 없거나 틀리면 "응답 없음" |
+
+- 시작할 때 검사한다(`core/config.py`): 키 형식이 틀리거나, `ed25519` 모드인데 `INTERBANK_SIGNING_KEY`·`HUB_PUBLIC_KEY` 중 하나라도 없으면 **앱이 뜨지 않는다** (경고 후 `hmac`으로 낮추면 허브는 `ed25519`인 채라 모든 이체가 PENDING으로 쌓이므로, 조용히 내리지 않고 멈춘다). 빈 값(`INTERBANK_SIGNING_KEY=`)은 없는 것으로 본다.
+- 받는 쪽 분기는 `router.py`의 `_verified_body`: `X-Signature-Alg`가 `ed25519`면 `HUB_PUBLIC_KEY`로, 없거나 `hmac`이면 `HUB_SECRET`으로, 그 밖의 값과 모드가 받지 않는 방식은 401 `SIGNATURE_INVALID`. 경로는 HMAC과 같이 `/interbank` 뒤의 부분이다. 검증은 입금 처리보다 먼저다.
+- 응답 서명의 `request_signature`는 허브 요청의 `X-Signature` 그대로다 (HMAC hex든 Ed25519 base64든). 응답이 그 요청에 묶이므로 다른 요청의 응답을 가져다 붙이면 틀린다.
+
+### 허브 응답 서명이 틀리면: "응답 없음"
+
+`ed25519` 모드에서 허브의 2xx·4xx 응답에 응답 서명이 없거나, 틀리거나, 5분 넘게 차이 나면 `hub_client`가 그 응답을 `HubReply(None, {}, signature_valid=False)`로 바꾼다. 본문을 믿지 않는다.
+
+| 호출 | 결과 |
+|---|---|
+| 이체 `POST /v1/transfers` | `200 COMPLETED`여도 완료로, `4xx`여도 거절로 보지 않는다 → **PENDING 그대로, 되돌리지 않음**. 확인 태스크가 `GET /v1/transfers/{id}`로 묻고, 서명이 맞는 응답이 오면 확정한다 |
+| 결과 조회 | 모르는 상태 유지, 다음 주기에 다시 묻는다 |
+| 예금주 조회·은행 목록·본인 계좌 조회 | `503 INTERBANK_UNAVAILABLE` (돈이 움직이기 전) |
+| 정산 대사 | 아무것도 하지 않고 다음 주기 |
+
+거절로 믿고 되돌렸는데 실제로 허브가 접수했다면 돈이 두 번 나간다 (SPEC 4.2·6절: 모르면 되돌리지 않는다). 대신 서명이 계속 틀리면 이체가 모두 PENDING으로 쌓이므로, 로그 `허브 응답 서명 검증 실패`가 보이면 `HUB_PUBLIC_KEY`가 지금 허브 키인지(`keys hub-key`) 확인하고 허브 관리자에게 알린다. 5xx는 서명 없이 그대로 받는다(재시도).
+
+### 증거 (`hub_evidence`, `evidence.py`)
+
+추가만 하고 고치거나 지우지 않는다. 본문은 서명한 바이트 그대로(`LargeBinary`), 헤더는 서명 관련만(`X-Bank-Code`, `X-Timestamp`, `X-Signature`, `X-Signature-Alg`, `X-Request-ID`, `X-Response-*`. `X-Api-Key`는 넣지 않는다). 모드와 상관없이 남긴다.
+
+| `direction` | 언제 | `signature_valid` |
+|---|---|---|
+| `TRANSFER_OUT` | 우리 → 허브 `POST /v1/transfers` (처음, 확인 중 재전송) | NULL (우리가 만든 것) |
+| `TRANSFER_REPLY` | 그 요청에 대한 허브 응답 (응답을 받았을 때만) | 허브 응답 서명 검증 결과. `hmac` 모드·서명 없음은 NULL |
+| `RECEIVE_IN` | 허브 → 우리 `/interbank/receive`(처음·재시도)·`/interbank/receive/{id}`, **서명 검증을 통과한 것만**, 처리 전에 | True |
+| `RECEIVE_REPLY` | 그 요청에 대한 우리 응답 (2xx·4xx, 응답 서명 헤더 포함) | NULL (우리가 만든 것) |
+
+결과 조회·예금주 조회·대사 조회는 남기지 않는다. 다시 검증할 때: 요청은 `method`·`path`·`X-Timestamp`·`X-Signature`로(`verify_ed25519(..., max_skew=None)`), 응답은 `http_status`·`X-Response-*`와 바로 앞 요청 행의 `X-Signature`로(`verify_response(..., max_skew=None)`). AvengersBank에는 관리자 인증이 없어 조회 API는 만들지 않았다. DB에서 본다:
+
+```sql
+SELECT evidence_id, direction, method, path, http_status, signature_alg, signature_valid, headers_json, convert_from(body, 'UTF8')
+FROM hub_evidence WHERE transfer_id = '<transfer_id>' ORDER BY evidence_id;
+```
+
+허브도 같은 거래의 접수 요청과 `/receive` 원문을 따로 보관한다 (허브 `GET /admin/transfers/{id}/evidence`). 분쟁 때 양쪽 원문을 맞대어 본다.
+
+### 키 도구 (`keys.py`)
+
+```
+uv run python -m avengers_bank.domains.interbank.keys generate                 # 키 쌍·지문 출력 (개인키는 .env에만)
+uv run python -m avengers_bank.domains.interbank.keys hub-key                  # 허브 공개키·지문 (GET /v1/hub-key)
+uv run python -m avengers_bank.domains.interbank.keys register                 # 내 공개키 등록 (PUT /v1/keys)
+uv run python -m avengers_bank.domains.interbank.keys register --public-key <새 공개키>   # 키 회전
+uv run python -m avengers_bank.domains.interbank.keys status                   # 등록 상태·허브 모드 (GET /v1/keys)
+```
+
+`register`는 지금 인증으로 서명한다: `hmac`·`both` 모드는 HMAC(처음 등록 때 허브에 공개키가 없으므로), `ed25519` 모드는 지금 키. 허브가 돌려준 지문이 우리 키의 지문과 다르면 실패(1)로 끝난다. 배포 서버에서는 컨테이너 안에서 돌린다 (`docker exec avengers-bank python -m avengers_bank.domains.interbank.keys …`, [DEPLOY.md](DEPLOY.md)).
+
+### 전환 순서 (허브 관리자와 맞출 것, SPEC 2.6)
+
+| 단계 | 우리 | 허브 관리자 | 확인 |
+|---|---|---|---|
+| 1 | `keys generate` → 서버 `.env`에 `INTERBANK_SIGNING_KEY` (모드는 `hmac` 그대로) → 재배포 | | 허브 ping의 `response_signature_valid`가 `true`가 아니어도 지금은 괜찮다 (아직 공개키 미등록이면 `false`) |
+| 2 | `keys hub-key` → 관리자가 따로 준 지문과 비교 → `.env`에 `HUB_PUBLIC_KEY` → 재배포 | 허브 공개키 지문을 개별 경로로 알려 줌 | |
+| 3 | 받는 쪽 준비 확인: `/interbank/*` 응답에 `X-Response-Signature`가 붙는지 (`curl -i`로 서명 없는 `POST /api/interbank/inquiry` → 401 응답에도 붙는다) | | 허브는 아직 HMAC으로 보내므로 깨지는 것이 없다 |
+| 4 | `keys register` | | `keys status`의 `fingerprint`가 우리 키 지문 |
+| 5 | 관리자에게 `both` 요청 | `both`로 바꿈 | `keys status`의 `signature_mode: both` |
+| 6 | `.env` `INTERBANK_SIGNATURE_MODE=both` → 재배포. 이제 우리 요청이 Ed25519이고, 허브 HMAC·Ed25519 요청 둘 다 받는다 | | 소액 이체가 `COMPLETED`, 증거 `TRANSFER_OUT.signature_alg = ed25519`, `TRANSFER_REPLY.signature_valid = true` |
+| 7 | 관리자에게 `ed25519` 요청 | `ed25519`로 바꾸고 ping | ping `status` 404, `response_signature_valid: true`. 다른 은행 → 우리 소액 입금 `COMPLETED`, 증거 `RECEIVE_IN.signature_alg = ed25519` |
+| 8 | `.env` `INTERBANK_SIGNATURE_MODE=ed25519` → 재배포. HMAC 허브 요청을 받지 않고 허브 응답 서명을 요구한다 | | 이체·입금 다시 확인 |
+
+- 5 → 6 사이와 7 → 8 사이는 시간이 벌어져도 된다. 우리 `both`는 받는 쪽이 허브의 `both`·`ed25519` 어느 쪽과도 맞기 때문이다. **5보다 먼저 6을 하면 안 된다**: 허브가 `hmac`인데 우리가 Ed25519로 보내면 401로 이체가 실패한다 (출금은 되돌린다).
+- 되돌릴 때는 거꾸로: 우리를 먼저 `both`로 내린 뒤 관리자에게 모드를 내려 달라고 한다. 우리가 `ed25519`인 채로 허브가 `hmac`으로 내리면 허브의 HMAC 입금을 401로 거절한다(허브는 `FAILED`, 보낸 은행이 되돌림).
+- SPEC 2.6의 8단계("받는 쪽의 HMAC 검증을 끈다")는 우리 `ed25519` 모드가 그것이다.
+- 키 회전: 새 키를 `generate` → `.env`는 옛 키인 채로 `keys register --public-key <새 공개키>` → 24시간 안에 `.env`를 새 개인키로 바꿔 재배포. 유출이면 바로 회전하고 허브 관리자에게 알린다.
+
 ## 이체 화면 (`/transfer`)
 
 `frontend/src/pages/TransferPage.tsx`. 모아 없이 직접 보내는 화면이다. 내 계좌 → "이체하기", 입출금 계좌 상세 → "이 계좌에서 이체하기"로 들어온다.
@@ -202,6 +288,7 @@ ci = hex(HMAC-SHA256(CI_KEY, 이름(공백 제거, NFC) + "|" + 생년월일(YYY
 | `interbank_receipts` | 받은 타행 입금: transfer_id(멱등 키), 입금 계좌, 보낸 은행·계좌·이름, 금액 |
 | `interbank_ledger` | 내부 계정 분개: transfer_id, account(중간·정산·예치금), bank_code(상대 은행, 예치금은 `000`), event, amount(±), 시각, hub_run_id(맞춰진 허브 정산 run) |
 | `settlement_reconciliations` | 허브 정산 run별 대사 결과: hub_run_id(PK), settle_date, hub_status, hub_net_amount, our_net_amount, result(`MATCHED`/`CHECKING`/`MISMATCH`), diff_json, checked_at, settled_at(장부 정리 시각) |
+| `hub_evidence` | 허브와 주고받은 이체 요청·응답 원문(부인방지 증거): transfer_id, direction(`TRANSFER_OUT`/`TRANSFER_REPLY`/`RECEIVE_IN`/`RECEIVE_REPLY`), method, path, http_status, headers_json, body(원본 바이트), signature_alg, signature_valid. 추가만 한다 |
 | `own_account_lookups` | 다른 은행 내 계좌 불러오기 동의 기록: consent_id, user_id, 허브 lookup_id, 계좌 수 |
 | `own_account_refs` | 허브가 준 account_ref를 사용자에게 묶음: 은행, 가린 번호, 상품명, 만료 |
 
@@ -209,6 +296,7 @@ ci = hex(HMAC-SHA256(CI_KEY, 이름(공백 제거, NFC) + "|" + 생년월일(YYY
 
 ## 확인한 것
 
+- `tests/test_nonrepudiation.py` (부인방지): SPEC 2.3 예시 1·2와 2.5 예시 3의 고정 값(K1), 잘못된 키·서명은 예외 없이 실패, 변조·시각 초과, 설정 검사(ed25519인데 키 없음·형식 오류는 시작 실패, 빈 값은 없음). `ed25519` 모드 왕복: 우리 → 허브 Ed25519 이체 + 허브 응답 서명 검증 → `COMPLETED`, 허브 → 우리 Ed25519 `/receive`(재전송 포함)·`/receive/{id}`·`/inquiry` → 우리 응답 서명이 우리 공개키로 검증되고 그 요청에 묶임. HMAC(허브 secret으로 만든 것)·다른 키·모르는 방식 → 401, 입금 없음(K3·K4·K5). 허브 응답 서명이 틀림·없음 → 이체 PENDING(되돌리지 않음) → 서명 맞는 결과 조회로 `COMPLETED`, 4xx도 서명이 틀리면 되돌리지 않음, 예금주 조회는 503. `both`: Ed25519로 보내고 HMAC·Ed25519 허브 요청 둘 다 받음, 허브 응답 서명이 틀려도 기록만. 키 없는 `both`는 HMAC. `hmac`: 예전과 같음(헤더 없음, Ed25519 요청 거절, 키를 넣으면 응답 서명만). 5xx 서명 없음, 운영 마운트(`/api/interbank/*`)에서도 서명. 증거 4종의 원본 바이트·`signature_valid`와 다시 검증. 키 도구 `generate`·`register`·`status`·`hub-key`, `ed25519` 모드 키 회전
 - 브라우저(로컬, 실제 허브·가짜 은행 서버): SimBank `0001` 5만 원 → 받는 분 "김철수" 확인 → 완료, 잔액 반영 / `0005`(입금됐는데 응답 늦음) → "확인 중" → 허브·우리 확인 태스크가 돈 뒤 새로고침하면 "완료" / `0002` → 입력 화면에 "받는 계좌를 찾을 수 없습니다", 출금 없음. 가짜 은행 입금은 건마다 1번
 - 내부 계정: 시나리오마다 중간·정산 계정 잔액과 대사 확인 (완료 → 정산 +, 거절·실패 → 중간 0, PENDING → 중간 +, 재전송·재확인에도 분개 1번, 받기 → 정산 −), 양방향 상계 순액·`settlement_positions`, 거래 기록만 바꾸면 대사가 어긋남을 알림. 마이그레이션은 임시 PostgreSQL에서 기존 거래 백필 → 대사 일치 → downgrade까지 확인
 - `tests/test_settlement_sync.py` (10개, SETTLEMENT_PLAN 8절 B1~B5): 맞으면 `MATCHED` → 정산 계정 0·`HUB_RESERVE` −7만·맞춘 분개에 run 표시·`reconcile` 정상, 같은 run 두 번 → 분개 한 번, 허브에만 있음·금액 다름·순액 다름 → `MISMATCH`·분개 없음, `DRAFT` → 대사만 → `SETTLED`가 되면 정리, 허브 무응답·401 → 아무것도 안 함 → 다음 주기, 우리 쪽 `PENDING` → `CHECKING` → 허브 확인 뒤 `MATCHED`, 우리에게만 있는 거래 → 다음 run에서 맞춤·오래되면 경고, 끝나지 않은 run만 run_id 순서로·취소된 DRAFT는 기록 삭제

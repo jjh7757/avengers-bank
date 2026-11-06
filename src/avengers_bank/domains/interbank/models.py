@@ -1,7 +1,9 @@
 from datetime import date, datetime
 from enum import StrEnum
 
-from sqlalchemy import BigInteger, Date, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint, func
+from sqlalchemy import (
+    JSON, BigInteger, Boolean, Date, DateTime, ForeignKey, Integer, LargeBinary, String, Text, UniqueConstraint, func,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from avengers_bank.core.database import Base
@@ -29,6 +31,15 @@ class LedgerEvent(StrEnum):
     REFUND = "REFUND"  # 보내기 실패: 중간 계정 → 고객
     RECEIVE = "RECEIVE"  # 받기: 정산 계정 → 고객
     SETTLE = "SETTLE"  # 허브 정산 확정 (SPEC 10.6의 4): 정산 계정 → 예치금 계정. transfer_id는 "settle:{run_id}:{은행}"
+
+
+class EvidenceDirection(StrEnum):
+    """hub_evidence 한 행이 무엇인지 (SPEC 2.5 보관, SETTLEMENT_PLAN 12.3)."""
+
+    TRANSFER_OUT = "TRANSFER_OUT"  # 우리 → 허브 POST /v1/transfers 요청 (처음·확인 중 재전송)
+    TRANSFER_REPLY = "TRANSFER_REPLY"  # 그 요청에 대한 허브 응답
+    RECEIVE_IN = "RECEIVE_IN"  # 허브 → 우리 /interbank/receive·/interbank/receive/{id} 요청 (서명 검증을 통과한 것만)
+    RECEIVE_REPLY = "RECEIVE_REPLY"  # 그 요청에 대한 우리 응답 (응답 서명을 붙였으면 그 헤더까지)
 
 
 class ReconResult(StrEnum):
@@ -159,3 +170,28 @@ class OwnAccountRef(Base):
     account_masked: Mapped[str] = mapped_column(String(50), nullable=False)
     product_name: Mapped[str] = mapped_column(String(50), default="", nullable=False)
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class HubEvidence(Base):
+    """허브와 주고받은 이체 관련 요청·응답의 원문 (SPEC 2.5 "보관", 분쟁 때 꺼내 보일 것). 추가만 하고 고치거나 지우지 않는다.
+
+    body는 서명한 바이트 그대로다 (JSON으로 풀었다 다시 만들면 서명이 맞지 않는다).
+    다시 검증할 때: 요청은 method·path·X-Timestamp·X-Signature로 (2.2), 응답은 http_status·X-Response-*와
+    바로 앞 요청 행의 X-Signature로 (2.5). 결과 조회·대사 조회·수취 조회는 남기지 않는다 (이체 관련만)."""
+
+    __tablename__ = "hub_evidence"
+
+    evidence_id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    transfer_id: Mapped[str] = mapped_column(String(36), index=True, nullable=False)
+    direction: Mapped[str] = mapped_column(String(20), nullable=False)  # EvidenceDirection
+    method: Mapped[str | None] = mapped_column(String(10))  # 요청만: 서명에 쓴 METHOD
+    path: Mapped[str | None] = mapped_column(String(200))  # 요청만: 서명에 쓴 규격 PATH (/v1/transfers, /receive/{id})
+    http_status: Mapped[int | None] = mapped_column(Integer)  # 응답만: 응답 서명 메시지의 STATUS
+    # 서명 관련 헤더만 (X-Bank-Code, X-Timestamp, X-Signature, X-Signature-Alg, X-Request-ID, X-Response-*). X-Api-Key는 넣지 않는다
+    headers_json: Mapped[dict] = mapped_column(JSON, nullable=False)
+    body: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    signature_alg: Mapped[str | None] = mapped_column(String(10))  # hmac | ed25519 | NULL (서명 없는 응답)
+    # 받은 쪽의 검증 결과: TRANSFER_REPLY는 허브 응답 서명(검증 안 하는 hmac 모드·서명 없음은 NULL),
+    # RECEIVE_IN은 True(통과한 것만 남긴다). 우리가 만든 TRANSFER_OUT·RECEIVE_REPLY는 NULL
+    signature_valid: Mapped[bool | None] = mapped_column(Boolean)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)

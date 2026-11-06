@@ -17,6 +17,8 @@ from avengers_bank.domains.chat.router import router as chat_router
 from avengers_bank.domains.demo.router import router as demo_router
 from avengers_bank.domains.fds.router import router as fds_router
 from avengers_bank.domains.fds.scorer import fds_scorer
+from avengers_bank.domains.interbank.evidence import record_receive_reply
+from avengers_bank.domains.interbank.response_signing import ResponseSigningMiddleware
 from avengers_bank.domains.interbank.router import router as interbank_router
 from avengers_bank.domains.interbank.worker import confirm_loop, settlement_sync_loop
 from avengers_bank.domains.products.router import router as product_router
@@ -48,7 +50,14 @@ async def lifespan(app: FastAPI):
         await engine.dispose()
 
 
+def _interbank_signing_key() -> str | None:
+    key = get_settings().interbank_signing_key
+    return key.get_secret_value() if key else None
+
+
 app = FastAPI(title="AvengersBank", lifespan=lifespan, responses=error_responses(500))
+# /interbank/* 응답 서명 (SPEC 2.5)과 입금 응답 원문 보관. 본문을 바꾸는 미들웨어보다 안쪽이어야 하므로 가장 먼저 단다
+app.add_middleware(ResponseSigningMiddleware, key_getter=_interbank_signing_key, record_reply=record_receive_reply)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://127.0.0.1:5173", "http://localhost:5173"],

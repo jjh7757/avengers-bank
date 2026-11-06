@@ -1,7 +1,18 @@
+import base64
+import binascii
 from functools import lru_cache
+from typing import Literal
 
-from pydantic import Field, SecretStr
+from pydantic import Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+def _is_ed25519_key(value: str) -> bool:
+    """raw 32바이트의 표준 base64(44자)인지 (SPEC 2.2). 개인키·공개키 공통."""
+    try:
+        return len(value) == 44 and len(base64.b64decode(value.encode("ascii"), validate=True)) == 32
+    except (binascii.Error, ValueError, UnicodeEncodeError):
+        return False
 
 
 class Settings(BaseSettings):
@@ -33,6 +44,17 @@ class Settings(BaseSettings):
     hub_api_key: SecretStr | None = None
     hub_secret: SecretStr | None = None  # 서명 비밀키. 허브 → 우리 요청 검증에도 쓴다
     hub_timeout_seconds: float = Field(default=10, gt=0)
+    # 부인방지 (SPEC 2.3·2.5·2.6, docs/INTERBANK.md "부인방지(Ed25519)").
+    # 우리 Ed25519 개인키(raw 32바이트 base64). 있으면 /interbank/* 응답에 모드와 상관없이 응답 서명을 붙인다.
+    # 없으면 Ed25519로 요청 서명·응답 서명을 못 한다. 만들기: python -m avengers_bank.domains.interbank.keys generate
+    interbank_signing_key: SecretStr | None = None
+    # 허브 공개키. GET /v1/hub-key로 받아 허브 관리자가 따로 알려 준 지문과 맞춘 뒤 넣는다 (keys hub-key)
+    hub_public_key: str | None = None
+    # 허브 관리자가 우리에게 정한 서명 모드와 같게 둔다 (SPEC 2절 표).
+    #   hmac    보낼 때 HMAC, 받을 때 HMAC만, 허브 응답 서명은 보지 않는다 (예전과 같다)
+    #   both    보낼 때 Ed25519(키가 있으면), 받을 때 HMAC·Ed25519 둘 다, 허브 응답 서명은 있으면 검증해 기록만
+    #   ed25519 보낼 때 Ed25519, 받을 때 Ed25519만, 허브 응답 서명 필수 (없거나 틀리면 "응답 없음")
+    interbank_signature_mode: Literal["hmac", "both", "ed25519"] = "hmac"
     interbank_confirm_interval_seconds: float = Field(default=30, gt=0)  # 처리 중(PENDING) 타행 이체 확인 간격
     # 허브 정산 대사(SPEC 10.6) 간격. 시작 뒤 첫 대사는 지연만큼 기다렸다 한 번 돈다 (꺼져 있던 동안 놓친 run).
     # 지연은 앱이 뜨고 처리 중 이체 확인이 한 번 돌 틈을 준다 (그래야 "확인 중"이 덜 난다)
@@ -44,6 +66,22 @@ class Settings(BaseSettings):
     @property
     def interbank_enabled(self) -> bool:
         return bool(self.hub_url and self.hub_api_key and self.hub_secret)
+
+    @model_validator(mode="after")
+    def _check_signature_keys(self) -> "Settings":
+        """키 형식이 틀리면 응답마다 500이 나므로 시작할 때 막는다. ed25519 모드인데 키가 없으면
+        허브가 우리 요청·응답을 모두 거절하므로(이체가 PENDING으로 쌓인다) 경고 대신 시작하지 않는다."""
+        # .env에 빈 값(`INTERBANK_SIGNING_KEY=`)으로 두면 없는 것으로 본다
+        key = self.interbank_signing_key.get_secret_value().strip() if self.interbank_signing_key else ""
+        self.interbank_signing_key = SecretStr(key) if key else None
+        self.hub_public_key = (self.hub_public_key or "").strip() or None
+        if key and not _is_ed25519_key(key):
+            raise ValueError("INTERBANK_SIGNING_KEY는 Ed25519 개인키 raw 32바이트의 base64(44자)여야 합니다")
+        if self.hub_public_key and not _is_ed25519_key(self.hub_public_key):
+            raise ValueError("HUB_PUBLIC_KEY는 Ed25519 공개키 raw 32바이트의 base64(44자)여야 합니다")
+        if self.interbank_signature_mode == "ed25519" and not (key and self.hub_public_key):
+            raise ValueError("INTERBANK_SIGNATURE_MODE=ed25519에는 INTERBANK_SIGNING_KEY와 HUB_PUBLIC_KEY가 모두 필요합니다")
+        return self
 
     model_config = SettingsConfigDict(
         env_file=".env", env_file_encoding="utf-8", extra="ignore"

@@ -32,6 +32,7 @@ from avengers_bank.core.config import get_settings
 from avengers_bank.core.exceptions import ApiException, BadRequestException, NotFoundException
 from avengers_bank.domains.accounts.models import CheckingAccount, CheckingAccountHistory, HistoryType
 from avengers_bank.domains.accounts.repository import account_repository
+from avengers_bank.domains.interbank.evidence import record_transfer_exchange
 from avengers_bank.domains.interbank.hub_client import HubReply, hub_client
 from avengers_bank.domains.interbank.models import (
     HubAccountQuery,
@@ -202,7 +203,8 @@ async def _apply(db: AsyncSession, transfer: InterbankTransfer, reply: HubReply)
         code = reply.error if reply.rejected else str(reply.body.get("fail_code") or "FAILED")
         message = reply.message if reply.rejected else str(reply.body.get("fail_message") or "")
         await _refund(db, transfer, code, message or "받는 은행이 이체를 거절했습니다.")
-    # 그 밖(202 PENDING, 5xx, 응답 없음, 허브의 UNKNOWN): 결과를 모르므로 그대로 둔다
+    # 그 밖(202 PENDING, 5xx, 응답 없음, 허브의 UNKNOWN): 결과를 모르므로 그대로 둔다.
+    # ed25519 모드에서 허브 응답 서명이 없거나 틀린 응답도 hub_client가 "응답 없음"으로 바꿔 여기로 온다 (SPEC 2.5)
 
 
 async def _locked(db: AsyncSession, transfer_id: str) -> InterbankTransfer:
@@ -217,6 +219,7 @@ async def deliver(db: AsyncSession, transfer_id: str) -> InterbankTransfer:
         payload = await _payload(db, await db.get(InterbankTransfer, transfer_id))
     reply = await hub_client.transfer(payload)
     async with db.begin():
+        record_transfer_exchange(db, transfer_id, reply)  # 보낸 원문과 허브의 (서명된) 응답 원문
         transfer = await _locked(db, transfer_id)
         await _apply(db, transfer, reply)
     return transfer
@@ -232,7 +235,8 @@ async def confirm_pending(db: AsyncSession) -> int:
     confirmed = 0
     for transfer_id in ids:
         reply = await hub_client.get_transfer(transfer_id)
-        if reply.status == 404:
+        resent = reply.status == 404
+        if resent:
             async with db.begin():
                 payload = await _payload(db, await db.get(InterbankTransfer, transfer_id))
             reply = await hub_client.transfer(payload)
@@ -240,6 +244,8 @@ async def confirm_pending(db: AsyncSession) -> int:
             logger.error("타행 이체 %s 조회 거절: %s %s", transfer_id, reply.error, reply.message)
             reply = HubReply(None, {})
         async with db.begin():
+            if resent:  # 결과 조회는 남기지 않고, 다시 보낸 접수 요청만 남긴다
+                record_transfer_exchange(db, transfer_id, reply)
             transfer = await _locked(db, transfer_id)
             await _apply(db, transfer, reply)
             if transfer.status == InterbankStatus.PENDING:

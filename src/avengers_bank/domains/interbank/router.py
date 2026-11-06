@@ -1,5 +1,9 @@
 """허브 → 우리 은행 API (SPEC 4절). 응답은 SPEC 5절 형식({"error", "message"})이라 앱의 기본 오류 형식을 쓰지 않는다.
-서명을 원문 바이트로 검증해야 하므로 본문은 직접 읽어 검증한 뒤 Pydantic으로 푼다."""
+서명을 원문 바이트로 검증해야 하므로 본문은 직접 읽어 검증한 뒤 Pydantic으로 푼다.
+
+서명 검증 (SPEC 2.2·2.6): `X-Signature-Alg: ed25519`면 허브 공개키(HUB_PUBLIC_KEY)로, 없거나 `hmac`이면 HUB_SECRET으로.
+INTERBANK_SIGNATURE_MODE가 받지 않는 방식이면 401 SIGNATURE_INVALID (hmac → HMAC만, both → 둘 다, ed25519 → Ed25519만).
+응답 서명(SPEC 2.5)은 response_signing.py 미들웨어가 붙인다. 입금·입금 확인의 요청·응답 원문은 hub_evidence에 남긴다."""
 
 import logging
 import sys
@@ -15,7 +19,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from avengers_bank.core.config import get_settings
 from avengers_bank.core.database import get_db
 from avengers_bank.domains.interbank import service
-from avengers_bank.domains.interbank.signing import HUB_BANK_CODE, verify
+from avengers_bank.domains.interbank.evidence import record_receive_in
+from avengers_bank.domains.interbank.hub_client import REQUEST_EVIDENCE_HEADERS
+from avengers_bank.domains.interbank.response_signing import EVIDENCE_SCOPE_KEY
+from avengers_bank.domains.interbank.signing import (
+    ALG_ED25519, ALG_HEADER, ALG_HMAC, HUB_BANK_CODE, verify, verify_ed25519,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -67,21 +76,52 @@ def _error(status: int, code: str, message: str, transfer_id: str | None = None)
     return JSONResponse(status_code=status, content=body)
 
 
+# 모드별로 받는 서명 방식 (SPEC 2절 표). 허브 관리자가 정한 우리 모드와 INTERBANK_SIGNATURE_MODE를 같게 둔다
+ACCEPTED_ALGS = {"hmac": {ALG_HMAC}, "both": {ALG_HMAC, ALG_ED25519}, "ed25519": {ALG_ED25519}}
+
+
+def _spec_path(request: Request) -> str:
+    """서명 경로는 base_url(`.../interbank`) 뒤의 부분이다 (SPEC 2.2). 운영에서는 /api 아래에 마운트되므로
+    실제 경로(/api/interbank/receive)가 아니라 규격 경로(/receive)로 검증한다."""
+    return request.url.path.partition(router.prefix)[2]
+
+
 async def _verified_body(request: Request) -> bytes | JSONResponse:
     settings = get_settings()
     if not settings.interbank_enabled:
         return _error(503, "INTERBANK_DISABLED", "다른 은행 이체가 설정되지 않았습니다")
     if request.headers.get("x-bank-code") != HUB_BANK_CODE:
         return _error(401, "UNAUTHORIZED", "허브 요청이 아닙니다")
+    alg = (request.headers.get(ALG_HEADER) or ALG_HMAC).strip().lower()
+    mode = settings.interbank_signature_mode
+    if alg not in (ALG_HMAC, ALG_ED25519):
+        return _error(401, "SIGNATURE_INVALID", f"모르는 서명 방식입니다: {alg[:20]}")
+    if alg not in ACCEPTED_ALGS[mode]:
+        return _error(401, "SIGNATURE_INVALID", f"이 은행은 {mode} 모드라 {alg} 서명을 받지 않습니다")
     body = await request.body()
-    # 서명 경로는 base_url(`.../interbank`) 뒤의 부분이다 (SPEC 2.2). 운영에서는 /api 아래에 마운트되므로
-    # 실제 경로(/api/interbank/receive)가 아니라 규격 경로(/receive)로 검증한다
-    spec_path = request.url.path.partition(router.prefix)[2]
-    error = verify(settings.hub_secret.get_secret_value(), request.headers.get("x-timestamp"), request.method,
-                   spec_path, body, request.headers.get("x-signature"))
+    timestamp, signature = request.headers.get("x-timestamp"), request.headers.get("x-signature")
+    if alg == ALG_ED25519:
+        # both 모드에서 HUB_PUBLIC_KEY가 아직 없으면 검증할 수 없으므로 거절한다 (verify_ed25519가 INVALID)
+        error = verify_ed25519(settings.hub_public_key, timestamp, request.method, _spec_path(request), body, signature)
+    else:
+        error = verify(settings.hub_secret.get_secret_value(), timestamp, request.method, _spec_path(request), body,
+                       signature)
     if error:
         return _error(401, error, "서명이 맞지 않습니다" if error == "SIGNATURE_INVALID" else "서명 시각이 만료됐습니다")
+    request.state.signature_alg = alg
     return body
+
+
+async def _keep_evidence(request: Request, db: AsyncSession, transfer_id: str, body: bytes) -> None:
+    """검증을 통과한 입금·입금 확인 요청의 원문을 처리 전에 남기고(RECEIVE_IN), 우리 응답(RECEIVE_REPLY)은
+    응답 서명 미들웨어가 서명한 뒤 남기게 표시한다 (같은 요청 scope로 transfer_id를 넘긴다)."""
+    headers = {name: request.headers[name] for name in REQUEST_EVIDENCE_HEADERS if name in request.headers}
+    async with db.begin():
+        record_receive_in(db, transfer_id[:36], request.method, _spec_path(request), headers, body,
+                          request.state.signature_alg)
+    holder = request.scope.get(EVIDENCE_SCOPE_KEY)
+    if holder is not None:
+        holder["transfer_id"] = transfer_id[:36]
 
 
 def _validation_error(exc: ValidationError) -> JSONResponse:
@@ -130,6 +170,7 @@ async def receive(request: Request, db: Db):
         data = ReceiveBody.model_validate_json(body)
     except ValidationError as exc:
         return _validation_error(exc)
+    await _keep_evidence(request, db, data.transfer_id, body)
     status, content = await service.receive(db, data.model_dump())
     return JSONResponse(status_code=status, content=content)
 
@@ -139,6 +180,7 @@ async def receive_status(transfer_id: str, request: Request, db: Db):
     body = await _verified_body(request)
     if isinstance(body, JSONResponse):
         return body
+    await _keep_evidence(request, db, transfer_id, body)
     result = await service.receipt_status(db, transfer_id)
     if result is None:
         return _error(404, "TRANSFER_NOT_FOUND", "그 거래 ID로 입금한 적이 없습니다", transfer_id)
