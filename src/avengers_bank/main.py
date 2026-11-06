@@ -18,7 +18,7 @@ from avengers_bank.domains.demo.router import router as demo_router
 from avengers_bank.domains.fds.router import router as fds_router
 from avengers_bank.domains.fds.scorer import fds_scorer
 from avengers_bank.domains.interbank.router import router as interbank_router
-from avengers_bank.domains.interbank.worker import confirm_loop
+from avengers_bank.domains.interbank.worker import confirm_loop, settlement_sync_loop
 from avengers_bank.domains.products.router import router as product_router
 from avengers_bank.domains.recipients.router import router as recipient_router
 from avengers_bank.domains.speech.router import router as voice_router
@@ -33,16 +33,18 @@ init_sentry()  # SENTRY_DSN이 있을 때만
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     fds_scorer.load()  # LightGBM 모델은 앱 시작 때 한 번만 읽는다
-    # 처리 중 타행 이체 확인 (ClearingHub 설정이 있을 때만)
-    confirm_task = asyncio.create_task(confirm_loop()) if get_settings().interbank_enabled else None
+    # 처리 중 타행 이체 확인, 허브 정산 대사 (ClearingHub 설정이 있을 때만)
+    tasks: list[asyncio.Task] = []
+    if get_settings().interbank_enabled:
+        tasks = [asyncio.create_task(confirm_loop()), asyncio.create_task(settlement_sync_loop())]
     try:
         async with run_mcp_servers():  # 에이전트가 쓰는 MCP 서버 (/mcp/*)
             yield
     finally:
-        if confirm_task is not None:
-            confirm_task.cancel()
+        for task in tasks:
+            task.cancel()
             with suppress(asyncio.CancelledError):
-                await confirm_task
+                await task
         await engine.dispose()
 
 

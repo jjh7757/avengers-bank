@@ -34,6 +34,10 @@ class Settings(BaseSettings):
     hub_secret: SecretStr | None = None  # 서명 비밀키. 허브 → 우리 요청 검증에도 쓴다
     hub_timeout_seconds: float = Field(default=10, gt=0)
     interbank_confirm_interval_seconds: float = Field(default=30, gt=0)  # 처리 중(PENDING) 타행 이체 확인 간격
+    # 허브 정산 대사(SPEC 10.6) 간격. 시작 뒤 첫 대사는 지연만큼 기다렸다 한 번 돈다 (꺼져 있던 동안 놓친 run).
+    # 지연은 앱이 뜨고 처리 중 이체 확인이 한 번 돌 틈을 준다 (그래야 "확인 중"이 덜 난다)
+    interbank_settlement_sync_interval_seconds: float = Field(default=3600, gt=0)
+    interbank_settlement_sync_startup_delay_seconds: float = Field(default=60, ge=0)
     # 본인 명의 계좌 조회(SPEC 9절)의 가상 CI 키. 허브 관리자가 secret과 같은 경로로 준다. 없으면 이 기능만 꺼진다
     ci_key: SecretStr | None = None
 

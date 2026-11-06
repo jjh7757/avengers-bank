@@ -96,5 +96,13 @@ class HubClient:
         """본인 명의 다른 은행 계좌 (SPEC 9.2)"""
         return await self._request("POST", "/accounts/lookup", {"ci": ci, "consent_id": consent_id})
 
+    async def settlements(self) -> HubReply:
+        """내 정산 목록: 최근 30일 run, 최신순, CANCELLED 제외 (SPEC 10.4)"""
+        return await self._request("GET", "/settlements")
+
+    async def settlement(self, run_id: int) -> HubReply:
+        """대사 파일: 그 run의 내 포지션과 내가 보내거나 받은 거래 (SPEC 10.5). 서명 PATH에 run_id까지 들어간다"""
+        return await self._request("GET", f"/settlements/{run_id}")
+
 
 hub_client = HubClient()

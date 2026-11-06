@@ -1,7 +1,7 @@
-from datetime import datetime
+from datetime import date, datetime
 from enum import StrEnum
 
-from sqlalchemy import BigInteger, DateTime, ForeignKey, Integer, String, UniqueConstraint, func
+from sqlalchemy import BigInteger, Date, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from avengers_bank.core.database import Base
@@ -18,6 +18,9 @@ class LedgerAccount(StrEnum):
 
     SUSPENSE = "INTERBANK_SUSPENSE"  # 타행 송금 중간 계정: 고객 계좌에서 빠졌지만 아직 확정되지 않은 돈
     SETTLEMENT = "INTERBANK_SETTLEMENT"  # 타행 정산 계정 (은행별): + 우리가 그 은행에 줄 돈, - 받을 돈
+    # 허브에 맡긴 모의 예치금 (SPEC 10.2). 은행별이 아니라 하나이고 bank_code는 허브 "000"이다.
+    # 위 두 계정은 고객 예금처럼 "우리가 갚을 돈"이고, 이것만 "우리가 가진 돈"이라 정산 때 둘이 같은 방향으로 준다
+    HUB_RESERVE = "HUB_RESERVE"
 
 
 class LedgerEvent(StrEnum):
@@ -25,6 +28,15 @@ class LedgerEvent(StrEnum):
     COMPLETE = "COMPLETE"  # 보내기 완료: 중간 계정 → 정산 계정
     REFUND = "REFUND"  # 보내기 실패: 중간 계정 → 고객
     RECEIVE = "RECEIVE"  # 받기: 정산 계정 → 고객
+    SETTLE = "SETTLE"  # 허브 정산 확정 (SPEC 10.6의 4): 정산 계정 → 예치금 계정. transfer_id는 "settle:{run_id}:{은행}"
+
+
+class ReconResult(StrEnum):
+    """허브 정산 run 하나를 우리 장부와 맞춘 결과 (SPEC 10.6의 3)."""
+
+    MATCHED = "MATCHED"  # transfer_id·방향·금액·상대 은행과 포지션 순액이 모두 같다
+    CHECKING = "CHECKING"  # 허브는 COMPLETED인데 우리는 아직 PENDING인 거래가 있다 (결과를 확인한 뒤 다시 본다)
+    MISMATCH = "MISMATCH"  # 허브에만 있거나 내용이 다른 거래가 있다. 자동 처리를 멈추고 허브 관리자와 맞춘다
 
 
 class InterbankLedgerEntry(Base):
@@ -43,6 +55,27 @@ class InterbankLedgerEntry(Base):
     event: Mapped[str] = mapped_column(String(20), nullable=False)
     amount: Mapped[int] = mapped_column(BigInteger, nullable=False)  # 그 내부 계정 잔액의 증감
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    # 이 분개가 맞춰진 허브 정산 run (SPEC 10.6의 4). COMPLETE·RECEIVE의 정산 계정 줄은 그 run이 확정돼 장부를
+    # 정리할 때 찍고, SETTLE 줄은 처음부터 찍는다. NULL인 COMPLETE·RECEIVE 줄이 다음 대사의 후보다
+    hub_run_id: Mapped[int | None] = mapped_column(Integer, index=True)
+
+
+class SettlementReconciliation(Base):
+    """허브 정산 run 하나의 대사 결과 (SPEC 10.6). 같은 run을 다시 보면 이 행을 갱신한다.
+    settled_at이 있으면 그 run의 SETTLE 분개를 남긴 것이다 (run마다 한 번)."""
+
+    __tablename__ = "settlement_reconciliations"
+
+    hub_run_id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=False)
+    settle_date: Mapped[date] = mapped_column(Date, nullable=False)
+    hub_status: Mapped[str] = mapped_column(String(20), nullable=False)  # 마지막으로 본 허브 상태 DRAFT / SETTLED
+    hub_net_amount: Mapped[int] = mapped_column(BigInteger, nullable=False)  # 허브 position.net_amount (받을 돈 − 줄 돈)
+    our_net_amount: Mapped[int] = mapped_column(BigInteger, nullable=False)  # 일치한 거래로 계산한 같은 값
+    result: Mapped[str] = mapped_column(String(20), nullable=False)  # ReconResult
+    # 차이 목록 JSON: hub_only, differs, checking, ours_only, ours_only_stale, net (빈 항목은 넣지 않는다)
+    diff_json: Mapped[str] = mapped_column(Text, default="{}", nullable=False)
+    checked_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    settled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class InterbankTransfer(Base):

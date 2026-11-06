@@ -13,6 +13,7 @@ AvengersBank ◀──POST /interbank/inquiry · /interbank/receive · GET /inte
 |---|---|---|
 | 받기 (다른 은행 → 우리) | **푸시** | 허브가 우리 `/interbank/*`를 부른다 |
 | 보낸 이체의 결과 확인 | **폴링** | 우리 `worker.py`가 30초마다 허브 `GET /v1/transfers/{id}`를 부른다 (허브에는 콜백이 없음) |
+| 정산 대사 | **폴링** | 우리 `worker.py`가 1시간마다 허브 `GET /v1/settlements`·`/v1/settlements/{run_id}`를 부른다 (아래 "정산 대사와 장부 정리") |
 
 - **우리 서버는 항상 켜져 있어야 한다.** 허브가 언제 입금을 보낼지 모르기 때문이다. 별도 대기 작업은 필요 없고, 원래 떠 있는 FastAPI 서버에 `/interbank/*` 경로가 있으면 된다.
 - **허브가 닿을 수 있는 주소여야 한다.** `127.0.0.1`은 외부 허브가 부를 수 없으므로, 실제로 입금을 받으려면 공인 주소에 배포하고 그 주소를 허브에 등록한다 (로컬 테스트는 허브도 로컬에 띄운다).
@@ -30,8 +31,10 @@ AvengersBank ◀──POST /interbank/inquiry · /interbank/receive · GET /inte
 | `HUB_URL` | 허브 주소 (`/v1` 없이) |
 | `HUB_API_KEY`, `HUB_SECRET` | 허브가 발급한 API 키와 서명 비밀키. secret은 허브가 우리에게 보내는 요청 검증에도 쓴다 |
 | `CI_KEY` | 가상 CI 키 (다른 은행 내 계좌, 아래). 허브 관리자가 secret과 같은 경로로 준다. 없으면 이 기능만 꺼진다 (`503 INTERBANK_UNAVAILABLE`) |
+| `INTERBANK_SETTLEMENT_SYNC_INTERVAL_SECONDS` | 허브 정산 대사 간격 (기본 3600) |
+| `INTERBANK_SETTLEMENT_SYNC_STARTUP_DELAY_SECONDS` | 시작 뒤 첫 대사까지 (기본 60). 꺼져 있던 동안 놓친 run을 이때 이어서 본다 |
 
-셋(`HUB_URL`, `HUB_API_KEY`, `HUB_SECRET`) 중 하나라도 없으면 타행 이체가 꺼진다: `to_bank`가 다른 은행이면 `503 INTERBANK_UNAVAILABLE`, `/interbank/*`는 `503 INTERBANK_DISABLED`. 처리 중 확인 태스크도 돌지 않는다.
+셋(`HUB_URL`, `HUB_API_KEY`, `HUB_SECRET`) 중 하나라도 없으면 타행 이체가 꺼진다: `to_bank`가 다른 은행이면 `503 INTERBANK_UNAVAILABLE`, `/interbank/*`는 `503 INTERBANK_DISABLED`. 처리 중 확인 태스크와 정산 대사 태스크도 돌지 않는다.
 
 ## 보내기: `POST /transfers` + `to_bank`
 
@@ -67,13 +70,68 @@ AvengersBank ◀──POST /interbank/inquiry · /interbank/receive · GET /inte
 
 - **잔액 컬럼이 없다.** 잔액은 `amount`의 합이다 (`ledger_balances`). 한 행의 잔액을 갱신하면 모든 타행 이체가 그 행을 잠가 줄을 서게 되므로, 분개 행만 추가한다
 - **같은 사건은 한 번만**: `(transfer_id, event, account)`가 유일하다. 재전송·확인 태스크가 겹쳐도 두 번 분개되지 않는다
-- **대사** (`reconcile`, 확인 태스크가 30초마다 돈다): 중간 계정 잔액 = `PENDING` 이체 금액 합, 은행별 정산 계정 = 그 은행으로 완료된 이체 합 − 그 은행에서 받은 입금 합. 어긋나면 `ERROR` 로그(Sentry)를 남긴다. 거래 기록을 직접 고쳤거나 분개가 빠진 버그라는 뜻이다
+- **대사** (`reconcile`, 확인 태스크가 30초마다 돈다): 중간 계정 잔액 = `PENDING` 이체 금액 합, 은행별 정산 계정 = 그 은행으로 완료된 이체 합 − 그 은행에서 받은 입금 합 + 그 은행 `SETTLE` 분개(아래 "정산 대사와 장부 정리")의 정산 계정 줄 합, 예치금 계정 = 장부를 정리한 허브 run의 `net_amount` 합. 그리고 은행마다 허브 run에 묶인 정산 계정 줄의 합은 0이어야 한다. 어긋나면 `ERROR` 로그(Sentry)를 남긴다. 거래 기록을 직접 고쳤거나 분개가 빠진 버그라는 뜻이다
 - **허브 정산표와 맞춰 보기** (`settlement_positions(db, start, end)`): 기간 동안 은행별 보낸 금액·받은 금액·순액. 허브 `settlements`의 양방향 합계·순 금액과 같은 모양이다. 시각은 우리가 확정을 기록한 때라 자정 무렵 거래는 허브와 날짜가 다를 수 있다
 - 기존 거래는 마이그레이션 `a8b9c0d1e2f3`이 분개로 채워 넣는다 (배포 직후부터 대사가 맞게)
 
 **FDS**: 받는 계좌는 `902:110-123-0001`처럼 은행 코드를 붙여 넘긴다. 우리 은행의 같은 번호 계좌(등록 수취인)로 착각해 "처음 보내는 계좌" 검사를 건너뛰지 않게 하기 위해서다. 그래서 타행 계좌는 지금은 항상 처음 보내는 계좌로 본다 (수취인 등록에 은행이 없음).
 
 **1일 한도**: 되돌려 받은 `TRANSFER_REFUND`는 오늘 보낸 금액에서 뺀다.
+
+## 정산 대사와 장부 정리 (SPEC 10절, `settlement_sync.py`)
+
+이체 때 은행 사이의 돈은 움직이지 않고 정산 계정에 외상으로 쌓인다. 허브는 하루치 거래를 **정산 run** 하나로 묶어 은행별 차액(받을 돈 − 줄 돈)을 계산하고(`DRAFT`), 허브 관리자가 확정하면(`SETTLED`) 그 차액만큼 각 은행의 **모의 예치금**을 옮긴다. 우리는 그 run의 거래 목록(대사 파일)을 우리 장부와 `transfer_id` 하나하나로 맞춰 보고, 확정된 run이 맞으면 정산 계정의 그 run 몫을 예치금 계정으로 옮긴다. 실제 금융망의 13단계 "은행 장부 정리"에 해당한다.
+
+```
+settlement_sync_loop (시작 60초 뒤 한 번, 그 뒤 1시간마다)
+ 1. GET /v1/settlements → 끝나지 않은 run을 run_id 작은 것부터
+      끝나지 않음 = 대사 행 없음 / MATCHED가 아님 / MATCHED인데 장부를 아직 정리 안 함
+      목록에서 빠진 끝나지 않은 run(취소, 30일 지남)도 상세로 다시 본다
+    응답 없음·401 → 로그만, 다음 주기에 다시
+ 2. run마다 GET /v1/settlements/{run_id} → reconcile_run [한 트랜잭션]
+      CANCELLED → 무시 (DRAFT 때 남긴 행은 지운다. 그 거래는 다음 run에 다시 나온다)
+      DRAFT     → 비교만
+      SETTLED   → 비교, MATCHED면 SETTLE 분개
+    확인 중(CHECKING)이면 처리 중 이체를 허브에 물어(confirm_pending) 마무리한 뒤 한 번 더 비교한다
+```
+
+**비교.** 우리 쪽 후보는 정산 계정의 `COMPLETE`(+, 허브의 `SENT`)·`RECEIVE`(−, `RECEIVED`) 줄 중 아직 어느 run에도 묶이지 않은(`hub_run_id IS NULL`) 것 전부다. 날짜로 자르지 않는다 (허브가 "미정산" 기준이라 며칠 전 거래도 들어온다).
+
+| 허브 거래 | 판정 | `diff_json` |
+|---|---|---|
+| 후보에 있고 방향·금액·상대 은행이 같음 | 일치 | |
+| 후보에 없지만 우리 `interbank_transfers`에서 `PENDING` | 확인 중 | `checking` |
+| 후보에 없음 (다른 run에서 이미 맞춘 거래면 `settled_in`도) | 불일치 | `hub_only` |
+| 방향·금액·상대 은행이 다름 | 불일치 | `differs` (`hub`·`ours`) |
+| (후보에만 있음) | 불일치가 아님. 다음 run으로 | `ours_only`. `cutoff_at − 1시간`보다 먼저 끝났으면 `ours_only_stale` + `WARNING` |
+
+| `result` | 조건 | 장부 정리 |
+|---|---|---|
+| `MATCHED` | 불일치·확인 중이 없고, 일치한 거래로 계산한 순액(`our_net_amount`)이 허브 `position.net_amount`와 같음 | `SETTLED`이면 한 번 |
+| `CHECKING` | 확인 중인 거래가 있음 | 안 함. 다음 주기에 다시 |
+| `MISMATCH` | 불일치가 있거나 순액이 다름 (`net`) | 안 함. `ERROR` 로그, 다음 주기에 다시 보지만 자동으로 풀리지 않는다 |
+
+**장부 정리 (`SETTLE` 분개).** 상대 은행마다 `n` = 그 run에서 그 은행에 **줄 돈**(보낸 합 − 받은 합, 받을 돈이면 음수)에 대해 `transfer_id = "settle:{run_id}:{은행}"`으로 두 줄을 남긴다. 유니크 제약 `(transfer_id, event, account)` 때문에 같은 run을 두 번 정리할 수 없다. 맞춘 `COMPLETE`·`RECEIVE` 줄과 `SETTLE` 줄에는 `hub_run_id`를 찍는다.
+
+| 계정 | 변화 | 뜻 |
+|---|---|---|
+| `INTERBANK_SETTLEMENT:{은행}` | −n | 그 은행에 줄 돈을 갚았다 (받을 돈이면 받았다) → 그 run 몫이 0이 된다 |
+| `HUB_RESERVE` (`bank_code` `"000"`) | −n | 허브 예치금에서 그만큼 나갔다 (받을 돈이면 들어왔다) |
+
+- **부호**: `HUB_RESERVE`의 변화 = Σ(−n) = 허브의 `position.net_amount`(받을 돈 − 줄 돈)다. 901 → 902 5만 원 2건, 902 → 901 3만 원 1건이면 `INTERBANK_SETTLEMENT:902` +70,000 → 0, `HUB_RESERVE` −70,000, 허브의 901 `net_amount` −70,000
+- 두 줄이 같은 방향인 것은 정산 계정·중간 계정·고객 예금이 "우리가 갚을 돈"이고 `HUB_RESERVE`만 "우리가 가진 돈"이기 때문이다 (부채가 준 만큼 자산이 줄었다)
+- `HUB_RESERVE`는 확정된 run의 차액 합일 뿐 허브의 실제 예치금 잔액(`GET /v1/reserve`의 `balance`)과는 다르다. 허브 관리자의 예치·인출·정정은 우리 장부에 없다
+- 주고받은 금액이 같은 은행은 옮길 돈이 없으므로 `SETTLE` 분개 없이 `hub_run_id`만 찍는다
+
+**운영자가 `MISMATCH` 때 할 일.**
+
+1. `settlement_reconciliations`에서 그 run의 `diff_json`을 본다 (`ERROR` 로그에도 같은 내용)
+2. `hub_only`: 허브는 끝난 거래라는데 우리 장부에 없다. 받은 거래면 `interbank_receipts`, 보낸 거래면 `interbank_transfers`를 `transfer_id`로 찾는다. 입금 없이 `COMPLETED`라고 답했거나(받는 은행), 우리가 `FAILED`로 되돌렸는데 허브는 `COMPLETED`인 경우다. `settled_in`이 있으면 허브가 같은 거래를 두 run에 넣은 것이다
+3. `differs`: 금액·방향·상대 은행이 다르다. 허브 관리자의 거래 기록(`GET /admin/settlements/{run_id}/transfers`)과 대조한다
+4. `net`: 거래는 모두 맞는데 포지션 순액이 다르다. 허브 쪽 계산 문제이므로 허브 관리자에게 알린다
+5. 허브 관리자에게 run_id와 차이 나는 `transfer_id`를 알린다. **허브는 확정된 정산을 고치지 않고** 예치금 정정(관리자 기능)으로 처리한다 (SPEC 10.6). 맞춘 뒤 그 run의 정리는 사람이 직접 한다 (자동 처리는 멈춰 있다)
+
+`ours_only_stale` 경고는 우리 쪽에서는 끝났는데 허브 run에 계속 안 나오는 거래다 (허브가 아직 `PENDING`·`UNKNOWN`일 수 있다). 허브 관리자에게 그 `transfer_id`를 확인해 달라고 한다. 한 run이 불일치여도 이체와 다른 run의 대사는 계속된다.
 
 ## 받기: `/interbank/*` (허브 전용)
 
@@ -142,7 +200,8 @@ ci = hex(HMAC-SHA256(CI_KEY, 이름(공백 제거, NFC) + "|" + 생년월일(YYY
 |---|---|
 | `interbank_transfers` | 보낸 타행 이체: transfer_id, user_id, 출금 계좌, to_bank, to_account, 예금주, 금액, status, fail_code/message, check_count |
 | `interbank_receipts` | 받은 타행 입금: transfer_id(멱등 키), 입금 계좌, 보낸 은행·계좌·이름, 금액 |
-| `interbank_ledger` | 내부 계정 분개: transfer_id, account(중간·정산), bank_code(상대 은행), event, amount(±), 시각 |
+| `interbank_ledger` | 내부 계정 분개: transfer_id, account(중간·정산·예치금), bank_code(상대 은행, 예치금은 `000`), event, amount(±), 시각, hub_run_id(맞춰진 허브 정산 run) |
+| `settlement_reconciliations` | 허브 정산 run별 대사 결과: hub_run_id(PK), settle_date, hub_status, hub_net_amount, our_net_amount, result(`MATCHED`/`CHECKING`/`MISMATCH`), diff_json, checked_at, settled_at(장부 정리 시각) |
 | `own_account_lookups` | 다른 은행 내 계좌 불러오기 동의 기록: consent_id, user_id, 허브 lookup_id, 계좌 수 |
 | `own_account_refs` | 허브가 준 account_ref를 사용자에게 묶음: 은행, 가린 번호, 상품명, 만료 |
 
@@ -152,6 +211,7 @@ ci = hex(HMAC-SHA256(CI_KEY, 이름(공백 제거, NFC) + "|" + 생년월일(YYY
 
 - 브라우저(로컬, 실제 허브·가짜 은행 서버): SimBank `0001` 5만 원 → 받는 분 "김철수" 확인 → 완료, 잔액 반영 / `0005`(입금됐는데 응답 늦음) → "확인 중" → 허브·우리 확인 태스크가 돈 뒤 새로고침하면 "완료" / `0002` → 입력 화면에 "받는 계좌를 찾을 수 없습니다", 출금 없음. 가짜 은행 입금은 건마다 1번
 - 내부 계정: 시나리오마다 중간·정산 계정 잔액과 대사 확인 (완료 → 정산 +, 거절·실패 → 중간 0, PENDING → 중간 +, 재전송·재확인에도 분개 1번, 받기 → 정산 −), 양방향 상계 순액·`settlement_positions`, 거래 기록만 바꾸면 대사가 어긋남을 알림. 마이그레이션은 임시 PostgreSQL에서 기존 거래 백필 → 대사 일치 → downgrade까지 확인
+- `tests/test_settlement_sync.py` (10개, SETTLEMENT_PLAN 8절 B1~B5): 맞으면 `MATCHED` → 정산 계정 0·`HUB_RESERVE` −7만·맞춘 분개에 run 표시·`reconcile` 정상, 같은 run 두 번 → 분개 한 번, 허브에만 있음·금액 다름·순액 다름 → `MISMATCH`·분개 없음, `DRAFT` → 대사만 → `SETTLED`가 되면 정리, 허브 무응답·401 → 아무것도 안 함 → 다음 주기, 우리 쪽 `PENDING` → `CHECKING` → 허브 확인 뒤 `MATCHED`, 우리에게만 있는 거래 → 다음 run에서 맞춤·오래되면 경고, 끝나지 않은 run만 run_id 순서로·취소된 DRAFT는 기록 삭제
 - `tests/test_interbank.py` (21개): 받는 분 이름 확인(우리 은행·다른 은행·없는 계좌·없는 은행), 가짜 허브로 완료, 예금주 조회 실패 시 출금 안 함, 받는 은행 거절 → 되돌림 + 한도 복구, PENDING → 확정/실패, 허브 무응답 → PENDING 유지 → 같은 ID 재전송, 잔액 부족, 자행 코드는 자행 이체, 입금 멱등, 오류 형식, 서명 거절. 모아 대화: 카드 → 은행을 빼고 승인하면 거절 → 은행 넣어 승인 → 완료 → 재사용 거절, 계좌번호 되묻기(금액 기억), 없는 은행·없는 계좌, PENDING 승인, 대화 속 "검찰·안전계좌"가 타행 이체에도 FDS로 걸림
 - 실제 ClearingHub + bank_sim 코드와 한 프로세스에서 왕복: 정상 입금, 계좌 없음, "입금됐는데 응답 없음"(`0005`) → 허브 확인 → 우리 확인 → 둘 다 `COMPLETED`·입금 1번, 반대 방향(다른 은행 → 허브 → 우리) 입금과 재전송 시 1번만 입금
 

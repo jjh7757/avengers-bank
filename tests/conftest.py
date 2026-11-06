@@ -15,6 +15,7 @@ os.environ["HUB_API_KEY"] = "chk_test_api_key"
 os.environ["HUB_SECRET"] = "test-hub-secret"
 os.environ["HUB_TIMEOUT_SECONDS"] = "0.3"
 os.environ["INTERBANK_CONFIRM_INTERVAL_SECONDS"] = "3600"
+os.environ["INTERBANK_SETTLEMENT_SYNC_STARTUP_DELAY_SECONDS"] = "3600"  # 정산 대사도 test_settlement_sync.py가 직접 부른다
 os.environ["REFRESH_COOKIE_SECURE"] = "false"  # 테스트 클라이언트는 http://test라 Secure 쿠키를 보내지 않는다
 
 import pytest

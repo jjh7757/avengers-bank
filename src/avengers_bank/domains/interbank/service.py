@@ -15,6 +15,7 @@
   완료             중간 계정 -a / 정산 계정(받는 은행) +a
   되돌림 고객 +a  / 중간 계정 -a
   받기   고객 +a  / 정산 계정(보낸 은행) -a
+  정산   정산 계정(은행별) -n / 예치금 계정 -n   (n = 허브 run에서 그 은행에 줄 돈, 받을 돈이면 음수. settlement_sync)
 reconcile이 내부 계정 잔액과 거래 기록이 맞는지 확인한다.
 """
 
@@ -42,7 +43,9 @@ from avengers_bank.domains.interbank.models import (
     LedgerEvent,
     OwnAccountLookup,
     OwnAccountRef,
+    SettlementReconciliation,
 )
+from avengers_bank.domains.interbank.signing import HUB_BANK_CODE
 from avengers_bank.domains.products.models import AccountProduct
 from avengers_bank.domains.users.ci import ci_of
 from avengers_bank.domains.users.models import User
@@ -124,12 +127,14 @@ async def inquiry(to_bank: str, to_account: str) -> str:
 
 
 def _post(db: AsyncSession, transfer_id: str, event: LedgerEvent, bank_code: str,
-          *lines: tuple[LedgerAccount, int]) -> None:
-    """내부 계정 분개. 호출하는 쪽의 트랜잭션 안에서, 고객 잔액을 바꾸는 것과 함께 부른다."""
+          *lines: tuple[LedgerAccount, int], hub_run_id: int | None = None) -> None:
+    """내부 계정 분개. 호출하는 쪽의 트랜잭션 안에서, 고객 잔액을 바꾸는 것과 함께 부른다.
+    예치금 계정(HUB_RESERVE)은 은행별이 아니므로 bank_code 대신 허브 코드("000")로 남긴다."""
     now = now_utc()
     db.add_all(
-        InterbankLedgerEntry(transfer_id=transfer_id, account=account, bank_code=bank_code, event=event,
-                             amount=amount, created_at=now)
+        InterbankLedgerEntry(transfer_id=transfer_id, account=account, event=event, amount=amount, created_at=now,
+                             bank_code=HUB_BANK_CODE if account == LedgerAccount.HUB_RESERVE else bank_code,
+                             hub_run_id=hub_run_id)
         for account, amount in lines
     )
 
@@ -247,14 +252,14 @@ async def confirm_pending(db: AsyncSession) -> int:
 # ── 내부 계정 잔액·대사 ────────────────────────────────────────────
 
 async def ledger_balances(db: AsyncSession) -> dict[str, int]:
-    """내부 계정 잔액. {"INTERBANK_SUSPENSE": n, "INTERBANK_SETTLEMENT:902": n, ...}"""
+    """내부 계정 잔액. {"INTERBANK_SUSPENSE": n, "INTERBANK_SETTLEMENT:902": n, "HUB_RESERVE": n, ...}"""
     rows = await db.execute(
         select(InterbankLedgerEntry.account, InterbankLedgerEntry.bank_code, func.sum(InterbankLedgerEntry.amount))
         .group_by(InterbankLedgerEntry.account, InterbankLedgerEntry.bank_code)
     )
     balances: dict[str, int] = {LedgerAccount.SUSPENSE.value: 0}
     for account, bank_code, total in rows:
-        key = account if account == LedgerAccount.SUSPENSE else f"{account}:{bank_code}"
+        key = account if account in (LedgerAccount.SUSPENSE, LedgerAccount.HUB_RESERVE) else f"{account}:{bank_code}"
         balances[key] = balances.get(key, 0) + int(total or 0)
     return balances
 
@@ -262,7 +267,11 @@ async def ledger_balances(db: AsyncSession) -> dict[str, int]:
 async def reconcile(db: AsyncSession) -> list[str]:
     """내부 계정 잔액이 거래 기록과 맞는지 확인한다. 어긋난 내용 목록 (비어 있으면 정상).
       중간 계정 = PENDING 이체 금액 합
-      은행별 정산 계정 = 그 은행으로 완료된 이체 합 - 그 은행에서 받은 입금 합"""
+      은행별 정산 계정 = 그 은행으로 완료된 이체 합 - 그 은행에서 받은 입금 합 + 그 은행 SETTLE 분개의 정산 계정 줄 합
+      예치금 계정 = 장부를 정리한 허브 run의 net_amount 합 (settlement_reconciliations.settled_at이 있는 행)
+      그리고 은행마다, 허브 run에 묶인 정산 계정 줄(맞춘 COMPLETE·RECEIVE와 SETTLE)의 합 = 0
+      (정리한 run의 몫이 정산 계정에 남거나 모자라지 않았는지)"""
+    entry = InterbankLedgerEntry
     async with db.begin():
         balances = await ledger_balances(db)
         pending = await db.scalar(
@@ -282,11 +291,31 @@ async def reconcile(db: AsyncSession) -> list[str]:
         for bank, total in received:
             key = f"{LedgerAccount.SETTLEMENT}:{bank}"
             expected[key] = expected.get(key, 0) - int(total)
+        settled = await db.execute(
+            select(entry.bank_code, func.sum(entry.amount))
+            .where(entry.event == LedgerEvent.SETTLE, entry.account == LedgerAccount.SETTLEMENT)
+            .group_by(entry.bank_code)
+        )
+        for bank, total in settled:
+            key = f"{LedgerAccount.SETTLEMENT}:{bank}"
+            expected[key] = expected.get(key, 0) + int(total)
+        reserve = await db.scalar(
+            select(func.coalesce(func.sum(SettlementReconciliation.hub_net_amount), 0))
+            .where(SettlementReconciliation.settled_at.is_not(None))
+        )
+        expected[LedgerAccount.HUB_RESERVE.value] = int(reserve)
+        leftovers = await db.execute(
+            select(entry.bank_code, func.sum(entry.amount))
+            .where(entry.account == LedgerAccount.SETTLEMENT, entry.hub_run_id.is_not(None))
+            .group_by(entry.bank_code).having(func.sum(entry.amount) != 0)
+        )
+        problems = [f"{LedgerAccount.SETTLEMENT}:{bank}: 정리한 허브 run의 몫이 {int(total):,} 남음 (0이어야 함)"
+                    for bank, total in leftovers]
     return [
         f"{key}: 분개 잔액 {balances.get(key, 0):,} ≠ 거래 기록 {expected.get(key, 0):,}"
         for key in sorted(balances.keys() | expected.keys())
         if balances.get(key, 0) != expected.get(key, 0)
-    ]
+    ] + problems
 
 
 async def settlement_positions(db: AsyncSession, start: datetime, end: datetime) -> list[dict]:
@@ -298,7 +327,8 @@ async def settlement_positions(db: AsyncSession, start: datetime, end: datetime)
             select(entry.bank_code,
                    func.coalesce(func.sum(entry.amount).filter(entry.amount > 0), 0),
                    func.coalesce(func.sum(-entry.amount).filter(entry.amount < 0), 0))
-            .where(entry.account == LedgerAccount.SETTLEMENT, entry.created_at >= start, entry.created_at < end)
+            .where(entry.account == LedgerAccount.SETTLEMENT, entry.event.in_((LedgerEvent.COMPLETE, LedgerEvent.RECEIVE)),
+                   entry.created_at >= start, entry.created_at < end)
             .group_by(entry.bank_code).order_by(entry.bank_code)
         )
         return [{"bank_code": bank, "sent": int(out), "received": int(inc), "net": int(out) - int(inc)}
