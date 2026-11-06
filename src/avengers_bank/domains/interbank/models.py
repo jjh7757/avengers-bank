@@ -1,20 +1,52 @@
 from datetime import datetime
 from enum import StrEnum
 
-from sqlalchemy import BigInteger, DateTime, ForeignKey, Integer, String, func
+from sqlalchemy import BigInteger, DateTime, ForeignKey, Integer, String, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from avengers_bank.core.database import Base
 
 
 class InterbankStatus(StrEnum):
-    PENDING = "PENDING"  # 출금했고 허브 결과를 기다림. 이 행이 '타행 송금 중간 계정' 역할을 한다
-    COMPLETED = "COMPLETED"  # 받는 은행 입금 확인
-    FAILED = "FAILED"  # 받는 은행·허브가 거절 → 출금을 되돌림
+    PENDING = "PENDING"  # 출금해 타행 송금 중간 계정에 두고 허브 결과를 기다림
+    COMPLETED = "COMPLETED"  # 받는 은행 입금 확인 → 중간 계정에서 그 은행 정산 계정으로
+    FAILED = "FAILED"  # 받는 은행·허브가 거절 → 중간 계정에서 고객 계좌로 되돌림
+
+
+class LedgerAccount(StrEnum):
+    """은행 내부 계정 (고객 계좌가 아님)."""
+
+    SUSPENSE = "INTERBANK_SUSPENSE"  # 타행 송금 중간 계정: 고객 계좌에서 빠졌지만 아직 확정되지 않은 돈
+    SETTLEMENT = "INTERBANK_SETTLEMENT"  # 타행 정산 계정 (은행별): + 우리가 그 은행에 줄 돈, - 받을 돈
+
+
+class LedgerEvent(StrEnum):
+    DEBIT = "DEBIT"  # 보내기 출금: 고객 → 중간 계정
+    COMPLETE = "COMPLETE"  # 보내기 완료: 중간 계정 → 정산 계정
+    REFUND = "REFUND"  # 보내기 실패: 중간 계정 → 고객
+    RECEIVE = "RECEIVE"  # 받기: 정산 계정 → 고객
+
+
+class InterbankLedgerEntry(Base):
+    """내부 계정 분개. 잔액은 컬럼으로 두지 않고 amount의 합으로 계산한다 (한 행을 모든 이체가 잠그지 않게).
+
+    고객 쪽 변화는 checking_account_histories에 있다. 한 사건마다 '고객 쪽 변화 + 이 표의 변화 = 0'이다.
+    (transfer_id, event, account)가 유일해서 같은 사건을 두 번 기록할 수 없다."""
+
+    __tablename__ = "interbank_ledger"
+    __table_args__ = (UniqueConstraint("transfer_id", "event", "account", name="uq_interbank_ledger_event"),)
+
+    entry_id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    transfer_id: Mapped[str] = mapped_column(String(36), index=True, nullable=False)
+    account: Mapped[str] = mapped_column(String(30), nullable=False)
+    bank_code: Mapped[str] = mapped_column(String(3), nullable=False)  # 상대 은행
+    event: Mapped[str] = mapped_column(String(20), nullable=False)
+    amount: Mapped[int] = mapped_column(BigInteger, nullable=False)  # 그 내부 계정 잔액의 증감
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
 class InterbankTransfer(Base):
-    """우리 고객이 다른 은행으로 보낸 이체. 상태가 PENDING인 동안의 금액 합계가 송금 중인 돈이다."""
+    """우리 고객이 다른 은행으로 보낸 이체. 상태가 PENDING인 금액의 합은 중간 계정 잔액과 같아야 한다."""
 
     __tablename__ = "interbank_transfers"
 

@@ -16,7 +16,7 @@ from httpx import ASGITransport, AsyncClient
 
 from avengers_bank.core.database import SessionLocal
 from avengers_bank.domains.interbank.hub_client import hub_client
-from avengers_bank.domains.interbank.service import confirm_pending
+from avengers_bank.domains.interbank.service import confirm_pending, ledger_balances, reconcile, settlement_positions
 from avengers_bank.domains.interbank.signing import sign, verify
 from tests.conftest import new_chat_session, open_checking
 from tests.test_chat import approve, classify, say  # noqa: F401  classify는 fixture
@@ -123,6 +123,14 @@ async def interbank_list(client, headers) -> list[dict]:
     return (await client.get("/transfers/interbank", headers=headers)).json()["data"]
 
 
+async def books() -> dict[str, int]:
+    """내부 계정 잔액. 대사(분개 잔액 = 거래 기록)가 맞는지도 함께 확인한다."""
+    async with SessionLocal() as db:
+        assert await reconcile(db) == []
+    async with SessionLocal() as db, db.begin():
+        return {k: v for k, v in (await ledger_balances(db)).items() if v or k == "INTERBANK_SUSPENSE"}
+
+
 # ── 보내기 ──────────────────────────────────────────────────────
 
 async def test_banks_excludes_own(client, user, hub):
@@ -142,6 +150,7 @@ async def test_send_completed(client, user, hub):
     assert (call["from_account"], call["amount"], call["sender_name"]) == (source["account_num"], 30_000, "토니 스타크")
     assert await history_types(client, user, source["account_id"]) == [("TRANSFER_OUT", -30_000)]
     assert (await interbank_list(client, user))[0]["status"] == "COMPLETED"
+    assert await books() == {"INTERBANK_SUSPENSE": 0, "INTERBANK_SETTLEMENT:902": 30_000}
 
 
 async def test_request_id_passed_to_hub(client, user, hub):
@@ -161,6 +170,7 @@ async def test_send_account_not_found_before_debit(client, user, hub):
     assert res.status_code == 404 and res.json()["error"]["code"] == "ACCOUNT_NOT_FOUND"
     assert hub.transfer_calls == []
     assert await balance_of(client, user, source["account_id"]) == 100_000
+    assert await books() == {"INTERBANK_SUSPENSE": 0}
 
 
 async def test_send_rejected_by_receiver_refunds(client, user, hub):
@@ -173,6 +183,7 @@ async def test_send_rejected_by_receiver_refunds(client, user, hub):
     assert await balance_of(client, user, source["account_id"]) == 100_000
     assert await history_types(client, user, source["account_id"]) == [("TRANSFER_OUT", -30_000), ("TRANSFER_REFUND", 30_000)]
     assert (await interbank_list(client, user))[0]["status"] == "FAILED"
+    assert await books() == {"INTERBANK_SUSPENSE": 0}
 
     # 되돌려 받은 금액은 1일 한도에서 빠진다 (50,000 한도에 30,000을 다시 보낼 수 있음)
     res = await send(client, user, source["account_id"], "110-123-0001")
@@ -187,6 +198,7 @@ async def test_send_pending_then_confirmed(client, user, hub):
     assert data["status"] == "PENDING" and data["balance_after"] == 70_000
     assert "확인 중" in res.json()["message"]
 
+    assert await books() == {"INTERBANK_SUSPENSE": 30_000}  # 출금됐지만 확정 전: 중간 계정에 있다
     async with SessionLocal() as db:
         assert await confirm_pending(db) == 0  # 허브도 아직 PENDING
     hub.transfers[data["transfer_id"]]["status"] = "COMPLETED"
@@ -194,6 +206,7 @@ async def test_send_pending_then_confirmed(client, user, hub):
         assert await confirm_pending(db) == 1
     assert (await interbank_list(client, user))[0]["status"] == "COMPLETED"
     assert await balance_of(client, user, source["account_id"]) == 70_000
+    assert await books() == {"INTERBANK_SUSPENSE": 0, "INTERBANK_SETTLEMENT:902": 30_000}
 
 
 async def test_send_pending_then_failed_refunds(client, user, hub):
@@ -205,6 +218,7 @@ async def test_send_pending_then_failed_refunds(client, user, hub):
     [row] = await interbank_list(client, user)
     assert (row["status"], row["fail_code"]) == ("FAILED", "ACCOUNT_INACTIVE")
     assert await balance_of(client, user, source["account_id"]) == 100_000
+    assert await books() == {"INTERBANK_SUSPENSE": 0}
 
 
 async def test_hub_no_answer_keeps_money_pending_then_resends(client, user, hub):
@@ -215,6 +229,7 @@ async def test_hub_no_answer_keeps_money_pending_then_resends(client, user, hub)
     data = res.json()["data"]
     assert data["status"] == "PENDING"
     assert await balance_of(client, user, source["account_id"]) == 70_000
+    assert await books() == {"INTERBANK_SUSPENSE": 30_000}
 
     hub.hub_down = False
     async with SessionLocal() as db:
@@ -222,6 +237,9 @@ async def test_hub_no_answer_keeps_money_pending_then_resends(client, user, hub)
     assert [c["transfer_id"] for c in hub.transfer_calls] == [data["transfer_id"]] * 2  # 같은 ID로 재전송
     assert hub.transfers[data["transfer_id"]]["status"] == "COMPLETED"
     assert (await interbank_list(client, user))[0]["status"] == "COMPLETED"
+    async with SessionLocal() as db:
+        assert await confirm_pending(db) == 0  # 이미 확정된 거래는 다시 분개하지 않는다
+    assert await books() == {"INTERBANK_SUSPENSE": 0, "INTERBANK_SETTLEMENT:902": 30_000}
 
 
 async def test_send_respects_limits_and_balance(client, user, hub):
@@ -359,6 +377,7 @@ async def test_receive_once(client, user):
     assert first.json() == again.json() == {"transfer_id": payload["transfer_id"], "status": "COMPLETED", "holder_name": "토니 스타크"}
     assert await balance_of(client, user, account["account_id"]) == 26_000
     assert await history_types(client, user, account["account_id"]) == [("TRANSFER_IN", 25_000)]
+    assert await books() == {"INTERBANK_SUSPENSE": 0, "INTERBANK_SETTLEMENT:902": -25_000}  # 902가 우리에게 줄 돈
 
     status = await hub_call(client, "GET", f"/interbank/receive/{payload['transfer_id']}")
     assert status.json()["status"] == "COMPLETED"
@@ -405,3 +424,41 @@ async def test_receive_rejects_bad_signature(client, user):
     res = await client.post("/interbank/receive", json=receive_payload(account["account_num"]))  # 서명 없음
     assert res.status_code == 401
     assert await balance_of(client, user, account["account_id"]) == 0
+
+
+# ── 내부 계정 (중간 계정·정산 계정) ─────────────────────────────
+
+async def test_settlement_nets_both_directions(client, user, hub):
+    """보낸 30,000 + 받은 25,000 → 902 정산 계정 순액 +5,000 (우리가 줄 돈). 허브 정산표와 같은 모양"""
+    from datetime import timedelta
+
+    from avengers_bank.core.clock import now_utc
+
+    source = await open_checking(client, user, balance=100_000)
+    assert (await send(client, user, source["account_id"], "110-123-0001")).status_code == 200
+    assert (await hub_call(client, "POST", "/interbank/receive", receive_payload(source["account_num"]))).status_code == 200
+    assert await books() == {"INTERBANK_SUSPENSE": 0, "INTERBANK_SETTLEMENT:902": 5_000}
+
+    now = now_utc()
+    async with SessionLocal() as db:
+        positions = await settlement_positions(db, now - timedelta(hours=1), now + timedelta(hours=1))
+    assert positions == [{"bank_code": "902", "sent": 30_000, "received": 25_000, "net": 5_000}]
+    async with SessionLocal() as db:
+        assert await settlement_positions(db, now + timedelta(hours=1), now + timedelta(hours=2)) == []
+
+
+async def test_reconcile_detects_drift(client, user, hub):
+    """거래 기록만 바뀌고 분개가 따라가지 않으면(직접 DB 수정, 버그) 대사가 어긋남을 알린다"""
+    from sqlalchemy import update
+
+    from avengers_bank.domains.interbank.models import InterbankTransfer
+
+    source = await open_checking(client, user, balance=100_000)
+    tid = (await send(client, user, source["account_id"], "110-123-0003")).json()["data"]["transfer_id"]
+    await books()
+    async with SessionLocal() as db, db.begin():
+        await db.execute(update(InterbankTransfer).where(InterbankTransfer.transfer_id == tid).values(status="COMPLETED"))
+    async with SessionLocal() as db:
+        problems = await reconcile(db)
+    assert len(problems) == 2
+    assert problems[0].startswith("INTERBANK_SETTLEMENT:902") and problems[1].startswith("INTERBANK_SUSPENSE")

@@ -9,13 +9,20 @@
      (되돌렸는데 실제로 입금됐다면 돈이 두 배가 된다)
 
 받기 (SPEC 4절): receive가 transfer_id로 한 번만 입금한다.
+
+내부 계정 분개 (interbank_ledger, 고객 잔액 변경과 같은 트랜잭션):
+  출금   고객 -a  / 중간 계정 +a
+  완료             중간 계정 -a / 정산 계정(받는 은행) +a
+  되돌림 고객 +a  / 중간 계정 -a
+  받기   고객 +a  / 정산 계정(보낸 은행) -a
+reconcile이 내부 계정 잔액과 거래 기록이 맞는지 확인한다.
 """
 
 import logging
 import uuid
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -27,9 +34,12 @@ from avengers_bank.domains.accounts.repository import account_repository
 from avengers_bank.domains.interbank.hub_client import HubReply, hub_client
 from avengers_bank.domains.interbank.models import (
     HubAccountQuery,
+    InterbankLedgerEntry,
     InterbankReceipt,
     InterbankStatus,
     InterbankTransfer,
+    LedgerAccount,
+    LedgerEvent,
     OwnAccountLookup,
     OwnAccountRef,
 )
@@ -113,11 +123,22 @@ async def inquiry(to_bank: str, to_account: str) -> str:
     raise InterbankUnavailable()
 
 
+def _post(db: AsyncSession, transfer_id: str, event: LedgerEvent, bank_code: str,
+          *lines: tuple[LedgerAccount, int]) -> None:
+    """내부 계정 분개. 호출하는 쪽의 트랜잭션 안에서, 고객 잔액을 바꾸는 것과 함께 부른다."""
+    now = now_utc()
+    db.add_all(
+        InterbankLedgerEntry(transfer_id=transfer_id, account=account, bank_code=bank_code, event=event,
+                             amount=amount, created_at=now)
+        for account, amount in lines
+    )
+
+
 async def debit(
     db: AsyncSession, *, user_id: int, source: CheckingAccount, to_bank: str, to_account: str,
     amount: int, holder_name: str | None, to_account_ref: str | None = None,
 ) -> InterbankTransfer:
-    """출금 + 송금 기록(PENDING). 호출하는 쪽의 트랜잭션 안에서, 잠근 source로 부른다."""
+    """출금(고객 → 중간 계정) + 송금 기록(PENDING). 호출하는 쪽의 트랜잭션 안에서, 잠근 source로 부른다."""
     now = now_utc()
     source.balance -= amount
     await account_repository.save(db, CheckingAccountHistory(
@@ -130,6 +151,7 @@ async def debit(
         amount=amount, status=InterbankStatus.PENDING,
     )
     db.add(transfer)
+    _post(db, transfer.transfer_id, LedgerEvent.DEBIT, to_bank, (LedgerAccount.SUSPENSE, amount))
     await db.flush()
     return transfer
 
@@ -153,6 +175,7 @@ async def _refund(db: AsyncSession, transfer: InterbankTransfer, code: str, mess
         checking_account_id=source.checking_account_id, date=now_utc(), change_amount=transfer.amount,
         type=HistoryType.TRANSFER_REFUND, from_account=transfer.to_account[:20], sending_account=source.account_num,
     ))
+    _post(db, transfer.transfer_id, LedgerEvent.REFUND, transfer.to_bank, (LedgerAccount.SUSPENSE, -transfer.amount))
     transfer.status = InterbankStatus.FAILED
     transfer.fail_code, transfer.fail_message = code[:40], message[:200]
     transfer.finished_at = now_utc()
@@ -165,6 +188,8 @@ async def _apply(db: AsyncSession, transfer: InterbankTransfer, reply: HubReply)
         return
     hub_status = reply.body.get("status")
     if reply.ok and hub_status == "COMPLETED":
+        _post(db, transfer.transfer_id, LedgerEvent.COMPLETE, transfer.to_bank,
+              (LedgerAccount.SUSPENSE, -transfer.amount), (LedgerAccount.SETTLEMENT, transfer.amount))
         transfer.status = InterbankStatus.COMPLETED
         transfer.to_holder_name = reply.body.get("holder_name") or transfer.to_holder_name
         transfer.finished_at = now_utc()
@@ -219,6 +244,67 @@ async def confirm_pending(db: AsyncSession) -> int:
     return confirmed
 
 
+# ── 내부 계정 잔액·대사 ────────────────────────────────────────────
+
+async def ledger_balances(db: AsyncSession) -> dict[str, int]:
+    """내부 계정 잔액. {"INTERBANK_SUSPENSE": n, "INTERBANK_SETTLEMENT:902": n, ...}"""
+    rows = await db.execute(
+        select(InterbankLedgerEntry.account, InterbankLedgerEntry.bank_code, func.sum(InterbankLedgerEntry.amount))
+        .group_by(InterbankLedgerEntry.account, InterbankLedgerEntry.bank_code)
+    )
+    balances: dict[str, int] = {LedgerAccount.SUSPENSE.value: 0}
+    for account, bank_code, total in rows:
+        key = account if account == LedgerAccount.SUSPENSE else f"{account}:{bank_code}"
+        balances[key] = balances.get(key, 0) + int(total or 0)
+    return balances
+
+
+async def reconcile(db: AsyncSession) -> list[str]:
+    """내부 계정 잔액이 거래 기록과 맞는지 확인한다. 어긋난 내용 목록 (비어 있으면 정상).
+      중간 계정 = PENDING 이체 금액 합
+      은행별 정산 계정 = 그 은행으로 완료된 이체 합 - 그 은행에서 받은 입금 합"""
+    async with db.begin():
+        balances = await ledger_balances(db)
+        pending = await db.scalar(
+            select(func.coalesce(func.sum(InterbankTransfer.amount), 0)).where(InterbankTransfer.status == InterbankStatus.PENDING)
+        )
+        expected: dict[str, int] = {LedgerAccount.SUSPENSE.value: int(pending)}
+        sent = await db.execute(
+            select(InterbankTransfer.to_bank, func.sum(InterbankTransfer.amount))
+            .where(InterbankTransfer.status == InterbankStatus.COMPLETED).group_by(InterbankTransfer.to_bank)
+        )
+        received = await db.execute(
+            select(InterbankReceipt.from_bank, func.sum(InterbankReceipt.amount)).group_by(InterbankReceipt.from_bank)
+        )
+        for bank, total in sent:
+            key = f"{LedgerAccount.SETTLEMENT}:{bank}"
+            expected[key] = expected.get(key, 0) + int(total)
+        for bank, total in received:
+            key = f"{LedgerAccount.SETTLEMENT}:{bank}"
+            expected[key] = expected.get(key, 0) - int(total)
+    return [
+        f"{key}: 분개 잔액 {balances.get(key, 0):,} ≠ 거래 기록 {expected.get(key, 0):,}"
+        for key in sorted(balances.keys() | expected.keys())
+        if balances.get(key, 0) != expected.get(key, 0)
+    ]
+
+
+async def settlement_positions(db: AsyncSession, start: datetime, end: datetime) -> list[dict]:
+    """기간 [start, end) 동안 은행별 정산 계정 움직임: 보낸 금액, 받은 금액, 순액(+면 우리가 줄 돈).
+    허브 정산표(은행 쌍별 양방향 합계·순 금액)와 맞춰 볼 때 쓴다. 시각은 우리가 확정을 기록한 때다."""
+    entry = InterbankLedgerEntry
+    async with db.begin():
+        rows = await db.execute(
+            select(entry.bank_code,
+                   func.coalesce(func.sum(entry.amount).filter(entry.amount > 0), 0),
+                   func.coalesce(func.sum(-entry.amount).filter(entry.amount < 0), 0))
+            .where(entry.account == LedgerAccount.SETTLEMENT, entry.created_at >= start, entry.created_at < end)
+            .group_by(entry.bank_code).order_by(entry.bank_code)
+        )
+        return [{"bank_code": bank, "sent": int(out), "received": int(inc), "net": int(out) - int(inc)}
+                for bank, out, inc in rows]
+
+
 async def list_my_transfers(db: AsyncSession, user_id: int, limit: int = 50) -> list[InterbankTransfer]:
     stmt = (select(InterbankTransfer).where(InterbankTransfer.user_id == user_id)
             .order_by(InterbankTransfer.created_at.desc()).limit(limit))
@@ -254,6 +340,7 @@ async def receive(db: AsyncSession, data: dict) -> tuple[int, dict]:
                 from_account=data["from_account"], sender_name=data["sender_name"], amount=data["amount"],
                 memo=data.get("memo", ""), received_at=now,
             ))
+            _post(db, transfer_id, LedgerEvent.RECEIVE, data["from_bank"], (LedgerAccount.SETTLEMENT, -data["amount"]))
             await account_repository.save(db, CheckingAccountHistory(
                 checking_account_id=account.checking_account_id, date=now, change_amount=data["amount"],
                 type=HistoryType.TRANSFER_IN, from_account=data["from_account"][:20], sending_account=account.account_num,
