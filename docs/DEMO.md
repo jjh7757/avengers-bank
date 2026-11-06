@@ -77,6 +77,12 @@ uv run python scripts/demo_seed.py
 3. **"이체 한도를 5천만원으로 올려줘"** → "대화로는 낮추기만, 높이기는 앱 화면에서"
 4. 말할 것: *은행 기능·상담 지식 28개를 MCP 서버 6개로. 에이전트는 MCP로만 은행을 다루고, 돈이 움직이는 도구와 약관 동의가 필요한 개설·발급 도구는 처음부터 주지 않았다. 앱에서 직접 가입해도 같은 약관 화면을 거친다*
 
+### 타행 이체 뒤 정산 (허브 시연과 함께)
+허브 쪽 순서·숫자는 ClearingHub `docs/DEMO.md`. 모아로 "SimBank 110-123-0001로 5만 원" 같은 타행 이체를 한 뒤 허브 관리자가 정산 run을 만들고 확정하면:
+- `settlement_sync_loop`가 1시간 안에(재시작 직후면 60초 뒤, 시연 땐 `.env`에 `INTERBANK_SETTLEMENT_SYNC_INTERVAL_SECONDS=30`) 그 run을 우리 장부와 맞춰 `MATCHED`로 기록하고, 확정된 run이면 `INTERBANK_SETTLEMENT:902`를 0으로, `HUB_RESERVE`를 허브의 우리 `net_amount`(예: −7만)만큼 바꾼다
+- 확인: 서버 로그 `허브 정산 대사: run N MATCHED`·`정산 run N 장부 정리: 허브 예치금 -70000원`, DB `SELECT hub_run_id, hub_status, result, hub_net_amount, our_net_amount, settled_at FROM settlement_reconciliations ORDER BY hub_run_id;`
+- 안 맞으면 `MISMATCH`와 `diff_json`(`hub_only` 등)이 남고 장부는 정리하지 않는다 ([INTERBANK.md](INTERBANK.md) "정산 대사와 장부 정리"). 허브 DB를 초기화했으면 `settlement_reconciliations`와 `interbank_ledger.hub_run_id`도 비운다
+
 ## 비상 대응
 
 | 문제 | 대응 |
