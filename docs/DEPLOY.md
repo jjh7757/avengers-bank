@@ -80,9 +80,32 @@ docker stats --no-stream avengers-bank                          # 메모리
 
 - 허브 → 우리: `base_url = http://avengers-bank:8000/api/interbank` (같은 서버의 `web` 네트워크 안)
 - 우리 → 허브: `HUB_URL = https://clearing-hub.ai-agent-develop.cloud`
-- `/srv/avengers-bank/.env`에 `BANK_CODE=901`, `HUB_URL`, `HUB_API_KEY`, `HUB_SECRET` 추가 (등록 응답을 서버 안에서 바로 파일에 씀, 출력 안 함. 원래 파일은 `.env.bak-*`). 그다음 같은 태그로 `deploy-app avengers-bank <태그>` (`restart`로는 env가 바뀌지 않는다)
-- 확인: 허브 `POST /admin/banks/901/ping` → `reachable=true, status=404 ACCOUNT_NOT_FOUND`(서명 통과, 없는 계좌), 컨테이너 안에서 `hub_client.banks()` 200(901·902), `inquiry("902","110-123-0001")` 200 김철수. 서명 없는 `POST /api/interbank/inquiry`는 401
-- 키를 다시 받아야 하면: 허브 `POST /admin/banks/901/keys` → `.env`의 `HUB_API_KEY`·`HUB_SECRET` 교체 → 같은 태그로 `deploy-app`
+- `/srv/avengers-bank/.env`에 `BANK_CODE=901`, `HUB_URL`, `HUB_API_KEY` (등록 응답을 서버 안에서 바로 파일에 씀, 출력 안 함. 원래 파일은 `.env.bak-*`). 8d부터 `INTERBANK_SIGNING_KEY`·`HUB_PUBLIC_KEY`도 필요하다 (아래 "Ed25519 전용 전환"). `.env`를 바꾸면 같은 태그로 `deploy-app avengers-bank <태그>` (`restart`로는 env가 바뀌지 않는다)
+- 확인: `docker exec avengers-bank python -m avengers_bank.domains.interbank.keys ping` → `ok: True`(허브가 우리 `/api/interbank/inquiry`를 허브 키로 불러 404 `ACCOUNT_NOT_FOUND` + 우리 응답 서명 확인), `keys status` → 지문 일치. 허브 쪽에서는 `POST /admin/banks/901/ping`이 같은 결과. 서명 없는 `POST /api/interbank/inquiry`는 401 (응답에 `X-Response-Signature`)
+- API 키를 다시 받아야 하면: 허브 `POST /admin/banks/901/keys` → `.env`의 `HUB_API_KEY` 교체 → 같은 태그로 `deploy-app`
 - 다른 은행 내 계좌(SPEC 9절): `.env`에 `CI_KEY` (허브 서버 `/srv/clearing-hub/.env`의 `CI_KEY`와 같은 값, 서버 안에서 복사). 없으면 이 기능만 503
-- 부인방지(Ed25519, [INTERBANK.md](INTERBANK.md)의 "부인방지(Ed25519)" 전환 순서): 키는 **서버 안에서** 만든다 `docker exec avengers-bank python -m avengers_bank.domains.interbank.keys generate`. 출력의 개인키는 `/srv/avengers-bank/.env`의 `INTERBANK_SIGNING_KEY`에만 넣고(다른 곳에 복사·저장하지 않는다, 터미널 기록은 지운다) 공개키와 지문은 허브 관리자에게 알려도 된다. `HUB_PUBLIC_KEY`는 `keys hub-key` 출력의 지문이 허브 관리자가 따로 알려 준 값과 같을 때만 넣는다. `INTERBANK_SIGNATURE_MODE`는 허브 관리자가 바꾼 우리 모드(`keys status`의 `signature_mode`)와 같게 두고, 바꿀 때마다 같은 태그로 `deploy-app`. `ed25519`인데 두 키 중 하나라도 없으면 컨테이너가 뜨지 않는다(설정 오류 로그). 개인키를 잃어버리면 새로 만들어 `register`한다. `ed25519` 모드에서는 `register`도 지금 키로 서명해야 하므로, 허브 관리자에게 모드를 `both`로 내리거나 새 공개키를 대신 등록(`POST /admin/banks/901/public-key`)해 달라고 한다. 이전 서명 증거는 옛 공개키로 계속 검증된다
+- 키 관리([INTERBANK.md](INTERBANK.md) "키 도구"): 도구는 **컨테이너 안에서** 돌린다 `docker exec avengers-bank python -m avengers_bank.domains.interbank.keys <명령>`. 개인키(`generate`)와 `api_key`(`register-bank`) 출력은 `.env`에만 옮기고 다른 곳에 복사·저장하지 않는다 (터미널 기록은 지운다). 공개키와 지문은 허브 관리자에게 알려도 된다. 회전은 `keys register --public-key <새 공개키>` 뒤 24시간 안에 `.env`를 새 개인키로 바꿔 `deploy-app`. 개인키를 잃어버리면 새로 만들어 허브 관리자에게 새 공개키를 대신 등록(`POST /admin/banks/901/public-key`)해 달라고 한다. 이전 서명 증거는 옛 공개키로 계속 검증된다
 - 서버 가짜 은행(SimBank 902)은 메모리 저장이라 허브를 재배포하면 입금 기록이 사라진다. 지연(`…0003`, `…0005`)은 8초
+
+### Ed25519 전용 전환 (8d, 허브 8c와 함께)
+
+허브 8c(SPEC v1.0)부터 허브는 Ed25519 서명만 받고 보내며, AvengersBank 8d도 Ed25519만 쓴다(`HUB_SECRET`·`INTERBANK_SIGNATURE_MODE` 삭제). 둘은 **같은 때** 배포한다. 허브 쪽 순서는 ClearingHub `docs/DEPLOY.md` "Ed25519 필수화 배포 순서"이고, 그 1번(901 공개키 등록)이 먼저다.
+
+1. **키 만들기 (배포 전, 서버 안에서).** 지금 이미지에 `keys` 도구가 있으면(8b 이후) `docker exec avengers-bank python -m avengers_bank.domains.interbank.keys generate`, 없으면 허브와 같이 `openssl`로 만든다 (raw 32바이트 = PKCS#8 DER의 끝 32바이트):
+   ```bash
+   sudo grep -q '^INTERBANK_SIGNING_KEY=.\+' /srv/avengers-bank/.env || \
+     echo "INTERBANK_SIGNING_KEY=$(openssl genpkey -algorithm ed25519 -outform DER | tail -c 32 | base64)" | sudo tee -a /srv/avengers-bank/.env >/dev/null
+   ```
+   공개키와 지문은 배포 전에 허브 관리자에게 줘야 하므로 개인키에서 바로 만든다 (개인키는 화면에 내지 않는다. `keys generate`로 만들었으면 그 출력의 공개키·지문을 쓴다):
+   ```bash
+   KEY=$(sudo grep '^INTERBANK_SIGNING_KEY=' /srv/avengers-bank/.env | cut -d= -f2)
+   PUB=$( (printf '\x30\x2e\x02\x01\x00\x30\x05\x06\x03\x2b\x65\x70\x04\x22\x04\x20'; echo "$KEY" | base64 -d) \
+         | openssl pkey -inform DER -pubout -outform DER | tail -c 32 | base64)
+   echo "공개키 $PUB  지문 $(echo "$PUB" | base64 -d | sha256sum | cut -c1-16)"; unset KEY
+   ```
+2. **허브 관리자와 주고받기 (개별 경로).** 우리 → 관리자: 공개키·지문 (관리자가 `POST /admin/banks/901/public-key`로 등록하고, 응답의 `public_key_fingerprint`가 우리 지문과 같은지 본다). 관리자 → 우리: 허브 공개키와 그 지문. 허브 공개키를 `.env`의 `HUB_PUBLIC_KEY`에 넣기 전에 지문을 맞춘다 `echo "$HUB_PUB" | base64 -d | sha256sum | cut -c1-16`. 허브 8c 배포 뒤에는 `keys hub-key`의 지문과도 같아야 한다
+3. **`.env` 정리.** `INTERBANK_SIGNING_KEY`, `HUB_PUBLIC_KEY`가 있고 `HUB_SECRET`·`INTERBANK_SIGNATURE_MODE` 줄은 지운다 (남아 있어도 무시되지만 헷갈린다). 아직 재배포하지 않는다: 8d 전 이미지에서 `INTERBANK_SIGNATURE_MODE`가 없으면 `hmac`이라 지금 동작은 그대로다
+4. **배포.** 허브 8c 배포(1번 공개키 등록이 배포 전에 안 됐으면 배포 직후 가장 먼저) → 바로 AvengersBank 8d 이미지로 `deploy-app avengers-bank <태그>`. 둘 사이에는 901의 허브 요청이 401이고, 901로 오는 이체는 허브가 접수 전에 거절하거나(공개키 없음) 우리가 401로 거절해 `FAILED`로 끝난다. 우리가 보낸 이체는 서명 없는 401을 받으면 PENDING으로 남는다. 이중 지급은 없지만 시연·실사용이 없는 시간에 짧게 붙여서 한다
+5. **확인.** `keys ping` → `ok: True`, `keys status` → exit 0(지문 일치), 시작 로그에 "타행 이체가 꺼져 있습니다"가 없다. 허브 관리자 `POST /admin/banks/901/ping`도 `ok: true`. 모아 화면에서 902로 소액 이체 → `COMPLETED`, DB `hub_evidence`의 그 거래 `TRANSFER_REPLY.signature_valid = true`
+
+되돌리기는 허브와 함께만 할 수 있다 (한쪽만 되돌리면 서로의 서명을 받지 않는다). 허브 8c 마이그레이션이 `hmac_secret`을 지우므로 옛 `HUB_SECRET`으로 그냥 돌아갈 수는 없다. 문제가 생기면 되돌리기보다 `keys ping`·`keys status`로 키를 맞춘다.

@@ -8,11 +8,17 @@ os.environ["JWT_SECRET_KEY"] = "test-secret-key-test-secret-key-0000"
 os.environ["VOICE_ENCRYPTION_KEY"] = "0nqMmCGBZz4Ii2tmmjnlxxzI5d7Z0r6MWQqv2qD3fWs="  # 테스트 전용 Fernet 키
 os.environ["GEMINI_API_KEY"] = ""  # 테스트는 실제 Gemini를 부르지 않는다
 os.environ["DEMO_MODE"] = "false"  # 시연 모드는 test_demo.py에서만 켠다
-# 타행 이체: 허브 호출은 test_interbank.py의 가짜 허브로 보낸다. 확인 태스크는 테스트가 직접 부른다
+# 타행 이체: 허브 호출은 test_interbank.py의 가짜 허브로 보낸다. 확인 태스크는 테스트가 직접 부른다.
+# 서명은 Ed25519 하나다 (SPEC 2절). 테스트 전용 키 쌍: 우리(901)와 가짜 허브. 운영에 쓰지 않는다
+TEST_BANK_PRIVATE = "6LtxSvo5Gc1n5TiocqR76vN9Gm+0AojvBf+G58Gt5wI="
+TEST_BANK_PUBLIC = "YsiHrtUs9ldZc4KFQaAH7WMmiQ21vvw1rhVqB6HAb9w="
+TEST_HUB_PRIVATE = "N/gIUZuV+715H13DwbdykoVwZlYalo740MYEJhGyat8="
+TEST_HUB_PUBLIC = "Rgq/9D9j1wqazbZRR0JpsM/UiTCbO4a40GOGvP2Sepo="
 os.environ["BANK_CODE"] = "901"
 os.environ["HUB_URL"] = "http://hub"
 os.environ["HUB_API_KEY"] = "chk_test_api_key"
-os.environ["HUB_SECRET"] = "test-hub-secret"
+os.environ["INTERBANK_SIGNING_KEY"] = TEST_BANK_PRIVATE
+os.environ["HUB_PUBLIC_KEY"] = TEST_HUB_PUBLIC
 os.environ["HUB_TIMEOUT_SECONDS"] = "0.3"
 os.environ["INTERBANK_CONFIRM_INTERVAL_SECONDS"] = "3600"
 os.environ["INTERBANK_SETTLEMENT_SYNC_STARTUP_DELAY_SECONDS"] = "3600"  # 정산 대사도 test_settlement_sync.py가 직접 부른다

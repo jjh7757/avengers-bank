@@ -1,12 +1,10 @@
-"""SPEC 2절: 요청 서명(HMAC-SHA256 / Ed25519)과 응답 서명(Ed25519, 2.5). 허브와 같은 방식.
+"""SPEC 2절: Ed25519 요청 서명과 응답 서명(2.5). 허브와 같은 방식. 서명 방식은 이것 하나다 (HMAC은 SPEC v1.0에서 빠졌다).
 
 요청 message = X-Timestamp + "\\n" + METHOD + "\\n" + PATH + "\\n" + body(전송 바이트 그대로)
-  HMAC:    X-Signature = hex(HMAC-SHA256(secret, message))                              (전환 기간, 2.2)
-  Ed25519: X-Signature = base64(Ed25519(개인키, message)), X-Signature-Alg: ed25519     (부인방지, 2.3)
+  X-Signature = base64(Ed25519(보내는 쪽 개인키, message)), X-Signature-Alg: ed25519 (SPEC 2.2·2.3)
 
 METHOD는 대문자. PATH는 규격에 정한 경로다 (SPEC 2.2): 허브 API는 `/v1/...`,
 우리 은행 API는 base_url(`.../interbank`) 뒤의 부분(`/receive` 등). 쿼리스트링은 넣지 않는다.
-두 방식의 message는 같은 문자열이다. 바뀌는 것은 서명 함수와 X-Signature-Alg 헤더뿐이다.
 
 응답 message = X-Response-Timestamp + "\\n" + STATUS + "\\n" + 요청의 X-Signature 값 + "\\n" + 응답 body (SPEC 2.5)
   응답을 그 요청에 묶는다. 다른 요청에 대한 진짜 응답을 가져다 붙이면 검증이 틀린다.
@@ -21,7 +19,6 @@ METHOD는 대문자. PATH는 규격에 정한 경로다 (SPEC 2.2): 허브 API�
 import base64
 import binascii
 import hashlib
-import hmac
 import time
 
 from cryptography.exceptions import InvalidSignature
@@ -35,7 +32,6 @@ MAX_SKEW_SECONDS = 300
 ALG_HEADER = "X-Signature-Alg"
 RESPONSE_TIMESTAMP_HEADER = "X-Response-Timestamp"
 RESPONSE_SIGNATURE_HEADER = "X-Response-Signature"
-ALG_HMAC = "hmac"
 ALG_ED25519 = "ed25519"
 
 KEY_B64_LENGTH = 44  # 32바이트 → base64 44자
@@ -60,31 +56,6 @@ def _check_time(timestamp: str | None, max_skew: int | None) -> str | None:
     if max_skew is not None and abs(int(time.time()) - ts) > max_skew:
         return "SIGNATURE_EXPIRED"
     return None
-
-
-# ── HMAC (SPEC 2.2, 전환 기간) ─────────────────────────────────────
-
-def _digest(secret: str, timestamp: str, method: str, path: str, body: bytes) -> str:
-    return hmac.new(secret.encode(), _message(timestamp, method, path, body), hashlib.sha256).hexdigest()
-
-
-def sign(secret: str, method: str, path: str, body: bytes, timestamp: int | None = None) -> dict[str, str]:
-    ts = _timestamp(timestamp)
-    return {"X-Timestamp": ts, "X-Signature": _digest(secret, ts, method, path, body)}
-
-
-def verify(
-    secret: str, timestamp: str | None, method: str, path: str, body: bytes, signature: str | None,
-    max_skew: int | None = MAX_SKEW_SECONDS,
-) -> str | None:
-    """맞으면 None, 틀리면 오류 코드 (SIGNATURE_EXPIRED / SIGNATURE_INVALID)."""
-    if error := _check_time(timestamp, max_skew):
-        return error
-    expected = _digest(secret, timestamp or "", method, path, body)
-    try:
-        return None if hmac.compare_digest(expected.encode(), (signature or "").encode("ascii")) else "SIGNATURE_INVALID"
-    except UnicodeEncodeError:  # 비 ASCII 서명 헤더는 예외(500) 대신 401
-        return "SIGNATURE_INVALID"
 
 
 # ── Ed25519 키 (SPEC 2.6) ─────────────────────────────────────────
@@ -162,7 +133,7 @@ def verify_ed25519(
     public_key_b64: str | None, timestamp: str | None, method: str, path: str, body: bytes, signature: str | None,
     max_skew: int | None = MAX_SKEW_SECONDS,
 ) -> str | None:
-    """`verify`와 같은 모양. 잘못된 키·서명도 예외 없이 SIGNATURE_INVALID."""
+    """맞으면 None, 틀리면 오류 코드 (SIGNATURE_EXPIRED / SIGNATURE_INVALID). 잘못된 키·서명도 예외 없이 SIGNATURE_INVALID."""
     if error := _check_time(timestamp, max_skew):
         return error
     ok = _ed25519_verify(public_key_b64, _message(timestamp or "", method, path, body), signature)
@@ -178,7 +149,7 @@ def _response_message(timestamp: str, status: int, request_signature: str, body:
 def sign_response(
     private_key_b64: str, status: int, request_signature: str, body: bytes, timestamp: int | None = None
 ) -> dict[str, str]:
-    """`request_signature`는 그 요청의 X-Signature 값 그대로 (HMAC hex든 Ed25519 base64든, 없으면 "")."""
+    """`request_signature`는 그 요청의 X-Signature 값 그대로 (서명 없는 요청이면 "", SPEC 2.5)."""
     ts = _timestamp(timestamp)
     signature = _ed25519_sign(private_key_b64, _response_message(ts, status, request_signature, body))
     return {RESPONSE_TIMESTAMP_HEADER: ts, RESPONSE_SIGNATURE_HEADER: signature, ALG_HEADER: ALG_ED25519}

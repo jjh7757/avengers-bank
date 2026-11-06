@@ -204,7 +204,7 @@ async def _apply(db: AsyncSession, transfer: InterbankTransfer, reply: HubReply)
         message = reply.message if reply.rejected else str(reply.body.get("fail_message") or "")
         await _refund(db, transfer, code, message or "받는 은행이 이체를 거절했습니다.")
     # 그 밖(202 PENDING, 5xx, 응답 없음, 허브의 UNKNOWN): 결과를 모르므로 그대로 둔다.
-    # ed25519 모드에서 허브 응답 서명이 없거나 틀린 응답도 hub_client가 "응답 없음"으로 바꿔 여기로 온다 (SPEC 2.5)
+    # 허브 응답 서명이 없거나 틀린 응답도 hub_client가 "응답 없음"으로 바꿔 여기로 온다 (SPEC 2.5)
 
 
 async def _locked(db: AsyncSession, transfer_id: str) -> InterbankTransfer:

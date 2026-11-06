@@ -1,4 +1,5 @@
 import asyncio
+import logging
 from contextlib import asynccontextmanager, suppress
 
 from fastapi import FastAPI
@@ -28,6 +29,8 @@ from avengers_bank.domains.transfers.router import router as transfer_router
 from avengers_bank.domains.users.router import router as user_router
 from avengers_bank.mcp_servers.registry import mount_mcp_servers, run_mcp_servers
 
+logger = logging.getLogger(__name__)
+
 configure_logging()  # JSON 로그 (LOG_FORMAT=text면 사람이 읽는 형식)
 init_sentry()  # SENTRY_DSN이 있을 때만
 
@@ -37,8 +40,11 @@ async def lifespan(app: FastAPI):
     fds_scorer.load()  # LightGBM 모델은 앱 시작 때 한 번만 읽는다
     # 처리 중 타행 이체 확인, 허브 정산 대사 (ClearingHub 설정이 있을 때만)
     tasks: list[asyncio.Task] = []
-    if get_settings().interbank_enabled:
+    missing = get_settings().interbank_missing
+    if not missing:
         tasks = [asyncio.create_task(confirm_loop()), asyncio.create_task(settlement_sync_loop())]
+    elif len(missing) < 4:  # 일부만 넣었으면 실수일 가능성이 높다 (예: 8d 이전 .env에 키가 없음)
+        logger.warning("타행 이체가 꺼져 있습니다. 비어 있는 설정: %s (docs/INTERBANK.md)", ", ".join(missing))
     try:
         async with run_mcp_servers():  # 에이전트가 쓰는 MCP 서버 (/mcp/*)
             yield

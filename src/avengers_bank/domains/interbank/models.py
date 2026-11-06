@@ -190,8 +190,8 @@ class HubEvidence(Base):
     # 서명 관련 헤더만 (X-Bank-Code, X-Timestamp, X-Signature, X-Signature-Alg, X-Request-ID, X-Response-*). X-Api-Key는 넣지 않는다
     headers_json: Mapped[dict] = mapped_column(JSON, nullable=False)
     body: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
-    signature_alg: Mapped[str | None] = mapped_column(String(10))  # hmac | ed25519 | NULL (서명 없는 응답)
-    # 받은 쪽의 검증 결과: TRANSFER_REPLY는 허브 응답 서명(검증 안 하는 hmac 모드·서명 없음은 NULL),
+    signature_alg: Mapped[str | None] = mapped_column(String(10))  # ed25519 | NULL (서명 없는 응답). 8d(Ed25519 전용) 이전 행은 hmac일 수 있다
+    # 받은 쪽의 검증 결과: TRANSFER_REPLY는 허브 응답 서명(5xx는 NULL, 8d 이전 hmac 모드 행도 NULL일 수 있다),
     # RECEIVE_IN은 True(통과한 것만 남긴다). 우리가 만든 TRANSFER_OUT·RECEIVE_REPLY는 NULL
     signature_valid: Mapped[bool | None] = mapped_column(Boolean)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)

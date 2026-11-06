@@ -20,9 +20,9 @@ from avengers_bank.domains.interbank.hub_client import hub_client
 from avengers_bank.domains.interbank.models import InterbankLedgerEntry, SettlementReconciliation
 from avengers_bank.domains.interbank.service import ledger_balances, reconcile
 from avengers_bank.domains.interbank.settlement_sync import STALE_AFTER, reconcile_run, sync_settlements
-from avengers_bank.domains.interbank.signing import verify
+from avengers_bank.domains.interbank.signing import verify_ed25519
 from tests.conftest import open_checking
-from tests.test_interbank import SECRET, FakeHub, hub_call, receive_payload, send
+from tests.test_interbank import FakeHub, hub_call, receive_payload, send
 
 pytestmark = pytest.mark.anyio
 
@@ -42,8 +42,8 @@ class SettleHub(FakeHub):
                 await asyncio.sleep(1)  # 우리 타임아웃(0.3초)보다 길게
             if self.settle_unauthorized:
                 return JSONResponse(status_code=401, content={"error": "BANK_INACTIVE", "message": "비활성"})
-            ok = verify(SECRET, request.headers.get("x-timestamp"), request.method, request.url.path,
-                        await request.body(), request.headers.get("x-signature")) is None
+            ok = verify_ed25519(self.bank_public_key, request.headers.get("x-timestamp"), request.method,
+                                request.url.path, await request.body(), request.headers.get("x-signature")) is None
             return None if ok else JSONResponse(status_code=401, content={"error": "SIGNATURE_INVALID", "message": "서명"})
 
         @self.app.get("/v1/settlements")
@@ -94,7 +94,7 @@ class SettleHub(FakeHub):
 @pytest.fixture
 async def hub(client, monkeypatch):
     fake = SettleHub()
-    http = AsyncClient(transport=ASGITransport(app=fake.app), base_url="http://hub")
+    http = AsyncClient(transport=ASGITransport(app=fake.asgi), base_url="http://hub")
     monkeypatch.setattr(hub_client, "_client", http)
     yield fake
     await http.aclose()

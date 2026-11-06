@@ -3,8 +3,9 @@
 message = X-Response-Timestamp + "\\n" + STATUS + "\\n" + 요청의 X-Signature 값 + "\\n" + 응답 본문 바이트
 헤더   = X-Response-Timestamp, X-Response-Signature, X-Signature-Alg: ed25519
 
-- INTERBANK_SIGNING_KEY가 있으면 모드와 상관없이 2xx·4xx 응답에 붙인다 (SPEC 2.5 표: ed25519 모드는 필수,
-  hmac·both 모드는 선택이고 허브가 기록만 한다). 그래서 키만 먼저 넣어 두면 전환 전에 응답 서명을 확인할 수 있다.
+- 2xx·4xx 응답(서명 검증 실패 401 포함)에 붙인다. SPEC 2.5에서 필수다: 없거나 틀리면 허브가 그 응답을 "응답 없음"으로 보고
+  이체가 PENDING에 쌓인다. 키(INTERBANK_SIGNING_KEY)는 타행 이체를 켜는 조건이라 켜져 있으면 늘 있다.
+  키가 없으면(타행 이체 꺼짐, 503 INTERBANK_DISABLED) 서명하지 않는다.
 - 5xx는 붙이지 않는다 (본문 보장이 없다, SPEC 5절). 본문은 한 바이트도 바꾸지 않는다.
 - 본문을 다 모아야 서명할 수 있으므로, 여러 조각으로 나오는 스트리밍 응답은 서명 없이 그대로 흘려보낸다.
   `/interbank/*` 응답은 모두 한 조각(JSONResponse)이다.

@@ -1,12 +1,13 @@
 """우리 은행 → 허브 호출 (SPEC 3절). 서명을 붙이고, 응답 없음·거절·성공을 하나의 결과로 돌려준다.
 
-서명 방식은 INTERBANK_SIGNATURE_MODE(허브 관리자가 우리에게 정한 모드와 같게 둔다)로 정한다 (SPEC 2절 표·2.6):
-  hmac    → HMAC. 허브 응답 서명은 보지 않는다 (예전과 같다)
-  both    → Ed25519(우리 키가 있으면, 없으면 HMAC). 허브 응답 서명은 있으면 검증해 signature_valid만 남긴다
-  ed25519 → Ed25519. 허브 2xx·4xx 응답에 허브 응답 서명(SPEC 2.5)이 **반드시** 있어야 하고, 없거나 틀리면
-            "응답 없음"으로 바꾼다. 본문을 믿지 않고 결과를 모르는 상태로 둔다 (되돌리지 않고 3.4로 확인, SPEC 6절).
-            4xx를 거절로 믿고 되돌렸는데 실제로는 허브가 접수했다면 돈이 두 배가 되기 때문이다
+서명은 Ed25519 하나다 (SPEC 2절): 요청은 우리 개인키(INTERBANK_SIGNING_KEY)로 서명하고 `X-Signature-Alg: ed25519`를 붙인다.
+허브의 2xx·4xx 응답에는 허브 응답 서명(SPEC 2.5)이 **항상** 있어야 하고, 허브 공개키(HUB_PUBLIC_KEY)로 검증한다.
+없거나 틀리면 "응답 없음"으로 바꾼다: 본문을 믿지 않고 결과를 모르는 상태로 둔다 (되돌리지 않고 3.4로 확인, SPEC 6절).
+4xx를 거절로 믿고 되돌렸는데 실제로는 허브가 접수했다면 돈이 두 배가 되기 때문이다.
 5xx는 본문 보장이 없어(SPEC 5절) 서명을 요구하지 않고 그대로 돌려준다.
+
+예외: 셀프 등록(`register_bank`, SPEC 3.5)은 서명 없이 보내고, 응답 서명이 틀려도 본문을 버리지 않는다(signature_valid만 False).
+api_key가 그 응답에만 있어서, 버리면 초대 코드는 쓰였는데 키를 잃는다. 판단은 keys 도구가 사람에게 넘긴다.
 """
 
 import asyncio
@@ -20,8 +21,7 @@ import httpx
 from avengers_bank.core.config import get_settings
 from avengers_bank.core.logging import REQUEST_ID_HEADER, get_request_id
 from avengers_bank.domains.interbank.signing import (
-    ALG_ED25519, ALG_HEADER, ALG_HMAC, RESPONSE_SIGNATURE_HEADER, RESPONSE_TIMESTAMP_HEADER, sign, sign_ed25519,
-    verify_response,
+    ALG_ED25519, ALG_HEADER, RESPONSE_SIGNATURE_HEADER, RESPONSE_TIMESTAMP_HEADER, sign_ed25519, verify_response,
 )
 
 logger = logging.getLogger(__name__)
@@ -47,9 +47,9 @@ class HubExchange:
 
 @dataclass
 class HubReply:
-    status: int | None  # None = 응답 없음 (타임아웃·연결 실패, ed25519 모드에서 허브 응답 서명이 없거나 틀림)
+    status: int | None  # None = 응답 없음 (타임아웃·연결 실패, 2xx·4xx인데 허브 응답 서명이 없거나 틀림)
     body: dict[str, Any]
-    # 허브 응답 서명 검증 결과: True 맞음, False 없음·틀림, None 보지 않음(hmac 모드)·서명 없음(both 모드)
+    # 허브 응답 서명 검증 결과: True 맞음, False 없음·틀림, None 응답을 못 받음 또는 5xx(서명을 요구하지 않음)
     signature_valid: bool | None = None
     exchange: HubExchange | None = None
 
@@ -75,36 +75,32 @@ def _pick(headers, names: tuple[str, ...]) -> dict[str, str]:
     return {name: headers[name] for name in names if headers.get(name) is not None}
 
 
-def _sign(method: str, path: str, body: bytes, alg: str | None = None) -> dict[str, str]:
-    """모드에 맞는 서명 헤더. alg를 주면 그 방식으로 (키 등록 PUT /v1/keys는 hmac·both 모드에서 HMAC, SPEC 2.6).
-    hmac 모드는 예전과 똑같이 X-Signature-Alg를 붙이지 않는다 (없으면 허브가 HMAC으로 본다)."""
-    settings = get_settings()
-    key = settings.interbank_signing_key
-    if alg is None:
-        alg = ALG_HMAC if settings.interbank_signature_mode == "hmac" else ALG_ED25519
-    if alg == ALG_ED25519:
-        if key is not None:
-            return sign_ed25519(key.get_secret_value(), method, path, body)
-        # ed25519 모드는 시작할 때 키를 요구하므로(config) both 모드에서 키를 아직 넣지 않은 경우뿐이다
-        logger.warning("INTERBANK_SIGNING_KEY가 없어 허브 요청에 HMAC으로 서명합니다 (%s 모드)", settings.interbank_signature_mode)
-    headers = sign(settings.hub_secret.get_secret_value(), method, path, body)
-    return headers if settings.interbank_signature_mode == "hmac" else {**headers, ALG_HEADER: ALG_HMAC}
+def _sign(method: str, path: str, body: bytes) -> dict[str, str]:
+    """우리 개인키로 Ed25519 서명 (SPEC 2.2). 키는 타행 이체가 켜진 조건이라(interbank_enabled) 여기서는 늘 있다."""
+    key = get_settings().interbank_signing_key
+    if key is None:
+        raise RuntimeError("INTERBANK_SIGNING_KEY가 없어 허브 요청에 서명할 수 없습니다")
+    return sign_ed25519(key.get_secret_value(), method, path, body)
 
 
-def _check_reply_signature(response: httpx.Response, request_signature: str) -> bool | None:
-    """허브 응답 서명(SPEC 2.5) 검증. hmac 모드는 보지 않는다(None). 서명 헤더가 없으면 ed25519 모드에서만 False."""
-    settings = get_settings()
-    mode = settings.interbank_signature_mode
-    if mode == "hmac":
-        return None
+def _check_reply_signature(response: httpx.Response, request_signature: str) -> bool:
+    """허브 응답 서명(SPEC 2.5)을 허브 공개키로 검증한다. 서명 헤더가 없거나 방식이 ed25519가 아니면 False."""
     signature = response.headers.get(RESPONSE_SIGNATURE_HEADER)
     if not signature:
-        return False if mode == "ed25519" else None
+        return False
     if (response.headers.get(ALG_HEADER) or ALG_ED25519).strip().lower() != ALG_ED25519:
         return False
-    error = verify_response(settings.hub_public_key, response.headers.get(RESPONSE_TIMESTAMP_HEADER),
+    error = verify_response(get_settings().hub_public_key, response.headers.get(RESPONSE_TIMESTAMP_HEADER),
                             response.status_code, request_signature, response.content, signature)
     return error is None
+
+
+def _json(response: httpx.Response) -> dict[str, Any]:
+    try:
+        data = response.json() if response.content else {}
+    except ValueError:
+        return {}
+    return data if isinstance(data, dict) else {}
 
 
 class HubClient:
@@ -119,23 +115,17 @@ class HubClient:
             self._client = httpx.AsyncClient()
         return self._client
 
-    async def _request(self, method: str, path: str, payload: dict | None = None, alg: str | None = None) -> HubReply:
+    async def _send(self, method: str, spec_path: str, body: bytes, headers: dict[str, str]
+                    ) -> tuple[httpx.Response | None, HubExchange]:
+        """보내고, 오간 바이트를 HubExchange로 남긴다. 응답이 없으면(타임아웃·연결 실패) response는 None."""
         settings = get_settings()
-        body = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode() if payload is not None else b""
-        spec_path = "/v1" + path  # SPEC 2.2
-        headers = {
-            "X-Bank-Code": settings.bank_code,
-            "X-Api-Key": settings.hub_api_key.get_secret_value(),
-            "Content-Type": "application/json; charset=utf-8",
-            **_sign(method, spec_path, body, alg),
-        }
         # 추적 ID (SPEC 2.4, 서명 대상 아님): 이 요청의 ID를 허브에 넘기면 허브가 받는 은행까지 그대로 전달한다.
         # 처리 중 확인 태스크처럼 요청 밖에서 부르면 없고, 그때는 허브가 새로 만든다
         request_id = get_request_id()
         if request_id:
             headers[REQUEST_ID_HEADER] = request_id
         exchange = HubExchange(method, spec_path, _pick(headers, REQUEST_EVIDENCE_HEADERS), body,
-                               headers.get(ALG_HEADER, ALG_HMAC))
+                               headers.get(ALG_HEADER, ALG_ED25519))
         url = settings.hub_url.rstrip("/") + spec_path
         timeout = settings.hub_timeout_seconds
         try:
@@ -144,24 +134,34 @@ class HubClient:
                 self.client.request(method, url, content=body, headers=headers, timeout=timeout), timeout
             )
         except (TimeoutError, httpx.HTTPError) as exc:
-            logger.warning("허브 응답 없음: %s %s (%s)", method, path, type(exc).__name__)
-            return HubReply(None, {}, exchange=exchange)
+            logger.warning("허브 응답 없음: %s %s (%s)", method, spec_path, type(exc).__name__)
+            return None, exchange
         exchange.response_status = response.status_code
         exchange.response_headers = _pick(response.headers, REPLY_EVIDENCE_HEADERS)
         exchange.response_body = response.content
-        signature_valid = _check_reply_signature(response, headers["X-Signature"])
-        if settings.interbank_signature_mode == "ed25519" and response.status_code < 500 and not signature_valid:
+        return response, exchange
+
+    async def _request(self, method: str, path: str, payload: dict | None = None) -> HubReply:
+        settings = get_settings()
+        body = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode() if payload is not None else b""
+        spec_path = "/v1" + path  # SPEC 2.2
+        headers = {
+            "X-Bank-Code": settings.bank_code,
+            "X-Api-Key": settings.hub_api_key.get_secret_value(),
+            "Content-Type": "application/json; charset=utf-8",
+            **_sign(method, spec_path, body),
+        }
+        response, exchange = await self._send(method, spec_path, body, headers)
+        if response is None:
+            return HubReply(None, {}, exchange=exchange)
+        if response.status_code >= 500:
+            return HubReply(response.status_code, _json(response), None, exchange)
+        if not _check_reply_signature(response, headers["X-Signature"]):
             # 허브가 답했다고 증명할 수 없는 응답이다. 2xx라도 완료로, 4xx라도 거절로 믿지 않는다
-            logger.error("허브 응답 서명 검증 실패: %s %s HTTP %s → 응답 없음으로 처리", method, path, response.status_code)
+            logger.error("허브 응답 서명 검증 실패: %s %s HTTP %s → 응답 없음으로 처리", method, spec_path,
+                         response.status_code)
             return HubReply(None, {}, signature_valid=False, exchange=exchange)
-        if signature_valid is False:  # both 모드: 기록만 하고 동작은 바꾸지 않는다
-            logger.warning("허브 응답 서명이 맞지 않습니다 (both 모드라 그대로 씀): %s %s HTTP %s", method, path,
-                           response.status_code)
-        try:
-            data = response.json() if response.content else {}
-        except ValueError:
-            data = {}
-        return HubReply(response.status_code, data if isinstance(data, dict) else {}, signature_valid, exchange)
+        return HubReply(response.status_code, _json(response), True, exchange)
 
     async def banks(self) -> HubReply:
         return await self._request("GET", "/banks")
@@ -188,14 +188,37 @@ class HubClient:
         return await self._request("GET", f"/settlements/{run_id}")
 
     async def register_key(self, public_key: str) -> HubReply:
-        """내 공개키 등록·교체 (SPEC 2.6 `PUT /v1/keys`). 지금 인증으로 서명한다: hmac·both 모드는 HMAC
-        (처음 등록할 때는 허브에 공개키가 없어 Ed25519를 못 받는다), ed25519 모드는 지금 설정된(옛) 키로."""
-        alg = ALG_ED25519 if get_settings().interbank_signature_mode == "ed25519" else ALG_HMAC
-        return await self._request("PUT", "/keys", {"public_key": public_key}, alg=alg)
+        """내 공개키 교체 (SPEC 2.6 `PUT /v1/keys`). 지금(옛) 키로 서명한다. 허브는 옛 키를 24시간 더 받는다."""
+        return await self._request("PUT", "/keys", {"public_key": public_key})
 
     async def key_status(self) -> HubReply:
         """내 공개키 등록 상태 (SPEC 2.6 `GET /v1/keys`)"""
         return await self._request("GET", "/keys")
+
+    async def me(self) -> HubReply:
+        """내 등록 정보: 코드·이름·base_url·활성·순채무한도·공개키 지문 (SPEC 3.6 `GET /v1/me`)"""
+        return await self._request("GET", "/me")
+
+    async def ping_me(self) -> HubReply:
+        """허브가 지금 등록된 우리 base_url로 ping (SPEC 3.6 `POST /v1/me/ping`, 본문 없음).
+        결과 {ok, reachable, status, body, response_signature_valid}"""
+        return await self._request("POST", "/me/ping")
+
+    async def register_bank(self, invite_code: str, name: str, base_url: str, public_key: str) -> HubReply:
+        """셀프 등록 (SPEC 3.5 `POST /v1/banks/register`, 인증 없음 — 초대 코드가 인증이다). 서명 헤더를 붙이지 않는다.
+        HUB_API_KEY가 아직 없을 때 부르므로 X-Bank-Code·X-Api-Key도 넣지 않는다.
+        허브는 이 응답에도 서명한다(request_signature ""). 서명이 틀려도 본문은 버리지 않고 signature_valid만 False다
+        (api_key가 이 응답에만 있다, 모듈 설명)."""
+        payload = {"invite_code": invite_code, "name": name, "base_url": base_url, "public_key": public_key}
+        body = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode()
+        headers = {"Content-Type": "application/json; charset=utf-8"}
+        response, exchange = await self._send("POST", "/v1/banks/register", body, headers)
+        if response is None:
+            return HubReply(None, {}, exchange=exchange)
+        valid = None if response.status_code >= 500 else _check_reply_signature(response, "")
+        if valid is False:
+            logger.error("셀프 등록 응답의 허브 서명 검증 실패: HTTP %s", response.status_code)
+        return HubReply(response.status_code, _json(response), valid, exchange)
 
     async def hub_key(self) -> HubReply:
         """허브 공개키 (SPEC 2.6 `GET /v1/hub-key`, 인증 없음). 응답 서명은 그 키로 하므로 여기서는 검증하지 않는다.
@@ -206,11 +229,7 @@ class HubClient:
         except httpx.HTTPError as exc:
             logger.warning("허브 응답 없음: GET /hub-key (%s)", type(exc).__name__)
             return HubReply(None, {})
-        try:
-            data = response.json() if response.content else {}
-        except ValueError:
-            data = {}
-        return HubReply(response.status_code, data if isinstance(data, dict) else {})
+        return HubReply(response.status_code, _json(response))
 
 
 hub_client = HubClient()

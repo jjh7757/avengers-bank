@@ -4,13 +4,12 @@
   0001 완료 · 0002 조회부터 계좌 없음 · 0003 202 PENDING(나중에 허브 결과가 바뀜)
   0006 허브가 응답 안 함(요청도 저장 안 함) · 0007 조회는 되는데 이체에서 받는 은행이 거절
 
-가짜 허브는 기본으로 HMAC만 받는다(mode "hmac"). 부인방지 시험(test_nonrepudiation.py)은 mode·우리 공개키·허브 키를
-넣어 Ed25519 요청 검증과 응답 서명(SPEC 2.5)을 켠다.
+가짜 허브는 실제 허브(SPEC v1.0 2절)처럼 Ed25519만 받는다: 우리 요청을 등록된 우리 공개키로 검증하고, /v1 응답(2xx·4xx)에
+허브 키로 응답 서명(SPEC 2.5)을 붙인다. 키는 conftest의 테스트 키다. 서명을 망가뜨리는 시험은 test_nonrepudiation.py.
 """
 
 import asyncio
 import json
-import os
 
 import pytest
 from fastapi import FastAPI, Request
@@ -22,13 +21,14 @@ from avengers_bank.domains.interbank.hub_client import hub_client
 from avengers_bank.domains.interbank.response_signing import ResponseSigningMiddleware
 from avengers_bank.domains.interbank.service import confirm_pending, ledger_balances, reconcile, settlement_positions
 from avengers_bank.domains.interbank.signing import (
-    fingerprint, is_valid_key, public_key_of, sign, verify, verify_ed25519,
+    fingerprint, generate_keypair, is_valid_key, public_key_of, sign_ed25519, verify_ed25519, verify_response,
 )
-from tests.conftest import new_chat_session, open_checking
+from tests.conftest import TEST_BANK_PUBLIC, TEST_HUB_PRIVATE, new_chat_session, open_checking
 from tests.test_chat import approve, classify, say  # noqa: F401  classify는 fixture
 
 pytestmark = pytest.mark.anyio
-SECRET = os.environ["HUB_SECRET"]
+HUB_PRIVATE = TEST_HUB_PRIVATE  # 가짜 허브의 개인키 (우리 HUB_PUBLIC_KEY의 짝)
+WRONG_HUB_PRIVATE, _ = generate_keypair()  # 허브인 척하는 다른 키
 
 
 class FakeHub:
@@ -38,14 +38,18 @@ class FakeHub:
         self.transfer_calls: list[dict] = []
         self.hub_down = False
         self.request_ids: list[tuple[str, str | None]] = []  # (경로, 받은 X-Request-ID)
-        # 부인방지 (SPEC 2절 표·2.5·2.6). 기본은 예전 허브와 같다: HMAC만 받고 응답 서명 없음
-        self.mode = "hmac"  # 허브 관리자가 우리(901)에게 정한 모드
-        self.bank_public_key: str | None = None  # 등록된 우리 공개키 (PUT /v1/keys)
-        self.hub_key: str | None = None  # 허브 개인키. 있으면 /v1 응답(2xx·4xx)에 응답 서명
+        # 서명 (SPEC 2절·2.5·2.6)
+        self.bank_public_key: str | None = TEST_BANK_PUBLIC  # 등록된 우리 공개키 (PUT /v1/keys로 바뀐다)
+        self.hub_key: str | None = HUB_PRIVATE  # 허브 개인키. /v1 응답(2xx·4xx)에 응답 서명
         self.reply_key: str | None = None  # 응답 서명에 대신 쓸 키 (틀린 서명 시험)
-        self.sign_replies = True  # False면 hub_key가 있어도 응답 서명을 빼먹는다
+        self.sign_replies = True  # False면 응답 서명을 빼먹는다
         self.algs: list[tuple[str, str]] = []  # (경로, 받은 서명 방식)
         self.transfer_raw: list[tuple[dict, bytes]] = []  # POST /v1/transfers의 (헤더, 원본 바이트)
+        # 등록·셀프 서비스 (SPEC 3.5·3.6)
+        self.invite_code: str | None = "inv_test_invite"  # 쓰면 None
+        self.register_calls: list[tuple[dict, dict]] = []  # POST /v1/banks/register의 (헤더, 본문)
+        self.bank: AsyncClient | None = None  # ping이 부를 우리 앱 (hub 픽스처가 넣는다)
+        self.ping_public_key: str | None = None  # ping의 응답 서명 검증에 대신 쓸 공개키 (틀린 응답 서명 시험)
         self._routes()
         # 허브의 core/response_signing.py와 같은 일을 우리 미들웨어로 한다 (서명 값은 test_nonrepudiation K1로 SPEC과 맞춘다)
         self.asgi = ResponseSigningMiddleware(self.app, key_getter=self._reply_key, path_prefix="/v1/")
@@ -59,13 +63,11 @@ class FakeHub:
         async def check(request: Request) -> bytes | JSONResponse:
             self.request_ids.append((request.url.path, request.headers.get("x-request-id")))
             body = await request.body()
-            alg = (request.headers.get("x-signature-alg") or "hmac").lower()
+            alg = (request.headers.get("x-signature-alg") or "ed25519").lower()  # 없으면 ed25519 (SPEC 2.1)
             self.algs.append((request.url.path, alg))
-            accepted = {"hmac": {"hmac"}, "both": {"hmac", "ed25519"}, "ed25519": {"ed25519"}}[self.mode]
             args = (request.headers.get("x-timestamp"), request.method, request.url.path, body, request.headers.get("x-signature"))
-            signed = verify_ed25519(self.bank_public_key, *args) if alg == "ed25519" else verify(SECRET, *args)
             ok = (request.headers.get("x-bank-code") == "901" and request.headers.get("x-api-key") == "chk_test_api_key"
-                  and alg in accepted and signed is None)
+                  and alg == "ed25519" and verify_ed25519(self.bank_public_key, *args) is None)
             return body if ok else JSONResponse(status_code=401, content={"error": "SIGNATURE_INVALID", "message": "서명"})
 
         @app.get("/v1/hub-key")
@@ -77,7 +79,7 @@ class FakeHub:
 
         def key_status(previous: str | None = None) -> dict:
             return {"bank_code": "901", "fingerprint": fingerprint(self.bank_public_key) if self.bank_public_key else None,
-                    "signature_mode": self.mode, "registered_at": "2026-11-06T03:00:00Z",
+                    "registered_at": "2026-11-06T03:00:00Z",
                     "previous_fingerprint": fingerprint(previous) if previous else None,
                     "previous_key_expires_at": "2026-11-07T03:00:00Z" if previous else None,
                     "hub_fingerprint": fingerprint(public_key_of(self.hub_key)) if self.hub_key else None}
@@ -90,7 +92,7 @@ class FakeHub:
             if not is_valid_key(public):
                 return JSONResponse(status_code=422, content={"error": "VALIDATION_ERROR", "message": "공개키"})
             previous = self.bank_public_key if self.bank_public_key not in (None, public) else None
-            self.bank_public_key = public  # 등록해도 모드는 바뀌지 않는다 (SPEC 2.6)
+            self.bank_public_key = public  # 옛 키를 24시간 더 받는 것은 흉내 내지 않는다
             return key_status(previous)
 
         @app.get("/v1/keys")
@@ -98,6 +100,50 @@ class FakeHub:
             if isinstance(r := await check(request), JSONResponse):
                 return r
             return key_status()
+
+        async def ping() -> dict:
+            """허브의 ping_bank(SPEC 3.6)처럼: 없는 계좌로 우리 /interbank/inquiry를 허브 키로 서명해 부르고,
+            우리 응답 서명을 등록된 우리 공개키로 검증한다. 우리 앱은 hub 픽스처가 넣은 self.bank로 부른다."""
+            body = b'{"account_num":"000-000-000000"}'
+            headers = {"X-Bank-Code": "000", "Content-Type": "application/json",
+                       **sign_ed25519(self.hub_key, "POST", "/inquiry", body)}
+            res = await self.bank.post("/interbank/inquiry", content=body, headers=headers)
+            valid = None if res.status_code >= 500 else verify_response(
+                self.ping_public_key or self.bank_public_key, res.headers.get("x-response-timestamp"), res.status_code, headers["X-Signature"],
+                res.content, res.headers.get("x-response-signature")) is None
+            data = res.json() if res.content else {}
+            ok = valid is True and (res.status_code == 200 or (res.status_code == 404 and data.get("error") == "ACCOUNT_NOT_FOUND"))
+            return {"ok": ok, "reachable": True, "status": res.status_code, "body": data, "response_signature_valid": valid}
+
+        @app.get("/v1/me")
+        async def me(request: Request):
+            if isinstance(r := await check(request), JSONResponse):
+                return r
+            return {"bank_code": "901", "name": "AvengersBank", "base_url": "http://test/interbank", "active": True,
+                    "net_debit_cap": 0, "public_key_fingerprint": fingerprint(self.bank_public_key),
+                    "created_at": "2026-11-05T00:00:00Z"}
+
+        @app.post("/v1/me/ping")
+        async def me_ping(request: Request):
+            if isinstance(r := await check(request), JSONResponse):
+                return r
+            return await ping()
+
+        @app.post("/v1/banks/register")
+        async def register(request: Request):
+            """셀프 등록 (SPEC 3.5, 인증 없음). 은행 코드는 허브가 정한다 (903). 응답 서명의 request_signature는 ""."""
+            data = json.loads(await request.body())
+            self.register_calls.append((dict(request.headers), data))
+            if data.get("invite_code") != self.invite_code:
+                return JSONResponse(status_code=400, content={"error": "INVITE_INVALID", "message": "초대 코드"})
+            if not is_valid_key(data.get("public_key")):
+                return JSONResponse(status_code=422, content={"error": "VALIDATION_ERROR", "message": "public_key"})
+            self.invite_code = None  # 한 번만
+            self.bank_public_key = data["public_key"]
+            hub_public = public_key_of(self.hub_key)
+            return JSONResponse(status_code=201, content={
+                "bank_code": "903", "name": data["name"], "api_key": "chk_new_bank_api_key", "hub_public_key": hub_public,
+                "hub_fingerprint": fingerprint(hub_public), "net_debit_cap": 1_000_000_000, "ping": await ping()})
 
         @app.get("/v1/banks")
         async def banks(request: Request):
@@ -153,6 +199,7 @@ class FakeHub:
 @pytest.fixture
 async def hub(client, monkeypatch):
     fake = FakeHub()
+    fake.bank = client
     http = AsyncClient(transport=ASGITransport(app=fake.asgi), base_url="http://hub")
     monkeypatch.setattr(hub_client, "_client", http)
     yield fake
@@ -406,12 +453,12 @@ async def test_holder_inquiry(client, user, other_user, hub):
 
 # ── 받기 (허브 → 우리) ─────────────────────────────────────────
 
-async def hub_call(client, method: str, path: str, payload: dict | None = None, secret: str = SECRET,
+async def hub_call(client, method: str, path: str, payload: dict | None = None, key: str = HUB_PRIVATE,
                    signed_path: str | None = None):
-    """허브처럼 서명해 부른다. 서명 경로는 base_url(/interbank) 뒤의 부분이다 (SPEC 2.2)."""
+    """허브처럼 Ed25519로 서명해 부른다 (SPEC 2.3). 서명 경로는 base_url(/interbank) 뒤의 부분이다 (SPEC 2.2)."""
     body = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode() if payload is not None else b""
     signed_path = path.partition("/interbank")[2] if signed_path is None else signed_path
-    headers = {"X-Bank-Code": "000", "Content-Type": "application/json", **sign(secret, method, signed_path, body)}
+    headers = {"X-Bank-Code": "000", "Content-Type": "application/json", **sign_ed25519(key, method, signed_path, body)}
     return await client.request(method, path, content=body, headers=headers)
 
 
@@ -467,7 +514,7 @@ async def test_unexpected_error_uses_spec_format(client, user, monkeypatch):
 
 async def test_receive_rejects_bad_signature(client, user):
     account = await open_checking(client, user)
-    res = await hub_call(client, "POST", "/interbank/receive", receive_payload(account["account_num"]), secret="wrong")
+    res = await hub_call(client, "POST", "/interbank/receive", receive_payload(account["account_num"]), key=WRONG_HUB_PRIVATE)
     assert res.status_code == 401 and res.json()["error"] == "SIGNATURE_INVALID"
     # 다른 경로용 서명을 붙여 와도 거절한다 (서명에 메서드·경로가 들어간다)
     res = await hub_call(client, "POST", "/interbank/receive", receive_payload(account["account_num"]),

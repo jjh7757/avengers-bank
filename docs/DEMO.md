@@ -78,7 +78,7 @@ uv run python scripts/demo_seed.py
 4. 말할 것: *은행 기능·상담 지식 28개를 MCP 서버 6개로. 에이전트는 MCP로만 은행을 다루고, 돈이 움직이는 도구와 약관 동의가 필요한 개설·발급 도구는 처음부터 주지 않았다. 앱에서 직접 가입해도 같은 약관 화면을 거친다*
 
 ### 타행 이체 뒤 정산 (허브 시연과 함께)
-허브 쪽 순서·숫자는 ClearingHub `docs/DEMO.md`. 모아로 "SimBank 110-123-0001로 5만 원" 같은 타행 이체를 한 뒤 허브 관리자가 정산 run을 만들고 확정하면:
+허브 쪽 순서·숫자는 ClearingHub `docs/DEMO.md`. 시작 전에 서버에서 `docker exec avengers-bank python -m avengers_bank.domains.interbank.keys ping`이 `ok: True`인지 본다 (허브 ↔ 우리 Ed25519 서명·응답 서명이 맞는지, [INTERBANK.md](INTERBANK.md) "부인방지(Ed25519)"). 모아로 "SimBank 110-123-0001로 5만 원" 같은 타행 이체를 한 뒤 허브 관리자가 정산 run을 만들고 확정하면:
 - `settlement_sync_loop`가 1시간 안에(재시작 직후면 60초 뒤, 시연 땐 `.env`에 `INTERBANK_SETTLEMENT_SYNC_INTERVAL_SECONDS=30`) 그 run을 우리 장부와 맞춰 `MATCHED`로 기록하고, 확정된 run이면 `INTERBANK_SETTLEMENT:902`를 0으로, `HUB_RESERVE`를 허브의 우리 `net_amount`(예: −7만)만큼 바꾼다
 - 확인: 서버 로그 `허브 정산 대사: run N MATCHED`·`정산 run N 장부 정리: 허브 예치금 -70000원`, DB `SELECT hub_run_id, hub_status, result, hub_net_amount, our_net_amount, settled_at FROM settlement_reconciliations ORDER BY hub_run_id;`
 - 안 맞으면 `MISMATCH`와 `diff_json`(`hub_only` 등)이 남고 장부는 정리하지 않는다 ([INTERBANK.md](INTERBANK.md) "정산 대사와 장부 정리"). 허브 DB를 초기화했으면 `settlement_reconciliations`와 `interbank_ledger.hub_run_id`도 비운다
@@ -92,5 +92,6 @@ uv run python scripts/demo_seed.py
 | Gemini가 느림·503 | 잠시 후 다시. 계속되면 녹화 영상. 이체 대화(분류)는 보통 2초, 조회 답변은 5~12초 |
 | 화면이 이상함 | `uv run python scripts/demo_seed.py` 후 새로고침 (목소리 등록은 남는다) |
 | 시나리오 3 뒤 다른 시나리오가 이상함 | 시각을 되돌렸는지 확인 (`kst_hour: null`) |
+| 타행 이체가 "확인 중"에 머묾 / 다른 은행 선택이 503 | `keys ping`·`keys status`. 서버 로그에 `허브 응답 서명 검증 실패`가 있으면 `HUB_PUBLIC_KEY`가 지금 허브 키인지(`keys hub-key`), `타행 이체가 꺼져 있습니다`가 있으면 빠진 설정을 넣는다. 돈은 되돌아가지 않고 확인 태스크가 맞춘다 |
 
 전체 약 7~8분. 시나리오 3을 중심으로 하고, 시간이 모자라면 6 → 5 → 2 순으로 줄인다.

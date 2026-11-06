@@ -16,7 +16,7 @@ from avengers_bank.domains.interbank.models import HubAccountQuery, OwnAccountLo
 from avengers_bank.domains.users.ci import virtual_ci
 from avengers_bank.domains.users.models import User
 from tests.conftest import new_chat_session, open_checking
-from tests.test_interbank import FakeHub, hub_call, interbank_list
+from tests.test_interbank import WRONG_HUB_PRIVATE, FakeHub, hub_call, interbank_list
 from tests.test_interbank import hub as _hub  # noqa: F401  (fixture 등록용)
 
 pytestmark = pytest.mark.anyio
@@ -56,7 +56,7 @@ async def hub(client, monkeypatch):
     from avengers_bank.domains.interbank.hub_client import hub_client
 
     fake = LookupHub()
-    http = AsyncClient(transport=ASGITransport(app=fake.app), base_url="http://hub")
+    http = AsyncClient(transport=ASGITransport(app=fake.asgi), base_url="http://hub")
     monkeypatch.setattr(hub_client, "_client", http)
     yield fake
     await http.aclose()
@@ -194,7 +194,7 @@ async def test_interbank_accounts_for_hub(client, user):
     assert res.status_code == 200 and res.json() == {"accounts": []}  # 고객이 없어도 빈 목록
     res = await hub_call(client, "POST", "/interbank/accounts", {"ci": "XYZ"})
     assert res.status_code == 422 and res.json()["error"] == "VALIDATION_ERROR"
-    res = await hub_call(client, "POST", "/interbank/accounts", {"ci": ci}, secret="wrong")
+    res = await hub_call(client, "POST", "/interbank/accounts", {"ci": ci}, key=WRONG_HUB_PRIVATE)
     assert res.status_code == 401
 
     # 조회 기록 (SPEC 9.4 규칙 5): 응답한 조회만, 고객이 없던 조회도 계좌 0개로 남는다

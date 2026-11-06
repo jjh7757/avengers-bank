@@ -72,7 +72,7 @@ uv run python scripts/demo_check.py    # 시나리오 자동 점검 (실제 Gemi
 | `VOICE_ENCRYPTION_KEY` | 음성 승인 | 목소리 특징 암호화 Fernet 키. 바꾸면 다시 등록해야 함 |
 | `VOICE_SIMILARITY_THRESHOLD` | | 화자 인증 기준 (기본 0.45, 보정 필요) |
 | `DEMO_MODE` | | true면 `/demo/clock`으로 업무 시각 옮기기 (발표용 로컬에서만) |
-| `BANK_CODE`, `HUB_URL`, `HUB_API_KEY`, `HUB_SECRET` | 타행 이체 | [ClearingHub](https://github.com/jjh7757/clearing-hub) 중계 서버가 발급한 은행 코드·키. 셋 중 하나라도 없으면 타행 이체가 꺼진다 ([INTERBANK.md](docs/INTERBANK.md)) |
+| `BANK_CODE`, `HUB_URL`, `HUB_API_KEY`, `INTERBANK_SIGNING_KEY`, `HUB_PUBLIC_KEY` | 타행 이체 | [ClearingHub](https://github.com/jjh7757/clearing-hub) 중계 서버 연결: 허브가 배정한 은행 코드·API 키(식별용), 우리 Ed25519 개인키, 허브 공개키. 넷 중 하나라도 없으면 타행 이체가 꺼진다 ([INTERBANK.md](docs/INTERBANK.md)) |
 | `LOG_LEVEL` | | 로그 수준 (기본 `INFO`) |
 | `LOG_FORMAT` | | `json`(기본, 한 줄에 JSON 하나) 또는 `text`(로컬에서 읽기 편한 형식) |
 | `SENTRY_DSN` | | 넣으면 처리하지 못한 오류를 Sentry로 보낸다. 비우면 아무것도 하지 않음 |
