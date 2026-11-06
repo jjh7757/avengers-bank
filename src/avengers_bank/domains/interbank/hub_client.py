@@ -187,6 +187,18 @@ class HubClient:
         """대사 파일: 그 run의 내 포지션과 내가 보내거나 받은 거래 (SPEC 10.5). 서명 PATH에 run_id까지 들어간다"""
         return await self._request("GET", f"/settlements/{run_id}")
 
+    async def ack_settlement(self, run_id: int) -> HubReply:
+        """대사 일치를 알린다 (SPEC 10.8, 본문 없음). DRAFT에만. 포지션이 있는 은행이 모두 ack하면 그 자리에서 확정돼
+        응답 status가 SETTLED다. SETTLED·CANCELLED면 409 SETTLEMENT_NOT_DRAFT"""
+        return await self._request("POST", f"/settlements/{run_id}/ack")
+
+    async def dispute_settlement(self, run_id: int, transfer_ids: list[str], message: str | None = None) -> HubReply:
+        """대사 불일치를 알린다 (SPEC 10.8). 그 run은 자동 확정되지 않고 허브 관리자에게 알림이 간다. DRAFT에만"""
+        payload: dict = {"transfer_ids": transfer_ids}
+        if message:
+            payload["message"] = message[:200]
+        return await self._request("POST", f"/settlements/{run_id}/dispute", payload)
+
     async def register_key(self, public_key: str) -> HubReply:
         """내 공개키 교체 (SPEC 2.6 `PUT /v1/keys`). 지금(옛) 키로 서명한다. 허브는 옛 키를 24시간 더 받는다."""
         return await self._request("PUT", "/keys", {"public_key": public_key})

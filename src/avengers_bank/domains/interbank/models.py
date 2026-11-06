@@ -87,6 +87,10 @@ class SettlementReconciliation(Base):
     diff_json: Mapped[str] = mapped_column(Text, default="{}", nullable=False)
     checked_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     settled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # 허브에 보낸 대사 결과 (SPEC 10.8). 지금 허브에 걸려 있는 쪽만 시각이 있다: ack를 보내면 disputed_at을 비우고,
+    # dispute를 보내면 acked_at을 비운다. 그래서 결과가 바뀌면(MISMATCH → MATCHED) 다시 보낸다. DRAFT일 때만 보낸다
+    acked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    disputed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class InterbankTransfer(Base):

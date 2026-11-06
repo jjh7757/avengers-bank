@@ -9,7 +9,7 @@ transfer_id 하나하나로 맞춰 보고, 확정된 run이 맞으면 정산 계
      목록에서 빠진 끝나지 않은 run(취소됐거나 30일 지남)도 상세로 다시 본다
 2. run마다 GET /v1/settlements/{run_id} (10.5) → reconcile_run
      CANCELLED → 무시. DRAFT 때 남긴 행은 지운다 (그 거래는 다음 run에 다시 나온다)
-     DRAFT     → 비교만
+     DRAFT     → 비교하고 결과를 허브에 보낸다 (10.8, 아래 5)
      SETTLED   → 비교, 일치하면 같은 트랜잭션에서 SETTLE 분개
 3. 비교. 우리 쪽 후보 = 정산 계정의 COMPLETE(+, SENT)·RECEIVE(−, RECEIVED) 줄 중 아직 어느 run에도 묶이지 않은 것
    (날짜로 자르지 않는다. 다시 볼 때를 위해 이 run에 이미 묶인 줄도 넣는다)
@@ -24,6 +24,13 @@ transfer_id 하나하나로 맞춰 보고, 확정된 run이 맞으면 정산 계
      INTERBANK_SETTLEMENT:{은행} −n  (그만큼 갚았다 / 받았다)
      HUB_RESERVE                −n  (허브 예치금이 그만큼 줄었다 / 늘었다)
    → HUB_RESERVE 변화 = Σ(−n) = 허브 position.net_amount. 맞춘 분개에 hub_run_id를 찍어 다음 대사에서 다시 세지 않는다
+5. 결과 보내기 (SPEC 10.8, DRAFT일 때만. 트랜잭션 밖에서 — 허브 호출 동안 행을 잠그지 않는다)
+     MATCHED이고 지금 ack가 걸려 있지 않음     → POST ack, acked_at (disputed_at은 비운다)
+     MISMATCH이고 지금 dispute가 걸려 있지 않음 → POST dispute {hub_only + differs의 transfer_id}, disputed_at
+     CHECKING                                   → 보내지 않는다 (마무리한 뒤 다시 비교)
+   ack 응답이 SETTLED(포지션이 있는 은행 전원 ack로 즉시 확정)거나 409 SETTLEMENT_NOT_DRAFT(그사이 확정·취소됨)면
+   다음 주기를 기다리지 않고 상세를 다시 받아 한 번 더 맞춰 본다 → SETTLED면 그 자리에서 장부 정리까지 한다.
+   보내지 못하면(응답 없음·5xx) 시각을 남기지 않아 다음 주기에 다시 보낸다. SETTLED에는 보내지 않는다 (허브가 409)
 """
 
 import json
@@ -192,7 +199,7 @@ async def reconcile_run(db: AsyncSession, detail: dict) -> SettlementReconciliat
             await _settle(db, run_id, matched)
             row.settled_at = now
 
-    if result == ReconResult.MISMATCH:  # 자동 처리를 멈춘다. 허브 관리자에게 run_id와 차이 나는 transfer_id를 알린다
+    if result == ReconResult.MISMATCH:  # 자동 처리를 멈춘다. 허브에 dispute로 run_id와 차이 나는 transfer_id를 알린다
         logger.error("정산 run %d 대사 불일치: %s", run_id, row.diff_json)
     elif result == ReconResult.CHECKING:
         logger.info("정산 run %d 확인 중: 우리 쪽 PENDING %s", run_id, ", ".join(checking))
@@ -201,7 +208,53 @@ async def reconcile_run(db: AsyncSession, detail: dict) -> SettlementReconciliat
                        run_id, ", ".join(ours_only_stale))
     if settle_now:
         logger.info("정산 run %d 장부 정리: 허브 예치금 %+d원 (거래 %d건)", run_id, hub_net, len(matched))
+    if status == "DRAFT" and await _report(db, row, hub_only, differs, diff.get("net")):
+        # 허브가 방금 확정했다(전원 ack) 또는 그사이 확정·취소됐다: 상세를 다시 받아 이어서 한다
+        again = await hub_client.settlement(run_id)
+        if again.ok and str(again.body.get("status")) != "DRAFT":
+            return await reconcile_run(db, again.body)
+        if not again.ok:
+            logger.warning("정산 run %d 확정 뒤 대사 파일을 받지 못함: %s %s (다음 주기에 다시)", run_id, again.status, again.error)
     return row
+
+
+def _dispute_message(hub_only: list[dict], differs: list[dict], net: dict | None) -> str:
+    parts = []
+    if hub_only:
+        parts.append(f"허브에만 있음 {len(hub_only)}건")
+    if differs:
+        parts.append(f"방향·금액·상대 은행 다름 {len(differs)}건")
+    if net:
+        parts.append(f"순액 다름 (허브 {net['hub']}원, AvengersBank {net['ours']}원)")
+    return "AvengersBank 대사 불일치: " + ", ".join(parts)
+
+
+async def _report(db: AsyncSession, row: SettlementReconciliation, hub_only: list[dict], differs: list[dict],
+                  net: dict | None) -> bool:
+    """DRAFT run의 대사 결과를 허브에 보낸다 (SPEC 10.8). 지금 걸려 있는 결과와 같으면 보내지 않는다.
+    허브가 그 run을 이미 확정했다고 알려 오면(ack 응답 SETTLED, 또는 409 SETTLEMENT_NOT_DRAFT) True."""
+    run_id = row.hub_run_id
+    if row.result == ReconResult.MATCHED and row.acked_at is None:
+        reply = await hub_client.ack_settlement(run_id)
+        kind, values = "ack", {"acked_at": now_utc(), "disputed_at": None}
+    elif row.result == ReconResult.MISMATCH and row.disputed_at is None:
+        ids = [str(t["transfer_id"]) for t in hub_only + differs][:1000]
+        reply = await hub_client.dispute_settlement(run_id, ids, _dispute_message(hub_only, differs, net))
+        kind, values = "dispute", {"disputed_at": now_utc(), "acked_at": None}
+    else:
+        return False
+    if reply.status == 409 and reply.error == "SETTLEMENT_NOT_DRAFT":
+        logger.info("정산 run %d: %s를 보내려 했지만 허브에서 이미 DRAFT가 아님 (상세를 다시 본다)", run_id, kind)
+        return True
+    if not reply.ok:
+        logger.warning("정산 run %d %s를 허브에 보내지 못함: %s %s (다음 주기에 다시)", run_id, kind, reply.status, reply.error)
+        return False
+    async with db.begin():  # 트랜잭션 밖에서 ORM 값을 바꾸면 새 트랜잭션이 저절로 열리므로 안에서 바꾼다 (row와 같은 객체)
+        saved = await db.get(SettlementReconciliation, run_id, with_for_update=True)
+        saved.acked_at, saved.disputed_at = values["acked_at"], values["disputed_at"]
+    hub_status = str(reply.body.get("status"))
+    logger.info("정산 run %d: 허브에 %s 보냄 (허브 상태 %s)", run_id, kind, hub_status)
+    return kind == "ack" and hub_status == "SETTLED"
 
 
 async def sync_settlements(db: AsyncSession) -> list[SettlementReconciliation]:

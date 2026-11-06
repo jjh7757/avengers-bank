@@ -1,7 +1,7 @@
-"""허브 정산 대사와 장부 정리 (ClearingHub SPEC 10.6, SETTLEMENT_PLAN 8절 B1~B5).
+"""허브 정산 대사와 장부 정리 (ClearingHub SPEC 10.6·10.8, SETTLEMENT_PLAN 8절 B1~B5·13절).
 
-허브는 test_interbank.py의 가짜 허브에 정산 목록(10.4)·대사 파일(10.5)을 더한 것으로 대신한다.
-대사 파일은 테스트가 hub.runs에 직접 넣는다 (허브가 실제로 계산한 것처럼).
+허브는 test_interbank.py의 가짜 허브에 정산 목록(10.4)·대사 파일(10.5)·대사 결과 보내기(10.8 ack/dispute)를 더한
+것으로 대신한다. 대사 파일은 테스트가 hub.runs에 직접 넣는다 (허브가 실제로 계산한 것처럼).
 """
 
 import asyncio
@@ -33,6 +33,10 @@ class SettleHub(FakeHub):
         self.settle_down = False  # 정산 API가 응답하지 않음
         self.settle_unauthorized = False  # 정산 API가 401
         self.detail_calls: list[int] = []
+        self.reports: list[tuple[int, str, dict | None]] = []  # 받은 (run_id, "ack" / "dispute", dispute 본문)
+        self.ack_settles = False  # True면 ack를 받는 순간 확정한다 (포지션이 있는 은행 전원 ack, SPEC 10.8 규칙 1)
+        self.settled_before_ack = False  # True면 ack가 오기 직전에 다른 은행·마감이 확정했다 → 409 SETTLEMENT_NOT_DRAFT
+        self.report_down = False  # ack·dispute가 5xx
         super().__init__()
         self._settlement_routes()
 
@@ -64,6 +68,40 @@ class SettleHub(FakeHub):
             if run_id not in self.runs:
                 return JSONResponse(status_code=404, content={"error": "SETTLEMENT_NOT_FOUND", "message": "없음"})
             return self.runs[run_id]
+
+        async def report(run_id: int, request: Request, kind: str):
+            if (r := await check(request)) is not None:
+                return r
+            if self.report_down:
+                return JSONResponse(status_code=503, content={"error": "INTERNAL_ERROR", "message": "장애"})
+            body = await request.body()
+            if run_id not in self.runs:
+                return JSONResponse(status_code=404, content={"error": "SETTLEMENT_NOT_FOUND", "message": "없음"})
+            if self.settled_before_ack:
+                self.settle(run_id)
+            detail = self.runs[run_id]
+            if detail["status"] != "DRAFT":
+                return JSONResponse(status_code=409, content={"error": "SETTLEMENT_NOT_DRAFT", "message": "DRAFT 아님",
+                                                              "run_id": run_id})
+            self.reports.append((run_id, kind, json.loads(body) if body else None))
+            if kind == "ack" and self.ack_settles:
+                self.settle(run_id)
+            return {"run_id": run_id, "status": detail["status"], "settled_at": detail["settled_at"],
+                    "my_ack": kind.upper()}
+
+        @self.app.post("/v1/settlements/{run_id}/ack")
+        async def ack(run_id: int, request: Request):
+            return await report(run_id, request, "ack")
+
+        @self.app.post("/v1/settlements/{run_id}/dispute")
+        async def dispute(run_id: int, request: Request):
+            return await report(run_id, request, "dispute")
+
+    def settle(self, run_id: int) -> None:
+        """허브가 그 DRAFT를 확정한 것처럼 바꾼다 (status SETTLED, result·balance_after)."""
+        detail = self.runs[run_id]
+        detail.update(status="SETTLED", settled_at="2026-11-07T00:40:00Z")
+        detail["position"].update(result="OK", balance_after=1_000_000)
 
     def put_run(self, run_id: int, status: str, transfers: list[dict], *, net: int | None = None,
                 cutoff_at: datetime | None = None) -> dict:
@@ -346,3 +384,94 @@ async def test_cancelled_detail_is_ignored(client, user, hub):
     assert await run_once(detail) is None
     assert await recon_rows() == {}
     assert await books() == {"INTERBANK_SETTLEMENT:902": 70_000}
+
+
+# ── 대사 결과 보내기 (SPEC 10.8, SETTLEMENT_PLAN 13절) ─────────────
+
+async def test_draft_matched_sends_ack_once(client, user, hub):
+    """DRAFT가 맞으면 ack를 한 번 보낸다 (본문 없음). 다음 주기에는 다시 보내지 않는다. SETTLED가 되면 장부 정리."""
+    out, inc = await b1_books(client, user)
+    transfers = [sent(out[0]), sent(out[1]), received(inc)]
+    hub.put_run(12, "DRAFT", transfers)
+    [row] = await sync()
+    assert (row.result, row.hub_status, row.settled_at) == ("MATCHED", "DRAFT", None)
+    assert hub.reports == [(12, "ack", None)]
+    assert row.acked_at is not None and row.disputed_at is None
+    [row] = await sync()
+    assert hub.reports == [(12, "ack", None)]  # 이미 ack가 걸려 있다
+
+    hub.settle(12)  # 마감 시각(09:00)에 허브가 확정
+    [row] = await sync()
+    assert (row.hub_status, row.acked_at is not None) == ("SETTLED", True) and row.settled_at is not None
+    assert hub.reports == [(12, "ack", None)]  # SETTLED에는 보내지 않는다
+    assert await books() == {"HUB_RESERVE": -70_000}
+
+
+async def test_ack_settles_immediately(client, user, hub):
+    """ack 응답이 SETTLED(전원 ack로 즉시 확정)면 다음 주기를 기다리지 않고 상세를 다시 받아 장부 정리까지 한다."""
+    out, inc = await b1_books(client, user)
+    hub.put_run(12, "DRAFT", [sent(out[0]), sent(out[1]), received(inc)])
+    hub.ack_settles = True
+    [row] = await sync()
+    assert (row.result, row.hub_status) == ("MATCHED", "SETTLED") and row.settled_at is not None
+    assert row.acked_at is not None
+    assert hub.reports == [(12, "ack", None)] and hub.detail_calls == [12, 12]
+    assert await books() == {"HUB_RESERVE": -70_000}
+
+
+async def test_ack_conflict_refetches(client, user, hub):
+    """ack가 409 SETTLEMENT_NOT_DRAFT(그사이 다른 은행의 ack나 마감이 확정)면 상세를 다시 받아 이어서 정리한다."""
+    out, inc = await b1_books(client, user)
+    hub.put_run(12, "DRAFT", [sent(out[0]), sent(out[1]), received(inc)])
+    hub.settled_before_ack = True
+    [row] = await sync()
+    assert (row.hub_status, row.acked_at) == ("SETTLED", None) and row.settled_at is not None
+    assert hub.reports == []
+    assert await books() == {"HUB_RESERVE": -70_000}
+
+
+async def test_mismatch_sends_dispute_then_ack_when_fixed(client, user, hub):
+    """DRAFT가 안 맞으면 dispute(허브에만 있는 ID + 다른 ID, 설명)를 한 번. 허브 쪽이 고쳐져 맞으면 ack를 보낸다."""
+    out, inc = await b1_books(client, user)
+    ghost = "0b9c4f3e-5a1d-4e2b-9c7a-1f2e3d4c5b6a"
+    hub.put_run(12, "DRAFT", [sent(out[0]), sent(out[1], 60_000), received(inc), received(ghost, 10_000)])
+    [row] = await sync()
+    assert row.result == "MISMATCH" and row.disputed_at is not None and row.acked_at is None
+    [(run_id, kind, body)] = hub.reports
+    assert (run_id, kind, body["transfer_ids"]) == (12, "dispute", [ghost, out[1]])
+    assert "허브에만 있음 1건" in body["message"] and "다름 1건" in body["message"]
+    await sync()
+    assert len(hub.reports) == 1  # 같은 결과는 다시 보내지 않는다
+
+    hub.put_run(12, "DRAFT", [sent(out[0]), sent(out[1]), received(inc)])  # 관리자가 확인 뒤 허브 쪽이 맞음
+    [row] = await sync()
+    assert row.result == "MATCHED" and hub.reports[-1] == (12, "ack", None)
+    assert row.acked_at is not None and row.disputed_at is None
+    async with SessionLocal() as db, db.begin():
+        saved = await db.get(SettlementReconciliation, 12)
+        assert (saved.acked_at is not None, saved.disputed_at) == (True, None)
+
+
+async def test_report_failure_retries_next_cycle(client, user, hub):
+    """ack를 보내지 못하면(5xx) 시각을 남기지 않고 다음 주기에 다시 보낸다. 대사는 그대로 된다."""
+    out, inc = await b1_books(client, user)
+    hub.put_run(12, "DRAFT", [sent(out[0]), sent(out[1]), received(inc)])
+    hub.report_down = True
+    [row] = await sync()
+    assert row.result == "MATCHED" and row.acked_at is None and hub.reports == []
+    hub.report_down = False
+    [row] = await sync()
+    assert row.acked_at is not None and hub.reports == [(12, "ack", None)]
+
+
+async def test_settled_or_checking_sends_nothing(client, user, hub):
+    """SETTLED run(허브가 409)과 확인 중(CHECKING)인 DRAFT에는 결과를 보내지 않는다."""
+    out, inc = await b1_books(client, user)
+    hub.put_run(12, "SETTLED", [sent(out[0]), sent(out[1]), received(inc)])
+    [row] = await sync()
+    assert row.settled_at is not None and row.acked_at is None and hub.reports == []
+
+    source = await open_checking(client, user, balance=100_000)
+    tid = await send_ok(client, user, source, 30_000, to_account="110-123-0003")  # 우리 PENDING
+    row = await run_once(hub.put_run(13, "DRAFT", [sent(tid, 30_000)]))
+    assert row.result == "CHECKING" and hub.reports == []
