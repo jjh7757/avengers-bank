@@ -7,7 +7,7 @@
 import asyncio
 import json
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 
 import pytest
 from fastapi import Request
@@ -19,7 +19,7 @@ from avengers_bank.core.database import SessionLocal
 from avengers_bank.domains.interbank.hub_client import hub_client
 from avengers_bank.domains.interbank.models import InterbankLedgerEntry, SettlementReconciliation
 from avengers_bank.domains.interbank.service import ledger_balances, reconcile
-from avengers_bank.domains.interbank.settlement_sync import reconcile_run, sync_settlements
+from avengers_bank.domains.interbank.settlement_sync import STALE_AFTER, reconcile_run, sync_settlements
 from avengers_bank.domains.interbank.signing import verify
 from tests.conftest import open_checking
 from tests.test_interbank import SECRET, FakeHub, hub_call, receive_payload, send
@@ -67,10 +67,13 @@ class SettleHub(FakeHub):
 
     def put_run(self, run_id: int, status: str, transfers: list[dict], *, net: int | None = None,
                 cutoff_at: datetime | None = None) -> dict:
-        """그 run의 대사 파일을 허브처럼 만든다. net을 주면 position.net_amount만 일부러 다르게 둔다."""
+        """그 run의 대사 파일을 허브처럼 만든다. net을 주면 position.net_amount만 일부러 다르게 둔다.
+        cutoff_at 기본값은 지금 + STALE_AFTER/2: 방금 만든 거래가 "오래된 ours_only"(cutoff − STALE_AFTER보다 먼저 끝남)로
+        잡히지 않게 여유를 둔다. 예전 기본값(지금 + 1시간)은 여유가 0이라, cutoff를 초 단위로 자르는 사이 초가 바뀌면
+        방금 받은 거래가 stale로 잡혀 test_ours_only_waits_for_next_run이 가끔 실패했다."""
         sent = [t for t in transfers if t["direction"] == "SENT"]
         recv = [t for t in transfers if t["direction"] == "RECEIVED"]
-        cutoff = cutoff_at or datetime.now(timezone.utc) + timedelta(hours=1)
+        cutoff = cutoff_at or datetime.now(timezone.utc) + STALE_AFTER / 2
         settled = status == "SETTLED"
         position = {
             "sent_count": len(sent), "sent_total": sum(t["amount"] for t in sent),
@@ -304,7 +307,7 @@ async def test_ours_only_waits_for_next_run(client, user, hub, caplog):
 
     # cutoff보다 1시간 넘게 먼저 끝났는데도 run에 없으면: MATCHED는 막지 않고 경고만
     late = await send_ok(client, user, source, 10_000)
-    hub.put_run(3, "SETTLED", [], cutoff_at=datetime.now(timezone.utc) + timedelta(hours=2))
+    hub.put_run(3, "SETTLED", [], cutoff_at=datetime.now(timezone.utc) + STALE_AFTER * 2)
     with caplog.at_level(logging.WARNING):
         [row] = await sync()
     assert row.result == "MATCHED" and row.settled_at is not None
