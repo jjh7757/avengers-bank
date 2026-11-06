@@ -74,8 +74,11 @@ async def _verified_body(request: Request) -> bytes | JSONResponse:
     if request.headers.get("x-bank-code") != HUB_BANK_CODE:
         return _error(401, "UNAUTHORIZED", "허브 요청이 아닙니다")
     body = await request.body()
-    error = verify(settings.hub_secret.get_secret_value(), request.headers.get("x-timestamp"), body,
-                   request.headers.get("x-signature"))
+    # 서명 경로는 base_url(`.../interbank`) 뒤의 부분이다 (SPEC 2.2). 운영에서는 /api 아래에 마운트되므로
+    # 실제 경로(/api/interbank/receive)가 아니라 규격 경로(/receive)로 검증한다
+    spec_path = request.url.path.partition(router.prefix)[2]
+    error = verify(settings.hub_secret.get_secret_value(), request.headers.get("x-timestamp"), request.method,
+                   spec_path, body, request.headers.get("x-signature"))
     if error:
         return _error(401, error, "서명이 맞지 않습니다" if error == "SIGNATURE_INVALID" else "서명 시각이 만료됐습니다")
     return body

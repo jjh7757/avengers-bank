@@ -41,7 +41,8 @@ class FakeHub:
             self.request_ids.append((request.url.path, request.headers.get("x-request-id")))
             body = await request.body()
             ok = (request.headers.get("x-bank-code") == "901" and request.headers.get("x-api-key") == "chk_test_api_key"
-                  and verify(SECRET, request.headers.get("x-timestamp"), body, request.headers.get("x-signature")) is None)
+                  and verify(SECRET, request.headers.get("x-timestamp"), request.method, request.url.path, body,
+                         request.headers.get("x-signature")) is None)
             return body if ok else JSONResponse(status_code=401, content={"error": "SIGNATURE_INVALID", "message": "서명"})
 
         @app.get("/v1/banks")
@@ -332,9 +333,12 @@ async def test_holder_inquiry(client, user, other_user, hub):
 
 # ── 받기 (허브 → 우리) ─────────────────────────────────────────
 
-async def hub_call(client, method: str, path: str, payload: dict | None = None, secret: str = SECRET):
+async def hub_call(client, method: str, path: str, payload: dict | None = None, secret: str = SECRET,
+                   signed_path: str | None = None):
+    """허브처럼 서명해 부른다. 서명 경로는 base_url(/interbank) 뒤의 부분이다 (SPEC 2.2)."""
     body = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode() if payload is not None else b""
-    headers = {"X-Bank-Code": "000", "Content-Type": "application/json", **sign(secret, body)}
+    signed_path = path.partition("/interbank")[2] if signed_path is None else signed_path
+    headers = {"X-Bank-Code": "000", "Content-Type": "application/json", **sign(secret, method, signed_path, body)}
     return await client.request(method, path, content=body, headers=headers)
 
 
@@ -391,6 +395,13 @@ async def test_receive_rejects_bad_signature(client, user):
     account = await open_checking(client, user)
     res = await hub_call(client, "POST", "/interbank/receive", receive_payload(account["account_num"]), secret="wrong")
     assert res.status_code == 401 and res.json()["error"] == "SIGNATURE_INVALID"
+    # 다른 경로용 서명을 붙여 와도 거절한다 (서명에 메서드·경로가 들어간다)
+    res = await hub_call(client, "POST", "/interbank/receive", receive_payload(account["account_num"]),
+                         signed_path="/inquiry")
+    assert res.status_code == 401 and res.json()["error"] == "SIGNATURE_INVALID"
+    res = await hub_call(client, "POST", "/interbank/receive", receive_payload(account["account_num"]),
+                         signed_path="/interbank/receive")  # 실제 경로가 아니라 base_url 뒤의 부분으로 서명해야 한다
+    assert res.status_code == 401
     res = await client.post("/interbank/receive", json=receive_payload(account["account_num"]))  # 서명 없음
     assert res.status_code == 401
     assert await balance_of(client, user, account["account_id"]) == 0

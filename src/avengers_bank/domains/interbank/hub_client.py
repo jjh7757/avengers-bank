@@ -57,7 +57,7 @@ class HubClient:
             "X-Bank-Code": settings.bank_code,
             "X-Api-Key": settings.hub_api_key.get_secret_value(),
             "Content-Type": "application/json; charset=utf-8",
-            **sign(settings.hub_secret.get_secret_value(), body),
+            **sign(settings.hub_secret.get_secret_value(), method, "/v1" + path, body),  # SPEC 2.2
         }
         # 추적 ID (SPEC 2.4, 서명 대상 아님): 이 요청의 ID를 허브에 넘기면 허브가 받는 은행까지 그대로 전달한다.
         # 처리 중 확인 태스크처럼 요청 밖에서 부르면 없고, 그때는 허브가 새로 만든다
