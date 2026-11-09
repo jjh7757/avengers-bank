@@ -66,6 +66,16 @@ docker exec avengers-bank python scripts/demo_seed.py
 sudo grep '^DEMO_SEED_' /srv/avengers-bank/.env
 ```
 
+### 타행 연동 시험 계좌
+
+다른 참가 은행이 AvengersBank로 시험 이체를 보낼 수 있게 ClearingHub SPEC(빠른 시작 5단계, 7절 6, 9.4)에 공개한 계좌다.
+고객 `테스트수취`(로그인 불가, 생년월일 `20000101`, 휴대폰 `010-1111-2222`)의 입출금 계좌 `110-901-000001`.
+없을 때만 만들고, 다시 실행해도 잔액·거래내역은 그대로다 (`demo_seed.py`와 따로라 시연 초기화에 지워지지 않는다).
+
+```bash
+docker exec avengers-bank python scripts/interbank_test_account.py
+```
+
 ## 확인
 
 ```bash
