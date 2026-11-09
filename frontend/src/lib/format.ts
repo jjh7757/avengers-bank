@@ -42,4 +42,5 @@ export const HISTORY_TYPE_LABEL: Record<string, string> = {
   SAVINGS_PAYMENT: '적금 납입',
   DEPOSIT_PAYMENT: '예금 입금',
   INTEREST: '이자',
+  CASH_DEPOSIT: '입금(시연)',
 }

@@ -37,6 +37,10 @@ class Settings(BaseSettings):
     voice_max_attempts: int = Field(default=2, gt=0)  # 카드 하나당 음성 승인 시도 횟수
     # 시연 모드: /demo/clock으로 업무 시각을 옮길 수 있다 (심야 이체 재현). 로그인 없이 바뀌므로 발표용 로컬에서만 켠다
     demo_mode: bool = False
+    # 시연용 가상 입금 (POST /accounts/checking/{id}/cash-deposit). 돈을 새로 만드는 기능이라 한도를 둔다.
+    # 1일 한도는 사용자별, 한국 시간 0시부터의 합계
+    cash_deposit_max_amount: int = Field(default=1_000_000, gt=0)
+    cash_deposit_daily_limit: int = Field(default=3_000_000, gt=0)
     # 다른 은행 이체: ClearingHub 중계 서버 (clearing-hub 저장소 docs/SPEC.md v1.0, docs/INTERBANK.md).
     # HUB_URL·HUB_API_KEY·INTERBANK_SIGNING_KEY·HUB_PUBLIC_KEY 넷 다 있어야 켜진다 (interbank_enabled)
     bank_code: str = Field(default="901", pattern=r"^\d{3}$")  # 허브가 배정한 우리 은행 코드 (셀프 등록 응답의 bank_code)

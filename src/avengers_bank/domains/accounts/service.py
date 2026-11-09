@@ -4,7 +4,8 @@ from datetime import date
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from avengers_bank.core.clock import today_kst
+from avengers_bank.core.clock import now_utc, start_of_today_utc, today_kst
+from avengers_bank.core.config import get_settings
 from avengers_bank.core.exceptions import (
     BadRequestException,
     ConflictException,
@@ -15,6 +16,7 @@ from avengers_bank.domains.accounts.models import (
     CheckingAccount,
     CheckingAccountHistory,
     DepositAccount,
+    HistoryType,
     SavingsAccount,
 )
 from avengers_bank.domains.accounts.repository import (
@@ -29,10 +31,13 @@ from avengers_bank.domains.accounts.schemas import (
     AccountSummaryResponse,
     AccountType,
     AccountUpdate,
+    CashDepositCreate,
+    CashDepositResponse,
     CheckingAccountCreate,
     DepositAccountCreate,
     SavingsAccountCreate,
 )
+from avengers_bank.domains.interbank import service as interbank_service
 from avengers_bank.domains.products.service import product_service
 from avengers_bank.domains.users.repository import user_repository
 from avengers_bank.domains.users.service import user_service
@@ -215,6 +220,46 @@ class AccountService:
             raise BadRequestException(code="PIN_REQUIRED", message="이체 한도를 높이려면 이체 PIN이 필요해요.")
         if not await user_service.verify_pin(user, pin):
             raise BadRequestException(code="INVALID_PIN", message="이체 PIN이 올바르지 않습니다.")
+
+    async def cash_deposit(
+        self, db: AsyncSession, account_id: int, data: CashDepositCreate, current_user: UserResponse
+    ) -> CashDepositResponse:
+        """시연용 가상 입금: 본인 입출금 계좌에 돈을 넣는다 (현금 입금 흉내).
+        밖에서 돈이 새로 생기는 것이라 1회·1일(사용자별) 한도를 둔다. 반대쪽은 내부 계정 금고 현금(CASH_VAULT)이고
+        허브 예치금·타행 정산과는 관계없다."""
+        settings = get_settings()
+        if data.amount > settings.cash_deposit_max_amount:
+            raise BadRequestException(
+                code="CASH_DEPOSIT_LIMIT_EXCEEDED",
+                message=f"한 번에 {settings.cash_deposit_max_amount:,}원까지 입금할 수 있어요.",
+            )
+        async with db.begin():
+            account: CheckingAccount = await self.get_owned_account(
+                db, "checking", account_id, current_user.user_id, for_update=True
+            )
+            used = await account_repository.sum_cash_deposit_since(db, current_user.user_id, start_of_today_utc())
+            if used + data.amount > settings.cash_deposit_daily_limit:
+                left = max(settings.cash_deposit_daily_limit - used, 0)
+                raise BadRequestException(
+                    code="CASH_DEPOSIT_DAILY_LIMIT_EXCEEDED",
+                    message=f"오늘은 {left:,}원까지 더 입금할 수 있어요 (하루 {settings.cash_deposit_daily_limit:,}원).",
+                )
+            account.balance += data.amount
+            now = now_utc()
+            history = CheckingAccountHistory(
+                checking_account_id=account.checking_account_id,
+                date=now,
+                change_amount=data.amount,
+                type=HistoryType.CASH_DEPOSIT,
+                from_account=None,
+                sending_account=account.account_num,
+            )
+            await account_repository.save(db, history)  # flush까지 해서 분개 transfer_id에 쓸 id가 생긴다
+            # 돈이 어디서 왔는지: 고객 잔액이 늘어난 만큼 은행 금고 현금(내부 계정)도 는다
+            interbank_service.record_cash_deposit(db, history.checking_account_history_id, data.amount)
+            return CashDepositResponse(
+                account_num=account.account_num, amount=data.amount, balance_after=account.balance, deposited_at=now
+            )
 
     async def find_checking_holder(self, db: AsyncSession, account_num: str) -> str:
         """입출금 계좌번호 → 예금주 이름. 에이전트가 계좌번호로 직접 보낼 때 확인 카드에 쓴다."""

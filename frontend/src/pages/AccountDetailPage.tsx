@@ -1,9 +1,10 @@
-import { ArrowLeftRight, ChevronLeft, ReceiptText } from 'lucide-react'
+import { ArrowLeftRight, ChevronLeft, PlusCircle, ReceiptText } from 'lucide-react'
 import { useCallback, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 
 import { accountApi } from '../api/endpoints'
-import type { AccountDetail, AccountType } from '../api/types'
+import type { AccountDetail, AccountHistory, AccountType } from '../api/types'
+import CashDepositForm from '../components/CashDepositForm'
 import TransferLimitForm from '../components/TransferLimitForm'
 import { AccountIcon, EmptyState, ErrorState, SkeletonList } from '../components/ui'
 import { useLoad } from '../hooks/useLoad'
@@ -16,9 +17,22 @@ export default function AccountDetailPage() {
   const { data, error, loading } = useLoad(
     useCallback(() => Promise.all([accountApi.get(type, id), accountApi.histories(type, id)]), [type, id]),
   )
-  const [loaded, histories] = data ?? [null, null]
   const [updated, setUpdated] = useState<AccountDetail | null>(null) // 한도를 바꾼 뒤의 계좌
+  // 입금 뒤 다시 불러온 계좌·거래내역 (화면 전체를 다시 로딩하지 않으려고 따로 둔다)
+  const [refreshed, setRefreshed] = useState<{ account: AccountDetail; histories: AccountHistory[] } | null>(null)
+  const [depositing, setDepositing] = useState(false)
+  const [notice, setNotice] = useState<string | null>(null)
+  const current = refreshed?.account.account_id === id && type === 'checking' ? refreshed : null
+  const [loaded, histories] = current ? [current.account, current.histories] : (data ?? [null, null])
   const account = updated?.account_id === id && type === 'checking' ? updated : loaded
+
+  async function afterDeposit(before: number) {
+    setDepositing(false)
+    const [fresh, freshHistories] = await Promise.all([accountApi.get('checking', id), accountApi.histories('checking', id)])
+    setUpdated(null)
+    setRefreshed({ account: fresh, histories: freshHistories })
+    setNotice(`${won(fresh.balance - before)} 입금했어요.`)
+  }
 
   return (
     <section className="page">
@@ -43,9 +57,30 @@ export default function AccountDetailPage() {
                 <Link className="button hero-button" to={`/transfer?from=${account.account_id}`}>
                   <ArrowLeftRight size={18} aria-hidden="true" /> 이 계좌에서 이체하기
                 </Link>
+                <button
+                  className="button hero-button ghost"
+                  onClick={() => {
+                    setDepositing(true)
+                    setNotice(null)
+                  }}
+                >
+                  <PlusCircle size={18} aria-hidden="true" /> 입금하기
+                </button>
               </div>
             )}
           </div>
+          {notice && (
+            <p className="success small" role="status">
+              {notice}
+            </p>
+          )}
+          {type === 'checking' && depositing && (
+            <CashDepositForm
+              account={account}
+              onDone={() => void afterDeposit(account.balance)}
+              onCancel={() => setDepositing(false)}
+            />
+          )}
           <dl className="facts">
             {account.per_transfer_limit != null && (
               <>

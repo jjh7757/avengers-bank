@@ -113,7 +113,7 @@ async def signup_and_login(client: AsyncClient, login_id: str, name: str = "테�
 
 
 async def open_checking(client: AsyncClient, headers: dict, balance: int = 0, **extra) -> dict:
-    """입출금 계좌를 열고, API로는 입금할 방법이 없으므로 잔액은 DB에 직접 넣는다."""
+    """입출금 계좌를 열고, 잔액은 DB에 직접 넣는다 (가상 입금 API는 1일 한도가 있어 테스트 준비에 쓰지 않는다)."""
     response = await client.post(
         "/accounts/checking", headers=headers, json={"product_id": CHECKING_PRODUCT, "terms_version": terms_version("account", CHECKING_PRODUCT), **extra}
     )

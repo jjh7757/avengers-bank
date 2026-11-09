@@ -12,6 +12,8 @@ from avengers_bank.domains.accounts.schemas import (
     AccountSummaryResponse,
     AccountType,
     AccountUpdate,
+    CashDepositCreate,
+    CashDepositResponse,
     CheckingAccountCreate,
     DepositAccountCreate,
     SavingsAccountCreate,
@@ -64,6 +66,18 @@ async def open_deposit(data: DepositAccountCreate, db: Db, current_user: Current
 async def open_savings(data: SavingsAccountCreate, db: Db, current_user: CurrentUser):
     account = await account_service.open_savings(db, data, current_user)
     return SuccessResponse[AccountDetailResponse](data=account, message="적금 계좌가 개설되었습니다.")
+
+
+@router.post(
+    "/checking/{account_id}/cash-deposit",
+    response_model=SuccessResponse[CashDepositResponse],
+    responses=error_responses(400, 403, 404),
+)
+async def cash_deposit(account_id: int, data: CashDepositCreate, db: Db, current_user: CurrentUser):
+    """시연용 가상 입금 (현금 입금 흉내). 본인 입출금 계좌만. 거래내역 type은 `CASH_DEPOSIT`.
+    1회 한도 초과 `400 CASH_DEPOSIT_LIMIT_EXCEEDED`, 사용자별 1일 한도 초과 `400 CASH_DEPOSIT_DAILY_LIMIT_EXCEEDED`."""
+    result = await account_service.cash_deposit(db, account_id, data, current_user)
+    return SuccessResponse[CashDepositResponse](data=result, message="입금이 완료되었습니다.")
 
 
 @router.get(

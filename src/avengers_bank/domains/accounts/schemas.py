@@ -82,6 +82,17 @@ class AccountDetailResponse(AccountSummaryResponse):
     monthly_deposit_date: int | None = None  # savings
 
 
+class CashDepositCreate(BaseModel):
+    amount: int = Field(gt=0, description="넣을 금액(원). 1회·1일 한도는 설정값(CASH_DEPOSIT_*)")
+
+
+class CashDepositResponse(BaseModel):
+    account_num: str
+    amount: int
+    balance_after: int
+    deposited_at: datetime
+
+
 class AccountHistoryResponse(BaseModel):
     """3종 계좌 거래내역 공통 모양. amount는 입금 +, 출금 -."""
 

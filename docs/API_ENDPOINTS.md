@@ -89,6 +89,7 @@
 | ✅ | GET | `/accounts/{type}/{account_id}` | 🔒 | 계좌 상세 |
 | ✅ | GET | `/accounts/{type}/{account_id}/histories` | 🔒 | 거래내역 |
 | ✅ | PATCH | `/accounts/{type}/{account_id}` | 🔒 | 별칭, 이체 한도(입출금만) 변경 |
+| ✅ | POST | `/accounts/checking/{account_id}/cash-deposit` | 🔒 | 시연용 가상 입금 (본인 입출금 계좌) |
 
 <details>
 <summary>요청·응답 예시</summary>
@@ -112,6 +113,15 @@
 한도를 **높일 때는** 이체 PIN이 필요하다: `{ "daily_transfer_limit": 30000000, "pin": "123456" }`.
 PIN이 없으면 `400 PIN_NOT_SET`, 안 보내면 `400 PIN_REQUIRED`, 틀리면 `400 INVALID_PIN`. 낮추기·별칭 변경은 PIN 없이 된다.
 대화(MCP `lower_transfer_limits`)로는 낮추기만 된다 (`LIMIT_RAISE_NOT_ALLOWED`).
+
+`POST /accounts/checking/1/cash-deposit`: 시연용 가상 입금 (현금 입금 흉내, 실제 돈은 오가지 않음). 거래내역 type `CASH_DEPOSIT`
+```json
+{ "amount": 50000 }
+```
+→ `200` `{ "account_num": "110-…", "amount": 50000, "balance_after": 51000, "deposited_at": "..." }`.
+1회 100만원 초과 `400 CASH_DEPOSIT_LIMIT_EXCEEDED`, 사용자별 하루(한국 시간 0시부터) 300만원 초과 `400 CASH_DEPOSIT_DAILY_LIMIT_EXCEEDED`
+(한도는 `.env`의 `CASH_DEPOSIT_MAX_AMOUNT`·`CASH_DEPOSIT_DAILY_LIMIT`). 고객 잔액이 는 만큼 내부 계정 금고 현금(`CASH_VAULT`, `interbank_ledger`)에 `CASH_DEPOSIT` 분개가 같이 남고 `reconcile`이 둘을 맞춘다.
+이체 1일 한도, 허브 예치금(`HUB_RESERVE`)·타행 정산에는 영향이 없다.
 
 `GET /accounts` → `200`
 ```json

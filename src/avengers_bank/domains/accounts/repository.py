@@ -127,5 +127,18 @@ class AccountRepository:
         )
         return int(total)
 
+    async def sum_cash_deposit_since(self, db: AsyncSession, user_id: int, since: datetime) -> int:
+        """since 이후 이 사용자의 모든 입출금 계좌에 가상 입금한 합계. 가상 입금 1일 한도 검사용."""
+        total = await db.scalar(
+            select(func.coalesce(func.sum(CheckingAccountHistory.change_amount), 0))
+            .join(CheckingAccount)
+            .where(
+                CheckingAccount.user_id == user_id,
+                CheckingAccountHistory.type == HistoryType.CASH_DEPOSIT,
+                CheckingAccountHistory.date >= since,
+            )
+        )
+        return int(total)
+
 
 account_repository = AccountRepository()

@@ -19,6 +19,7 @@ class HistoryType(StrEnum):
     SAVINGS_PAYMENT = "SAVINGS_PAYMENT"  # 입출금 → 적금 납입 (입출금 쪽 기록)
     DEPOSIT_PAYMENT = "DEPOSIT_PAYMENT"  # 입출금 → 예금 입금 (입출금 쪽 기록)
     INTEREST = "INTEREST"
+    CASH_DEPOSIT = "CASH_DEPOSIT"  # 시연용 가상 입금(현금 입금 흉내). 밖에서 돈이 들어옴 (입금 +)
 
 
 class CheckingAccount(Base):

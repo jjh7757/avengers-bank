@@ -23,6 +23,9 @@ class LedgerAccount(StrEnum):
     # 허브에 맡긴 모의 예치금 (SPEC 10.2). 은행별이 아니라 하나이고 bank_code는 허브 "000"이다.
     # 위 두 계정은 고객 예금처럼 "우리가 갚을 돈"이고, 이것만 "우리가 가진 돈"이라 정산 때 둘이 같은 방향으로 준다
     HUB_RESERVE = "HUB_RESERVE"
+    # 금고 현금: 시연용 가상 입금(CASH_DEPOSIT)으로 들어온 현금. HUB_RESERVE처럼 "우리가 가진 돈"이다.
+    # 타행과는 관계없지만 내부 계정이 이 표 하나라 같이 둔다. bank_code는 우리 은행 코드
+    CASH_VAULT = "CASH_VAULT"
 
 
 class LedgerEvent(StrEnum):
@@ -30,6 +33,7 @@ class LedgerEvent(StrEnum):
     COMPLETE = "COMPLETE"  # 보내기 완료: 중간 계정 → 정산 계정
     REFUND = "REFUND"  # 보내기 실패: 중간 계정 → 고객
     RECEIVE = "RECEIVE"  # 받기: 정산 계정 → 고객
+    CASH_DEPOSIT = "CASH_DEPOSIT"  # 가상 입금: 고객 +a / 금고 현금 +a. transfer_id는 "cash:{입출금 거래내역 id}"
     SETTLE = "SETTLE"  # 허브 정산 확정 (SPEC 10.6의 4): 정산 계정 → 예치금 계정. transfer_id는 "settle:{run_id}:{은행}"
 
 

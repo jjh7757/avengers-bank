@@ -35,6 +35,13 @@ export interface AccountDetail extends AccountSummary {
   monthly_deposit_date: number | null
 }
 
+export interface CashDepositResult {
+  account_num: string
+  amount: number
+  balance_after: number
+  deposited_at: string
+}
+
 export interface AccountHistory {
   history_id: number
   date: string

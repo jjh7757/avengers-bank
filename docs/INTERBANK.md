@@ -125,6 +125,7 @@ settlement_sync_loop (시작 60초 뒤 한 번, 그 뒤 1시간마다)
 - **부호**: `HUB_RESERVE`의 변화 = Σ(−n) = 허브의 `position.net_amount`(받을 돈 − 줄 돈)다. 901 → 902 5만 원 2건, 902 → 901 3만 원 1건이면 `INTERBANK_SETTLEMENT:902` +70,000 → 0, `HUB_RESERVE` −70,000, 허브의 901 `net_amount` −70,000
 - 두 줄이 같은 방향인 것은 정산 계정·중간 계정·고객 예금이 "우리가 갚을 돈"이고 `HUB_RESERVE`만 "우리가 가진 돈"이기 때문이다 (부채가 준 만큼 자산이 줄었다)
 - `HUB_RESERVE`는 확정된 run의 차액 합일 뿐 허브의 실제 예치금 잔액(`GET /v1/reserve`의 `balance`)과는 다르다. 허브 관리자의 예치·인출·정정은 우리 장부에 없다
+- 같은 표에 타행과 무관한 내부 계정 `CASH_VAULT`(금고 현금, `bank_code`는 우리 은행 코드)도 있다. 시연용 가상 입금(`POST /accounts/checking/{id}/cash-deposit`)마다 `CASH_DEPOSIT` 분개로 +a가 남는다 (고객 +a / 금고 +a, 둘 다 늘어나는 것은 `HUB_RESERVE`처럼 "우리가 가진 돈"이라서). `reconcile`은 `CASH_VAULT` = 고객 거래내역 `CASH_DEPOSIT` 합을 확인한다
 - 주고받은 금액이 같은 은행은 옮길 돈이 없으므로 `SETTLE` 분개 없이 `hub_run_id`만 찍는다
 
 **운영자가 `MISMATCH` 때 할 일.**
