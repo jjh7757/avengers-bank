@@ -12,6 +12,7 @@
 | 이체 멱등성 (`Idempotency-Key`) | 버튼 두 번·네트워크 재시도로 두 번 출금 | `domains/transfers/idempotency.py` |
 | 보안 키패드 (숫자 배열 섞기) | 어깨 너머 보기, 누른 위치로 PIN 추측 | `frontend/src/components/PinPad.tsx` |
 | 자동 로그아웃 (10분, 1분 전 경고) | 자리를 비운 사이 남이 조작 | `frontend/src/components/IdleGuard.tsx` |
+| 관리자 역할(CLI로만 부여)·매 요청 DB 확인·감사 로그 | 회원가입으로 관리자 되기, 강등 뒤 남은 토큰, 기록 없는 자금 이동 | `domains/admin`, `core/dependencies.py` `require_admin` |
 
 ## 로그인 유지 (access / refresh 토큰)
 
@@ -59,6 +60,23 @@ PIN을 넣고 다시 보내거나 네트워크 때문에 다시 보낼 때는 �
 - 한계: 이체 커밋과 결과 저장은 별도 트랜잭션이다. 그 사이에 서버가 죽으면 키가 "처리 중"으로 남아 같은 키 재시도는 409를 받는다.
   자동으로 다시 보내지 않으므로 두 번 출금되지는 않고, 사용자는 거래내역으로 확인한다.
 - 헤더는 선택이다. 없으면 예전처럼 처리한다 (MCP·스크립트 호환).
+
+## 관리자
+
+- **역할:** `users.role` = `CUSTOMER`(기본) / `ADMIN`. 회원가입·`PATCH /users/me`는 `role`을 받지 않는다(본문에 넣어도 무시).
+  관리자는 서버 CLI로만 만든다: `python -m avengers_bank.domains.admin.cli create-admin <아이디> --name … --phone …`
+  (비밀번호는 터미널이면 묻고, 아니면 `ADMIN_PASSWORD`. 8자 이상). 고객 아이디를 관리자로 올리지 않고 따로 만든다. `revoke-admin`은 고객으로 강등, `list-admins`
+- **확인:** `/admin/*`는 `require_admin`. 토큰에 역할을 넣지 않고 `get_current_user`가 매 요청 DB에서 읽은 값을 본다.
+  그래서 강등하면 이미 발급한 access 토큰(최대 15분)으로도 바로 `403 ADMIN_REQUIRED`다
+- **할 수 있는 것:** 은행이 가진 돈(금고 현금 `CASH_VAULT` ↔ 허브 예치금 `HUB_RESERVE`)만 움직인다. 그것도 허브 관리자가 승인해야 한다.
+  고객 계좌 잔액을 바꾸는 관리자 API는 없다 (테스트 `test_admin_treasury.py`가 신청·승인 뒤 고객 잔액이 그대로인지 본다)
+- **감사 로그 `admin_audit_logs`:** 신청·취소·동기화마다 관리자, 행동, 대상(신청 id), 내용(kind·amount·memo·결과 상태), `OK`/`FAILED`와 오류 코드, IP, 시각.
+  **실패한 시도도 남긴다**: 본 작업이 예외로 끝나면 그 트랜잭션을 롤백한 뒤 기록만 따로 커밋한다 (이체 FDS 거절 기록과 같은 방식).
+  지우거나 고치는 API는 없다. 조회는 `GET /admin/audit-logs`. 권한 없는 시도(401·403)는 관리자 행동이 아니라 남기지 않는다
+- **maker-checker(두 사람 결재)를 두지 않은 이유:** 예치금은 은행이 신청하고 허브(중앙은행 역할) 관리자가 승인해야 움직이므로 이미 두 단계다.
+  실제 은행이라면 신청 전에 은행 안 결재(담당자 기안 → 책임자 승인)가 하나 더 있고, 신청자와 승인자가 같은 사람이면 막는다.
+  이 프로젝트는 관리자 한 명으로 시연하므로 감사 로그로 누가 무엇을 했는지 남기는 데서 멈췄다
+- **한계:** 관리자도 로그인은 고객과 같은 `/users/login`(같은 실패 제한)이다. 2단계 인증·접속 IP 제한은 없다
 
 ## 화면
 

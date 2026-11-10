@@ -76,6 +76,20 @@ sudo grep '^DEMO_SEED_' /srv/avengers-bank/.env
 docker exec avengers-bank python scripts/interbank_test_account.py
 ```
 
+## 관리자 계정
+
+자금 관리 화면(금고 현금·허브 예치금 신청)용 관리자는 회원가입으로 만들 수 없고 컨테이너 안에서 CLI로 만든다.
+`-it`로 실행하면 비밀번호를 두 번 묻는다 (8자 이상, 화면·기록에 남지 않는다).
+
+```bash
+docker exec -it avengers-bank python -m avengers_bank.domains.admin.cli create-admin treasurer --name "자금 관리자" --phone 010-0000-0000
+docker exec avengers-bank python -m avengers_bank.domains.admin.cli list-admins
+docker exec avengers-bank python -m avengers_bank.domains.admin.cli revoke-admin treasurer   # 고객으로 강등, 바로 막힘
+```
+
+터미널 없이(스크립트) 만들 때만 `docker exec -e ADMIN_PASSWORD=… avengers-bank …`를 쓰고, 셸 기록을 지운다.
+관리자 행동 기록은 `GET /api/admin/audit-logs` 또는 DB `admin_audit_logs` 표.
+
 ## 확인
 
 ```bash

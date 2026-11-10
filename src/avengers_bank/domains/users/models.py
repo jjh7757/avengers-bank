@@ -1,9 +1,18 @@
 from datetime import datetime
+from enum import StrEnum
 
 from sqlalchemy import DateTime, ForeignKey, String, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from avengers_bank.core.database import Base
+
+
+class UserRole(StrEnum):
+    """CUSTOMER: 회원가입한 고객. ADMIN: 은행 자산(금고 현금·허브 예치금)을 다루는 관리자.
+    ADMIN은 회원가입·PATCH /users/me로 만들 수 없고 서버 CLI(domains/admin/cli.py)로만 준다."""
+
+    CUSTOMER = "CUSTOMER"
+    ADMIN = "ADMIN"
 
 
 class User(Base):
@@ -19,6 +28,9 @@ class User(Base):
     # 가상 CI (ClearingHub SPEC 9.1) = HMAC(CI_KEY, 이름|생년월일|휴대폰). 다른 은행이 같은 사람을 찾을 때 쓴다
     ci: Mapped[str | None] = mapped_column(String(64), index=True)
     hashed_pin: Mapped[str | None] = mapped_column(String(255))  # 이체 추가 인증용 6자리 PIN
+    role: Mapped[str] = mapped_column(
+        String(10), nullable=False, default=UserRole.CUSTOMER, server_default=UserRole.CUSTOMER.value
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

@@ -248,6 +248,14 @@ uv run python -m avengers_bank.domains.interbank.keys register --public-key <새
 - `confirm_loop`가 열린(`SENDING`·`PENDING`) 신청이 있을 때만 허브에 결정을 묻는다. 승인이면 분개, 거절이면 사유를 남긴다
 - `reconcile`: 예치금 = 정리한 정산 run 합 + (반영한 입금 − 인출), 금고 현금 = 가상 입금 합 − (반영한 입금 − 인출)
 
+- 입금 신청의 "금고 잔액 검사 → `SENDING` 행 커밋"은 한 번에 하나씩만 한다 (`_deposit_guard`: PostgreSQL advisory lock + 프로세스 안 `asyncio.Lock`).
+  잠그지 않으면 동시에 온 두 신청이 같은 금고 잔액을 보고 둘 다 통과한다. 잠금은 행을 커밋할 때 풀리고, 허브 호출은 잠금 밖이다
+
+관리자 화면·API: 관리자 계정(`role = ADMIN`, 서버 CLI로만 만든다)으로 로그인하면 `/admin/treasury`(현황), `/admin/treasury/reserve-requests`(신청·목록·취소·동기화),
+`/admin/audit-logs`(감사 로그)를 쓴다. 아래 CLI와 같은 함수를 부르고, 관리자 행동은 성공·실패 모두 `admin_audit_logs`에 남긴다.
+경로·응답은 [API_ENDPOINTS.md](API_ENDPOINTS.md) "admin", 권한·감사 로그는 [SECURITY.md](SECURITY.md) "관리자".
+실제 은행이라면 신청 전에 은행 안 결재(담당자 기안 → 책임자 승인, maker-checker)가 하나 더 있다. 여기서는 은행 신청 → 허브 관리자 승인이 이미 두 단계라 두지 않았다.
+
 운영 도구 (서버에서는 `docker exec avengers-bank python -m …`):
 
 ```

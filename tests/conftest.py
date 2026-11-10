@@ -29,6 +29,7 @@ from httpx import ASGITransport, AsyncClient
 from sqlalchemy import update
 
 import avengers_bank.domains.accounts.models  # noqa: F401  모든 테이블을 Base에 등록
+import avengers_bank.domains.admin.models  # noqa: F401
 import avengers_bank.domains.cards.models  # noqa: F401
 import avengers_bank.domains.chat.models  # noqa: F401
 import avengers_bank.domains.fds.models  # noqa: F401

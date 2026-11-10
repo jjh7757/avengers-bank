@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import async_engine_from_config
 
 from avengers_bank.core.config import get_settings
 from avengers_bank.core.database import Base
+from avengers_bank.domains.admin.models import AdminAuditLog  # noqa: F401
 from avengers_bank.domains.accounts.models import (  # noqa: F401
     CheckingAccount,
     CheckingAccountHistory,

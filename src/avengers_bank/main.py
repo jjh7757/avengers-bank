@@ -13,6 +13,7 @@ from avengers_bank.core.logging import REQUEST_ID_HEADER, RequestContextMiddlewa
 from avengers_bank.core.responses import SuccessResponse, error_responses
 from avengers_bank.core.sentry import init_sentry
 from avengers_bank.domains.accounts.router import router as account_router
+from avengers_bank.domains.admin.router import router as admin_router
 from avengers_bank.domains.cards.router import router as card_router
 from avengers_bank.domains.chat.router import router as chat_router
 from avengers_bank.domains.demo.router import router as demo_router
@@ -86,6 +87,7 @@ app.include_router(chat_router)
 app.include_router(voice_router)
 app.include_router(demo_router)
 app.include_router(interbank_router)
+app.include_router(admin_router)
 mount_mcp_servers(app)
 
 

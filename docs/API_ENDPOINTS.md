@@ -37,7 +37,7 @@
 | ✅ | POST | `/users/login` | | 로그인. access 토큰(15분)은 본문, refresh 토큰(14일)은 httpOnly 쿠키 `ab_refresh`. 같은 아이디로 10분에 5번 틀리면 `429 TOO_MANY_LOGIN_ATTEMPTS` |
 | ✅ | POST | `/users/refresh` | 쿠키 | refresh 쿠키로 새 access 토큰. 쿠키도 새로 바뀐다(회전). 이미 쓴 토큰이 다시 오면 `401 REFRESH_TOKEN_REUSED`와 함께 그 사용자의 모든 로그인을 끊는다 |
 | ✅ | POST | `/users/logout` | 쿠키 | 이 기기의 refresh 토큰 폐기, 쿠키 삭제 |
-| ✅ | GET | `/users/me` | 🔒 | 내 정보 조회 (`last_login_at`, `previous_login_at` = 지난 로그인) |
+| ✅ | GET | `/users/me` | 🔒 | 내 정보 조회 (`last_login_at`, `previous_login_at` = 지난 로그인, `role` = `CUSTOMER`/`ADMIN`: `ADMIN`이면 관리자 메뉴를 보여 준다) |
 | ✅ | PATCH | `/users/me` | 🔒 | 이름, 닉네임, 전화번호 수정 |
 | ✅ | PUT | `/users/me/pin` | 🔒 | 이체 PIN(숫자 6자리) 등록·변경. 비밀번호 재확인 `{ "password", "pin" }` |
 
@@ -327,6 +327,61 @@ PIN이 없으면 `400 PIN_NOT_SET`, 안 보내면 `400 PIN_REQUIRED`, 틀리면 
 확인 카드(`transfer_confirmation`)에 `voice_enrolled`, `voice_challenge`("895"), `voice_challenge_text`("팔 구 오")가 추가됩니다.
 
 실패: `400 VOICE_DIGITS_MISMATCH` / `400 VOICE_NOT_MATCHED` (`extra.remaining_attempts`), `400 VOICE_LOCKED`(카드당 2번 실패), `400 INVALID_AUDIO`, `400 CONSENT_REQUIRED`, `401 INVALID_CREDENTIALS`, `404 VOICE_NOT_ENROLLED`, `503 VOICE_UNAVAILABLE`(모델·키 없음, 15초 초과)
+
+## admin: 관리자 자금 관리 (`domains/admin`)
+
+🛡 = 관리자만 (`require_admin`). 로그인 안 하면 `401`, 고객이면 `403 ADMIN_REQUIRED`. 역할은 토큰이 아니라 **매 요청 DB에서** 읽는다(강등하면 같은 토큰도 바로 403).
+관리자 계정은 회원가입으로 만들 수 없고 서버 CLI로만 만든다 (`python -m avengers_bank.domains.admin.cli create-admin`, [DEPLOY.md](DEPLOY.md)).
+관리자는 은행 자산(금고 현금 `CASH_VAULT`, 허브 예치금 `HUB_RESERVE`)만 다루고 **고객 계좌 잔액을 바꾸는 API는 없다**.
+신청 규칙과 장부 반영은 [INTERBANK.md](INTERBANK.md) "허브 예치금 입금·인출 신청" (CLI와 같은 `reserve_requests.py` 함수를 쓴다).
+
+| 상태 | 메서드 | 경로 | 인증 | 설명 |
+|---|---|---|---|---|
+| ✅ | GET | `/admin/treasury` | 🛡 | 금고 현금, 우리 장부의 예치금, 허브가 말하는 예치금(`GET /v1/reserve`), 입금 신청 가능 금액, 결정 대기 신청 수, 대사(`reconcile`) 불일치, 중간 계정 잔액 |
+| ✅ | GET | `/admin/treasury/reserve-requests` | 🛡 | 최근 예치금 신청 50건 (최신순) |
+| ✅ | POST | `/admin/treasury/reserve-requests` | 🛡 | 입금·인출 신청 `{ kind: "DEPOSIT"\|"WITHDRAW", amount, memo? }` → `201`. 허브 관리자가 승인해야 잔액이 바뀐다 |
+| ✅ | POST | `/admin/treasury/reserve-requests/{id}/cancel` | 🛡 | 결정 전 신청 취소. 그사이 승인됐으면 승인으로 맞추고(장부 반영) 그 상태를 돌려준다 |
+| ✅ | POST | `/admin/treasury/reserve-requests/sync` | 🛡 | 열린 신청을 지금 허브와 맞춘다 (승인이면 장부 반영). 상태가 바뀐 신청 목록. 평소에는 `confirm_loop`가 주기적으로 한다 |
+| ✅ | GET | `/admin/audit-logs?limit=50` | 🛡 | 관리자 행동 기록 최신순 (`limit` 1~200, 실패한 시도 포함) |
+
+신청·취소·동기화는 성공·실패 모두 `admin_audit_logs`에 남는다 (`action`: `RESERVE_REQUEST_CREATE` / `RESERVE_REQUEST_CANCEL` / `RESERVE_SYNC`, `result`: `OK` / `FAILED` + `error_code`).
+허브가 접수 전에 4xx로 거절한 신청은 응답은 `201`(`status: "FAILED"`, `reject_reason`)이지만 감사 로그는 `FAILED`(허브 오류 코드)다.
+`422`(본문 형식 오류)와 `401`·`403`은 관리자 행동이 아니므로 남기지 않는다.
+
+실패: `400 INSUFFICIENT_VAULT_CASH`(금고 현금 − 결정 대기 입금 합보다 큼), `404 RESERVE_REQUEST_NOT_FOUND`, `409 RESERVE_REQUEST_NOT_PENDING`(이미 결정됨),
+`503 HUB_UNAVAILABLE`(취소를 허브에 못 보냄), `503 INTERBANK_DISABLED`(허브 설정 없음: 신청·취소·동기화. `GET /admin/treasury`는 우리 장부 값만 보여 준다)
+
+<details>
+<summary>응답 예시</summary>
+
+`GET /admin/treasury` → `200`
+```json
+{ "data": {
+  "vault_cash": 400000, "ledger_hub_reserve": 600000,
+  "hub_reserve": { "bank_code": "901", "balance": 600000, "net_debit_cap": 1000000000, "exposure": 0, "available": 1000600000 },
+  "hub_reserve_error": null,
+  "open_deposit_amount": 0, "deposit_available": 400000,
+  "open_request_count": 0, "open_deposit_count": 0, "open_withdraw_count": 0,
+  "suspense_balance": 0, "reconcile_problems": [], "interbank_enabled": true,
+  "checked_at": "2026-11-10T05:00:00Z" }, "message": null }
+```
+허브가 응답하지 않으면 `"hub_reserve": null, "hub_reserve_error": "HUB_TIMEOUT"` (허브 설정이 없으면 `"INTERBANK_DISABLED"`).
+
+`POST /admin/treasury/reserve-requests` `{ "kind": "DEPOSIT", "amount": 600000, "memo": "11월 예치" }` → `201`
+```json
+{ "data": { "request_id": 1, "request_ref": "avb-3f2a…", "kind": "DEPOSIT", "amount": 600000, "memo": "11월 예치",
+  "status": "PENDING", "hub_request_id": 1, "reject_reason": null, "hub_balance_after": null,
+  "created_at": "2026-11-10T05:00:00Z", "decided_at": null, "booked_at": null }, "message": "예치금 신청을 보냈습니다." }
+```
+`status`: `SENDING`(허브 접수 확인 전, 동기화가 다시 보냄) / `PENDING`(허브 관리자 결정 대기) / `APPROVED`(`booked_at` = 장부 반영 시각) / `REJECTED` / `CANCELLED` / `FAILED`
+
+`GET /admin/audit-logs` → `200`
+```json
+{ "data": [ { "log_id": 2, "admin_user_id": 2, "admin_login_id": "treasurer", "action": "RESERVE_REQUEST_CREATE",
+  "target": null, "detail": { "kind": "DEPOSIT", "amount": 9000000, "memo": "" }, "result": "FAILED",
+  "error_code": "INSUFFICIENT_VAULT_CASH", "client_ip": "10.0.0.5", "created_at": "2026-11-10T05:01:00Z" } ], "message": null }
+```
+</details>
 
 ## MCP 서버 (`mcp_servers/`)
 

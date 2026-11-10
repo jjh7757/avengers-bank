@@ -31,8 +31,10 @@ import logging
 import selectors
 import sys
 import uuid
+import weakref
+from contextlib import asynccontextmanager
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from avengers_bank.core.clock import now_utc
@@ -63,6 +65,36 @@ async def _vault_balance(db: AsyncSession) -> int:
 async def _open_deposits(db: AsyncSession) -> int:
     return int(await db.scalar(select(func.coalesce(func.sum(HubReserveRequest.amount), 0)).where(
         HubReserveRequest.kind == "DEPOSIT", HubReserveRequest.status.in_(OPEN))))
+
+
+async def deposit_room(db: AsyncSession) -> int:
+    """입금 신청할 수 있는 금액 = 금고 현금 − 결정을 기다리는 입금 신청 합 (음수일 수 있다)."""
+    return await _vault_balance(db) - await _open_deposits(db)
+
+
+# 입금 신청의 "금고 잔액 검사 → SENDING 행 커밋"을 한 번에 하나씩만 한다. 잠그지 않으면 동시에 온 두 신청이
+# 같은 금고 잔액을 보고 둘 다 통과한다. 금고 현금은 원장 합계라 잠글 행이 없으므로:
+#   - PostgreSQL: 트랜잭션 advisory lock. CLI와 서버(다른 프로세스)끼리도 막고, 행을 커밋하면 저절로 풀린다
+#   - 같은 프로세스 안: asyncio.Lock (SQLite에는 advisory lock이 없다. 서버는 컨테이너 1개라 이것만으로도 막힌다)
+# 잠금은 행을 커밋할 때까지만 잡는다. 허브 호출(_send)은 잠금 밖이라 허브가 느려도 다른 신청을 막지 않는다.
+DEPOSIT_LOCK_KEY = 0x41564252_0001  # "AVBR" + 1: 이 은행의 예치금 입금 신청
+_deposit_locks: "weakref.WeakKeyDictionary[asyncio.AbstractEventLoop, asyncio.Lock]" = weakref.WeakKeyDictionary()
+
+
+@asynccontextmanager
+async def _deposit_guard(db: AsyncSession, enabled: bool = True):
+    if not enabled:
+        yield
+        return
+    lock = _deposit_locks.setdefault(asyncio.get_running_loop(), asyncio.Lock())  # 이벤트 루프마다 (테스트는 루프가 여럿)
+    async with lock:
+        try:
+            if db.bind.dialect.name == "postgresql":
+                await db.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": DEPOSIT_LOCK_KEY})
+            yield
+        except BaseException:
+            await db.rollback()  # 검사에서 막히면 트랜잭션(과 advisory lock)을 바로 놓는다
+            raise
 
 
 async def _send(db: AsyncSession, req: HubReserveRequest) -> HubReserveRequest:
@@ -118,15 +150,16 @@ async def request(db: AsyncSession, kind: str, amount: int, memo: str = "") -> H
         raise BadRequestException(code="VALIDATION_ERROR", message="금액은 1원 이상 1조 원 이하입니다.")
     if len(memo) > 200:
         raise BadRequestException(code="VALIDATION_ERROR", message="메모는 200자까지입니다.")
-    if kind == "DEPOSIT":
-        room = await _vault_balance(db) - await _open_deposits(db)
-        if amount > room:
-            raise BadRequestException(code="INSUFFICIENT_VAULT_CASH",
-                                      message=f"금고 현금이 모자랍니다 (신청할 수 있는 금액 {max(room, 0):,}원).")
-    req = HubReserveRequest(request_ref=f"avb-{uuid.uuid4().hex[:24]}", kind=kind, amount=amount, memo=memo,
-                            status=ReserveRequestStatus.SENDING, created_at=now_utc())
-    db.add(req)
-    await db.commit()  # 허브에 보내기 전에 남긴다: 응답을 못 받아도 같은 request_ref로 다시 보낼 수 있게
+    async with _deposit_guard(db, enabled=kind == "DEPOSIT"):
+        if kind == "DEPOSIT":
+            room = await deposit_room(db)
+            if amount > room:
+                raise BadRequestException(code="INSUFFICIENT_VAULT_CASH",
+                                          message=f"금고 현금이 모자랍니다 (신청할 수 있는 금액 {max(room, 0):,}원).")
+        req = HubReserveRequest(request_ref=f"avb-{uuid.uuid4().hex[:24]}", kind=kind, amount=amount, memo=memo,
+                                status=ReserveRequestStatus.SENDING, created_at=now_utc())
+        db.add(req)
+        await db.commit()  # 허브에 보내기 전에 남긴다: 응답을 못 받아도 같은 request_ref로 다시 보낼 수 있게
     return await _send(db, req)
 
 
