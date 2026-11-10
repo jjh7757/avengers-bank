@@ -83,6 +83,14 @@ uv run python scripts/demo_seed.py
 - 확인: 서버 로그 `허브 정산 대사: run N MATCHED`·`정산 run N 장부 정리: 허브 예치금 -70000원`, DB `SELECT hub_run_id, hub_status, result, hub_net_amount, our_net_amount, settled_at FROM settlement_reconciliations ORDER BY hub_run_id;`
 - 안 맞으면 `MISMATCH`와 `diff_json`(`hub_only` 등)이 남고 장부는 정리하지 않는다 ([INTERBANK.md](INTERBANK.md) "정산 대사와 장부 정리"). 허브 DB를 초기화했으면 `settlement_reconciliations`와 `interbank_ledger.hub_run_id`도 비운다
 
+### 관리자 자금 관리 (금고 현금 → 허브 예치금)
+관리자 계정은 서버 CLI로만 만든다: `uv run python -m avengers_bank.domains.admin.cli create-admin treasurer --name "자금 관리자" --phone 010-0000-0000` (운영은 `docker exec -it avengers-bank python -m ...`, [DEPLOY.md](DEPLOY.md)). 관리자로 로그인하면 첫 화면이 **자금 관리**(`/admin/treasury`)다.
+1. `demo`로 로그인 → 계좌 → 생활비 → **입금하기**(가상 입금, 예: 50만원). 고객 잔액과 함께 은행 **금고 현금**이 는다 → 로그아웃
+2. `treasurer`로 로그인 → 자금 관리: 금고 현금·입금 신청 가능 금액 확인 → **입금 (금고 → 허브)**, 금액(최대 금액 넣기) → 다음 → 확인 문구("허브 관리자가 승인해야 반영") → **신청 보내기** → 내역에 `승인 대기`
+3. 허브 관리자 화면 `/admin/ui/reserve-requests`(ClearingHub)에서 그 신청을 **승인**
+4. 자금 관리 → **허브와 동기화** → "바뀐 신청 1건: #N 승인", 금고 현금이 줄고 예치금(우리 장부·허브 값)이 같은 금액만큼 늘어 두 값이 같아진다. 감사 로그에 신청·동기화가 남는다
+5. 말할 것: *관리자는 은행 자산만 옮기고 고객 잔액은 건드리지 않는다. 실제 은행은 내부 결재(신청자·승인자 분리)가 하나 더 있지만 여기서는 은행 신청 → 허브(중앙은행 역할) 승인 두 단계로 갈음했다*
+
 ## 비상 대응
 
 | 문제 | 대응 |

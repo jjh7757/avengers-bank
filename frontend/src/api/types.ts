@@ -12,7 +12,11 @@ export interface User {
   last_login_at: string | null
   /** 이번 로그인 바로 전 로그인 ("지난 로그인") */
   previous_login_at: string | null
+  /** ADMIN이면 관리자 메뉴(자금 관리)를 보여 준다. 관리자는 고객 계좌가 없다 */
+  role: UserRole
 }
+
+export type UserRole = 'CUSTOMER' | 'ADMIN'
 
 export type AccountType = 'checking' | 'deposit' | 'savings'
 export type CardType = 'credit' | 'debit'
@@ -269,4 +273,71 @@ export interface OwnAccount {
 export interface OwnAccountsResult {
   accounts: OwnAccount[]
   banks: { bank_code: string; result: 'OK' | 'UNSUPPORTED' | 'TIMEOUT' | 'ERROR'; count: number | null }[]
+}
+
+/* ---------- 관리자 자금 관리 (GET·POST /admin/...) ---------- */
+
+/** 허브(ClearingHub)가 말하는 우리 예치금 */
+export interface HubReserve {
+  bank_code: string | null
+  balance: number | null
+  net_debit_cap: number | null
+  exposure: number | null
+  /** 지금 더 보낼 수 있는 금액 = balance + net_debit_cap − exposure */
+  available: number | null
+}
+
+export interface Treasury {
+  /** 금고 현금 (CASH_VAULT) */
+  vault_cash: number
+  /** 우리 장부의 허브 예치금 (HUB_RESERVE) */
+  ledger_hub_reserve: number
+  /** 허브가 응답하지 않으면 null (이유는 hub_reserve_error) */
+  hub_reserve: HubReserve | null
+  /** INTERBANK_DISABLED / HUB_TIMEOUT / HUB_ERROR / 허브 오류 코드 */
+  hub_reserve_error: string | null
+  open_deposit_amount: number
+  /** 지금 입금 신청할 수 있는 금액 = 금고 현금 − 결정 대기 입금 합 */
+  deposit_available: number
+  open_request_count: number
+  open_deposit_count: number
+  open_withdraw_count: number
+  /** 타행 송금 중간 계정(INTERBANK_SUSPENSE) 잔액 */
+  suspense_balance: number
+  /** 장부 대사 불일치 (비어 있으면 정상) */
+  reconcile_problems: string[]
+  interbank_enabled: boolean
+  checked_at: string
+}
+
+export type ReserveKind = 'DEPOSIT' | 'WITHDRAW'
+export type ReserveStatus = 'SENDING' | 'PENDING' | 'APPROVED' | 'REJECTED' | 'CANCELLED' | 'FAILED'
+
+export interface ReserveRequest {
+  request_id: number
+  request_ref: string
+  kind: ReserveKind
+  amount: number
+  memo: string
+  status: ReserveStatus
+  hub_request_id: number | null
+  reject_reason: string | null
+  hub_balance_after: number | null
+  created_at: string
+  decided_at: string | null
+  /** 승인을 우리 장부에 반영한 시각 */
+  booked_at: string | null
+}
+
+export interface AdminAuditLog {
+  log_id: number
+  admin_user_id: number
+  admin_login_id: string
+  action: string
+  target: string | null
+  detail: Record<string, unknown>
+  result: 'OK' | 'FAILED'
+  error_code: string | null
+  client_ip: string | null
+  created_at: string
 }

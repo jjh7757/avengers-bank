@@ -1,6 +1,7 @@
 import { api } from './client'
 import type {
   AccountDetail,
+  AdminAuditLog,
   AccountHistory,
   AccountSummary,
   AccountType,
@@ -13,6 +14,8 @@ import type {
   ChatMessage,
   ProductKind,
   ProductTerms,
+  ReserveKind,
+  ReserveRequest,
   FdsLog,
   HolderInquiryResult,
   InterbankTransfer,
@@ -20,6 +23,7 @@ import type {
   UiContext,
   OwnAccountsResult,
   TransferResult,
+  Treasury,
   User,
   VoiceProfile,
 } from './types'
@@ -141,4 +145,18 @@ export const voiceApi = {
 
 export const fdsApi = {
   logs: () => api<FdsLog[]>('/fds/logs?limit=100'),
+}
+
+/** 관리자 자금 관리 (관리자가 아니면 403 ADMIN_REQUIRED). 은행 자산(금고 현금 ↔ 허브 예치금)만 다룬다 */
+export const adminApi = {
+  treasury: () => api<Treasury>('/admin/treasury'),
+  reserveRequests: () => api<ReserveRequest[]>('/admin/treasury/reserve-requests'),
+  /** 허브 관리자가 승인해야 반영된다. 허브가 접수 전에 거절하면 201 + status FAILED + reject_reason */
+  createReserveRequest: (body: { kind: ReserveKind; amount: number; memo?: string }) =>
+    api<ReserveRequest>('/admin/treasury/reserve-requests', { method: 'POST', body }),
+  cancelReserveRequest: (id: number) =>
+    api<ReserveRequest>(`/admin/treasury/reserve-requests/${id}/cancel`, { method: 'POST' }),
+  /** 열린 신청을 허브와 맞춘다. 상태가 바뀐 신청만 돌려준다 */
+  syncReserveRequests: () => api<ReserveRequest[]>('/admin/treasury/reserve-requests/sync', { method: 'POST' }),
+  auditLogs: (limit = 50) => api<AdminAuditLog[]>(`/admin/audit-logs?limit=${limit}`),
 }

@@ -1,6 +1,7 @@
-import { CreditCard, Landmark, MessageCircle, Settings, Sparkles } from 'lucide-react'
+import { CreditCard, Landmark, MessageCircle, Settings, Sparkles, Vault } from 'lucide-react'
 import { NavLink, Outlet } from 'react-router-dom'
 
+import { useAuth } from '../auth/useAuth'
 import DemoClockBadge from './DemoClockBadge'
 
 const NAV = [
@@ -11,7 +12,15 @@ const NAV = [
   { to: '/settings', label: '설정', icon: Settings, end: false },
 ]
 
+/** 관리자는 고객 계좌·카드가 없다: 자금 관리와 설정(로그아웃)만 */
+const ADMIN_NAV = [
+  { to: '/admin/treasury', label: '자금 관리', icon: Vault, end: false },
+  { to: '/settings', label: '설정', icon: Settings, end: false },
+]
+
 export default function Layout() {
+  const { user } = useAuth()
+  const nav = user?.role === 'ADMIN' ? ADMIN_NAV : NAV
   return (
     <div className="app">
       <DemoClockBadge />
@@ -19,7 +28,7 @@ export default function Layout() {
         <Outlet />
       </main>
       <nav className="tabbar" aria-label="주 메뉴">
-        {NAV.map((item) => (
+        {nav.map((item) => (
           <NavLink key={item.to} to={item.to} end={item.end} className="tab">
             <item.icon aria-hidden="true" className="tab-icon" size={24} strokeWidth={2} />
             {item.label}

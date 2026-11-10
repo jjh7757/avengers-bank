@@ -20,6 +20,18 @@ export const dateTime = (iso: string) =>
     minute: '2-digit',
   })
 
+/** 연도까지 한국 시간으로: "2026. 11. 10. 14:05" (관리자 화면: 기기 시간대와 상관없이 KST) */
+export const kstDateTime = (iso: string) =>
+  new Date(iso.endsWith('Z') || iso.includes('+') ? iso : `${iso}Z`).toLocaleString('ko-KR', {
+    timeZone: 'Asia/Seoul',
+    year: 'numeric',
+    month: 'numeric',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  })
+
 /** 화면에도 뒤 4자리만 크게: 110-123-456789 → 110-***-**6789 */
 export const maskAccount = (num: string) => num.replace(/^(\d+)-(\d+)-(\d+)$/, (_, a, b: string, c: string) => `${a}-${'*'.repeat(b.length)}-${'*'.repeat(c.length - 4)}${c.slice(-4)}`)
 

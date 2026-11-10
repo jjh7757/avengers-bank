@@ -2,12 +2,14 @@ import type { ReactNode } from 'react'
 import { Navigate, Route, Routes, useLocation } from 'react-router-dom'
 
 import { useAuth } from './auth/useAuth'
+import { AdminOnlyNotice } from './components/AdminOnlyNotice'
 import IdleGuard from './components/IdleGuard'
 import Layout from './components/Layout'
 import { LogoMark } from './components/Logo'
 import AboutPage from './pages/AboutPage'
 import AccountDetailPage from './pages/AccountDetailPage'
 import AccountsPage from './pages/AccountsPage'
+import AdminTreasuryPage from './pages/AdminTreasuryPage'
 import CardDetailPage from './pages/CardDetailPage'
 import CardsPage from './pages/CardsPage'
 import ChatPage from './pages/ChatPage'
@@ -35,6 +37,20 @@ function RequireAuth({ children }: { children: ReactNode }) {
   return children
 }
 
+/** 관리자 화면: 서버도 403 ADMIN_REQUIRED로 막지만 화면에서도 막는다 (고객이면 "관리자만" 안내 + 홈으로) */
+function RequireAdmin({ children }: { children: ReactNode }) {
+  const { user } = useAuth()
+  if (user?.role !== 'ADMIN') return <AdminOnlyNotice />
+  return children
+}
+
+/** 첫 화면: 고객은 도우미(모아). 관리자는 고객 계좌가 없어 모아가 할 일이 없으므로 자금 관리로 보낸다 */
+function Home() {
+  const { user } = useAuth()
+  if (user?.role === 'ADMIN') return <Navigate to="/admin/treasury" replace />
+  return <StagePage />
+}
+
 export default function App() {
   return (
     <>
@@ -58,7 +74,7 @@ function AppRoutes() {
         path="/"
         element={
           <RequireAuth>
-            <StagePage />
+            <Home />
           </RequireAuth>
         }
       />
@@ -79,6 +95,14 @@ function AppRoutes() {
         <Route path="/products/:kind/:id/signup" element={<ProductSignupPage />} />
         <Route path="/settings" element={<SettingsPage />} />
         <Route path="/fds" element={<FdsLogsPage />} />
+        <Route
+          path="/admin/treasury"
+          element={
+            <RequireAdmin>
+              <AdminTreasuryPage />
+            </RequireAdmin>
+          }
+        />
       </Route>
       <Route path="/stage" element={<Navigate to="/" replace />} />
       <Route path="*" element={<Navigate to="/" replace />} />

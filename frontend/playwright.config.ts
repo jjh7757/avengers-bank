@@ -1,5 +1,7 @@
 import { defineConfig, devices } from '@playwright/test'
 
+import { ADMIN_LOGIN_ID, ADMIN_PASSWORD } from './e2e/admin-account.ts'
+
 /**
  * E2E 테스트 (frontend/README.md "E2E 테스트").
  *
@@ -24,6 +26,7 @@ const backendEnv = {
   SENTRY_DSN: '',
   LOG_FORMAT: 'text',
   LOG_LEVEL: 'WARNING',
+  ADMIN_PASSWORD, // 관리자 CLI가 터미널이 아니면 여기서 비밀번호를 읽는다
 }
 
 export default defineConfig({
@@ -44,8 +47,8 @@ export default defineConfig({
   projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }],
   webServer: [
     {
-      // DB를 새로 만들고 시연 데이터를 넣은 뒤 API 서버를 띄운다 (실행할 때마다 같은 상태에서 시작)
-      command: `uv run python scripts/e2e_prepare.py && uv run uvicorn avengers_bank.main:app --host 127.0.0.1 --port ${API_PORT}`,
+      // DB를 새로 만들고 시연 데이터·관리자 계정을 넣은 뒤 API 서버를 띄운다 (실행할 때마다 같은 상태에서 시작)
+      command: `uv run python scripts/e2e_prepare.py && uv run python -m avengers_bank.domains.admin.cli create-admin ${ADMIN_LOGIN_ID} --name Treasurer --phone 010-0000-0000 && uv run uvicorn avengers_bank.main:app --host 127.0.0.1 --port ${API_PORT}`,
       cwd: '..',
       url: `${API_URL}/health`,
       env: backendEnv,
