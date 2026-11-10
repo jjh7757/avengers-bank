@@ -234,6 +234,27 @@ uv run python -m avengers_bank.domains.interbank.keys register --public-key <새
 - 키 회전: 새 키를 `generate` → `.env`는 옛 키인 채로 `keys register --public-key <새 공개키>` → 24시간 안에 `.env`를 새 개인키로 바꿔 재배포 → `keys ping`, `keys status`. 그 24시간 동안 허브는 옛 키도 받는다 (요청 서명·응답 서명 검증 모두, SPEC 2.6).
 - 개인키를 잃어버렸으면 `register`를 쓸 수 없다 (옛 키로 서명해야 하므로). 새로 `generate`하고 새 공개키·지문을 허브 관리자에게 보내 대신 등록(`POST /admin/banks/{code}/public-key`)해 달라고 한다. 유출이면 바로 회전하고 허브 관리자에게 알린다. 이전 서명 증거는 옛 공개키로 계속 검증된다.
 
+## 허브 예치금 입금·인출 신청 (SPEC v1.3 10.9, `reserve_requests.py`)
+
+허브 예치금은 우리가 신청하고 허브 관리자가 승인해야 바뀐다. 승인을 확인하면 우리 장부도 금고 현금(`CASH_VAULT`)과
+예치금(`HUB_RESERVE`) 사이에서 같은 금액을 옮긴다 (`RESERVE_MOVE` 분개 `reserve:{id}`, 한 번만). 고객 잔액은 바뀌지 않는다.
+
+- 입금은 금고 현금 − 결정을 기다리는 입금 신청 합까지만 신청한다 (`INSUFFICIENT_VAULT_CASH`). 인출 한도(잔액 − 미정산 순채무)는 허브가 본다
+- 허브에 보내기 전에 `hub_reserve_requests`에 `SENDING`으로 남긴다. 응답을 못 받으면 `confirm_loop`가 같은 `request_ref`로 다시 보낸다 (허브에서 한 건)
+- `confirm_loop`가 열린(`SENDING`·`PENDING`) 신청이 있을 때만 허브에 결정을 묻는다. 승인이면 분개, 거절이면 사유를 남긴다
+- `reconcile`: 예치금 = 정리한 정산 run 합 + (반영한 입금 − 인출), 금고 현금 = 가상 입금 합 − (반영한 입금 − 인출)
+
+운영 도구 (서버에서는 `docker exec avengers-bank python -m …`):
+
+```
+uv run python -m avengers_bank.domains.interbank.reserve_requests deposit 5000000 --memo "11월 예치"
+uv run python -m avengers_bank.domains.interbank.reserve_requests withdraw 1000000
+uv run python -m avengers_bank.domains.interbank.reserve_requests list      # 최근 50건
+uv run python -m avengers_bank.domains.interbank.reserve_requests sync      # 지금 결정 확인
+uv run python -m avengers_bank.domains.interbank.reserve_requests cancel 3
+uv run python -m avengers_bank.domains.interbank.reserve_requests reserve   # 허브의 내 예치금 GET /v1/reserve
+```
+
 ## 이체 화면 (`/transfer`)
 
 `frontend/src/pages/TransferPage.tsx`. 모아 없이 직접 보내는 화면이다. 내 계좌 → "이체하기", 입출금 계좌 상세 → "이 계좌에서 이체하기"로 들어온다.

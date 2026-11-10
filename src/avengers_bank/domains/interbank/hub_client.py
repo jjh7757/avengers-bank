@@ -199,6 +199,23 @@ class HubClient:
             payload["message"] = message[:200]
         return await self._request("POST", f"/settlements/{run_id}/dispute", payload)
 
+    async def reserve(self) -> HubReply:
+        """내 예치금 (SPEC 10.2)"""
+        return await self._request("GET", "/reserve")
+
+    async def create_reserve_request(self, request_ref: str, kind: str, amount: int, memo: str = "") -> HubReply:
+        """예치금 입금·인출 신청 (SPEC 10.9). 새 신청 201, 같은 request_ref·같은 내용이면 200과 기존 신청"""
+        return await self._request("POST", "/reserve/requests",
+                                   {"request_ref": request_ref, "kind": kind, "amount": amount, "memo": memo})
+
+    async def reserve_request(self, hub_request_id: int) -> HubReply:
+        """신청 하나 (SPEC 10.9). 결정(APPROVED/REJECTED)을 이것으로 확인한다"""
+        return await self._request("GET", f"/reserve/requests/{hub_request_id}")
+
+    async def cancel_reserve_request(self, hub_request_id: int) -> HubReply:
+        """결정 전 신청 취소 (SPEC 10.9). 이미 결정됐으면 409 RESERVE_REQUEST_NOT_PENDING"""
+        return await self._request("POST", f"/reserve/requests/{hub_request_id}/cancel")
+
     async def register_key(self, public_key: str) -> HubReply:
         """내 공개키 교체 (SPEC 2.6 `PUT /v1/keys`). 지금(옛) 키로 서명한다. 허브는 옛 키를 24시간 더 받는다."""
         return await self._request("PUT", "/keys", {"public_key": public_key})

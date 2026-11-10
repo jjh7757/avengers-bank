@@ -17,6 +17,7 @@
   받기   고객 +a  / 정산 계정(보낸 은행) -a
   정산   정산 계정(은행별) -n / 예치금 계정 -n   (n = 허브 run에서 그 은행에 줄 돈, 받을 돈이면 음수. settlement_sync)
   가상 입금 고객 +a / 금고 현금 +a   (타행과 무관. accounts.service가 record_cash_deposit을 부른다)
+  예치금 입금 승인  금고 현금 -a / 예치금 +a   (인출 승인은 반대. 고객 변화 없음. reserve_requests, SPEC 10.9)
 고객 계좌·중간 계정·정산 계정은 "우리가 갚을 돈", 예치금·금고 현금은 "우리가 가진 돈"이라
 한 사건마다 (고객 변화 + 갚을 돈 계정 변화) = (가진 돈 계정 변화)다.
 reconcile이 내부 계정 잔액과 거래 기록이 맞는지 확인한다.
@@ -26,7 +27,7 @@ import logging
 import uuid
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import delete, func, select
+from sqlalchemy import case, delete, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -39,6 +40,7 @@ from avengers_bank.domains.interbank.evidence import record_transfer_exchange
 from avengers_bank.domains.interbank.hub_client import HubReply, hub_client
 from avengers_bank.domains.interbank.models import (
     HubAccountQuery,
+    HubReserveRequest,
     InterbankLedgerEntry,
     InterbankReceipt,
     InterbankStatus,
@@ -285,7 +287,8 @@ async def reconcile(db: AsyncSession) -> list[str]:
       중간 계정 = PENDING 이체 금액 합
       은행별 정산 계정 = 그 은행으로 완료된 이체 합 - 그 은행에서 받은 입금 합 + 그 은행 SETTLE 분개의 정산 계정 줄 합
       예치금 계정 = 장부를 정리한 허브 run의 net_amount 합 (settlement_reconciliations.settled_at이 있는 행)
-      금고 현금 = 고객 거래내역의 가상 입금(CASH_DEPOSIT) 합
+                    + 장부에 반영한 예치금 입금 신청 합 − 인출 신청 합 (hub_reserve_requests.booked_at이 있는 행)
+      금고 현금 = 고객 거래내역의 가상 입금(CASH_DEPOSIT) 합 − 위 예치금 신청의 (입금 − 인출)
       그리고 은행마다, 허브 run에 묶인 정산 계정 줄(맞춘 COMPLETE·RECEIVE와 SETTLE)의 합 = 0
       (정리한 run의 몫이 정산 계정에 남거나 모자라지 않았는지)"""
     entry = InterbankLedgerEntry
@@ -320,13 +323,18 @@ async def reconcile(db: AsyncSession) -> list[str]:
             select(func.coalesce(func.sum(SettlementReconciliation.hub_net_amount), 0))
             .where(SettlementReconciliation.settled_at.is_not(None))
         )
-        expected[LedgerAccount.HUB_RESERVE.value] = int(reserve)
+        moved = await db.scalar(  # 예치금 신청으로 금고 현금에서 예치금으로 옮긴 순액 (입금 +, 인출 −)
+            select(func.coalesce(func.sum(case((HubReserveRequest.kind == "DEPOSIT", HubReserveRequest.amount),
+                                               else_=-HubReserveRequest.amount)), 0))
+            .where(HubReserveRequest.booked_at.is_not(None))
+        )
+        expected[LedgerAccount.HUB_RESERVE.value] = int(reserve) + int(moved)
         cash = await db.scalar(
             select(func.coalesce(func.sum(CheckingAccountHistory.change_amount), 0))
             .where(CheckingAccountHistory.type == HistoryType.CASH_DEPOSIT)
         )
-        if cash:  # 가상 입금이 한 번도 없으면 키를 만들지 않는다 (불일치 목록·테스트의 잔액 표를 그대로 둔다)
-            expected[LedgerAccount.CASH_VAULT.value] = int(cash)
+        if cash or moved:  # 가상 입금이 한 번도 없으면 키를 만들지 않는다 (불일치 목록·테스트의 잔액 표를 그대로 둔다)
+            expected[LedgerAccount.CASH_VAULT.value] = int(cash) - int(moved)
         leftovers = await db.execute(
             select(entry.bank_code, func.sum(entry.amount))
             .where(entry.account == LedgerAccount.SETTLEMENT, entry.hub_run_id.is_not(None))

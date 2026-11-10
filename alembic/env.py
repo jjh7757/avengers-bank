@@ -28,6 +28,7 @@ from avengers_bank.domains.chat.models import ChatMessage, ChatSession  # noqa: 
 from avengers_bank.domains.fds.models import FdsLog, UserDevice  # noqa: F401
 from avengers_bank.domains.interbank.models import (  # noqa: F401
     HubAccountQuery,
+    HubReserveRequest,
     InterbankReceipt,
     InterbankTransfer,
     OwnAccountLookup,

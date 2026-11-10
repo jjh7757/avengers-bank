@@ -35,6 +35,8 @@ class LedgerEvent(StrEnum):
     RECEIVE = "RECEIVE"  # 받기: 정산 계정 → 고객
     CASH_DEPOSIT = "CASH_DEPOSIT"  # 가상 입금: 고객 +a / 금고 현금 +a. transfer_id는 "cash:{입출금 거래내역 id}"
     SETTLE = "SETTLE"  # 허브 정산 확정 (SPEC 10.6의 4): 정산 계정 → 예치금 계정. transfer_id는 "settle:{run_id}:{은행}"
+    # 허브 예치금 입금·인출 신청이 승인됨 (SPEC 10.9): 금고 현금 ↔ 예치금. transfer_id는 "reserve:{신청 id}"
+    RESERVE_MOVE = "RESERVE_MOVE"
 
 
 class EvidenceDirection(StrEnum):
@@ -203,3 +205,34 @@ class HubEvidence(Base):
     # RECEIVE_IN은 True(통과한 것만 남긴다). 우리가 만든 TRANSFER_OUT·RECEIVE_REPLY는 NULL
     signature_valid: Mapped[bool | None] = mapped_column(Boolean)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class ReserveRequestStatus(StrEnum):
+    """허브 예치금 신청 (SPEC 10.9)의 우리 쪽 상태."""
+
+    SENDING = "SENDING"  # 허브에 아직 접수 확인을 못 받음 (응답 없음·5xx). 같은 request_ref로 다시 보낸다
+    PENDING = "PENDING"  # 허브가 접수, 관리자 결정 대기
+    APPROVED = "APPROVED"  # 허브 관리자 승인 → 우리 장부에 RESERVE_MOVE 분개 (booked_at)
+    REJECTED = "REJECTED"  # 허브 관리자 거절 (reject_reason)
+    CANCELLED = "CANCELLED"  # 우리가 취소
+    FAILED = "FAILED"  # 허브가 접수 전에 4xx로 거절 (예: INSUFFICIENT_RESERVE). reject_reason에 오류 코드·설명
+
+
+class HubReserveRequest(Base):
+    """허브에 보낸 예치금 입금·인출 신청 (SPEC 10.9). 잔액은 허브 관리자가 승인할 때만 바뀌고,
+    우리는 승인을 확인한 뒤 금고 현금(CASH_VAULT)과 예치금 계정(HUB_RESERVE) 사이에 옮긴다 (한 번만, booked_at)."""
+
+    __tablename__ = "hub_reserve_requests"
+
+    request_id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    request_ref: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)  # 허브에 보내는 멱등 키
+    kind: Mapped[str] = mapped_column(String(10), nullable=False)  # DEPOSIT / WITHDRAW
+    amount: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    memo: Mapped[str] = mapped_column(String(200), default="", nullable=False)
+    status: Mapped[str] = mapped_column(String(10), index=True, nullable=False)  # ReserveRequestStatus
+    hub_request_id: Mapped[int | None] = mapped_column(Integer)
+    reject_reason: Mapped[str | None] = mapped_column(String(300))
+    hub_balance_after: Mapped[int | None] = mapped_column(BigInteger)  # 승인 분개 뒤 허브 예치금 잔액
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    booked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))  # RESERVE_MOVE 분개를 남긴 시각
