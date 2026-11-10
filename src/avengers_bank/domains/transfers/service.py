@@ -22,10 +22,11 @@ from avengers_bank.domains.fds.models import FdsDecision
 from avengers_bank.domains.fds.rules import RiskLevel
 from avengers_bank.domains.fds.service import FdsResult, fds_service
 from avengers_bank.domains.interbank import service as interbank_service
-from avengers_bank.domains.interbank.models import InterbankStatus
+from avengers_bank.domains.interbank.models import InterbankStatus, InterbankTransfer
 from avengers_bank.domains.recipients.repository import recipient_repository
 from avengers_bank.domains.speech.approval import verify_voice_approval_token
 from avengers_bank.domains.speech.repository import voice_repository
+from avengers_bank.domains.transfers import idempotency
 from avengers_bank.domains.transfers.schemas import (
     DepositPaymentCreate,
     SavingsPaymentCreate,
@@ -62,13 +63,14 @@ class TransferService:
         data: TransferCreate,
         current_user: UserResponse,
         client_ip: str | None = None,
+        idempotency_key: str | None = None,
     ) -> TransferResponse:
         if data.to_account_ref is not None and (not interbank_service.is_external(data.to_bank) or data.session_id):
             raise BadRequestException(
                 code="ACCOUNT_REF_NOT_ALLOWED", message="다른 은행 내 계좌 참조값은 이체 화면의 다른 은행 이체에만 쓸 수 있어요."
             )
         if interbank_service.is_external(data.to_bank):
-            return await self._transfer_interbank(db, data, current_user, client_ip)
+            return await self._transfer_interbank(db, data, current_user, client_ip, idempotency_key)
         rejection: FdsDecision | None = None
         conversation_risk = await self._assess_conversation(db, data.session_id, current_user.user_id)
         async with db.begin():
@@ -185,10 +187,11 @@ class TransferService:
         await self._raise_rejection(db, rejection, log_fields, fds, user)
 
     async def _transfer_interbank(
-        self, db: AsyncSession, data: TransferCreate, current_user: UserResponse, client_ip: str | None
+        self, db: AsyncSession, data: TransferCreate, current_user: UserResponse, client_ip: str | None,
+        idempotency_key: str | None = None,
     ) -> TransferResponse:
         """다른 은행으로 이체 (ClearingHub). 확인 카드·음성 승인·한도·FDS는 자행 이체와 같고,
-        출금을 커밋한 뒤 허브를 부른다."""
+        출금을 커밋한 뒤 허브를 부른다. Idempotency-Key가 있으면 출금과 같은 트랜잭션에서 키에 transfer_id를 적는다."""
         to_bank = data.to_bank
         own_ref = None
         if data.to_account_ref is not None:
@@ -234,20 +237,39 @@ class TransferService:
                     db, user_id=user.user_id, source=source, to_bank=to_bank, to_account=to_account,
                     amount=data.amount, holder_name=holder_name, to_account_ref=own_ref.ref if own_ref else None,
                 )
+                if idempotency_key is not None:  # 이 커밋 뒤로는 키가 풀리지 않는다 (재시도해도 다시 출금하지 않게)
+                    await idempotency.attach_transfer(db, user.user_id, idempotency_key, transfer.transfer_id)
                 await fds_service.save_log(db, **log_fields)
                 await fds_service.register_device(db, user.user_id, data.device_fingerprint, client_ip)
                 if chat_session is not None:  # 확인 카드는 출금과 함께 한 번 쓰면 끝
                     chat_session.state = {
                         **(chat_session.state or {}), "confirmation_jti": None, "pending_transfer": None
                     }
-                transfer_id, from_account_num = transfer.transfer_id, source.account_num
+                transfer_id = transfer.transfer_id
         if rejection is not None:
             await self._raise_rejection(db, rejection, log_fields, fds, user)
 
         # 1. 출금은 커밋됐다. 허브 호출 결과에 따라 완료 / 되돌림(4xx) / 처리 중(응답 없음)
         transfer = await interbank_service.deliver(db, transfer_id)
+        return await self._interbank_result(db, transfer, risk_level=fds.risk_level.name)
+
+    async def replay_interbank(self, db: AsyncSession, transfer_id: str, user_id: int) -> TransferResponse:
+        """출금이 커밋된 타행 이체에 같은 Idempotency-Key로 다시 왔을 때: 돈은 움직이지 않고 그 이체의 지금 상태를 돌려준다.
+        처음 응답과 달리 FDS 등급(risk_level)은 비어 있고, balance_after는 지금 잔액이다. 처리 중이던 이체는
+        그사이 워커가 확정했으면 COMPLETED로, 되돌렸으면 INTERBANK_FAILED로 답한다."""
         async with db.begin():
-            balance_after = (await db.get(CheckingAccount, transfer.checking_account_id)).balance
+            transfer = await db.get(InterbankTransfer, transfer_id)
+        if transfer is None or transfer.user_id != user_id:  # 키는 사용자별이라 정상이면 일어나지 않는다
+            raise NotFoundException(code="TRANSFER_NOT_FOUND", message="이체를 찾을 수 없습니다.")
+        return await self._interbank_result(db, transfer, risk_level=None)
+
+    async def _interbank_result(
+        self, db: AsyncSession, transfer: InterbankTransfer, risk_level: str | None
+    ) -> TransferResponse:
+        """타행 이체 하나를 응답으로 바꾼다. 받는 은행이 거절해 되돌린 이체(FAILED)는 INTERBANK_FAILED로 던진다."""
+        async with db.begin():
+            source = await db.get(CheckingAccount, transfer.checking_account_id, populate_existing=True)
+            from_account_num, balance_after = source.account_num, source.balance
         if transfer.status == InterbankStatus.FAILED:
             raise BadRequestException(
                 code="INTERBANK_FAILED",
@@ -257,7 +279,7 @@ class TransferService:
         return TransferResponse(
             from_account_num=from_account_num, to_account_num=transfer.to_account, to_bank=transfer.to_bank,
             to_holder_name=transfer.to_holder_name, amount=transfer.amount, balance_after=balance_after,
-            transferred_at=transfer.created_at, risk_level=fds.risk_level.name, transfer_id=transfer.transfer_id,
+            transferred_at=transfer.created_at, risk_level=risk_level, transfer_id=transfer.transfer_id,
             status=transfer.status,
         )
 

@@ -66,34 +66,41 @@ async def transfer(
     user_id = current_user.user_id
     replay_key = idempotency.validate_key(idempotency_key) if idempotency_key is not None else None
     if replay_key is not None:
-        stored = await idempotency.begin(user_id, replay_key, idempotency.request_hash(data))
-        if stored is not None:
+        replay = await idempotency.begin(user_id, replay_key, idempotency.request_hash(data))
+        if replay is not None:
             response.headers["Idempotent-Replayed"] = "true"
-            return stored
+            if replay.response is not None:
+                return replay.response
+            # 출금이 커밋된 뒤 응답을 못 받은 타행 이체: 다시 출금하지 않고 그 이체의 지금 상태로 답한다
+            result = await transfer_service.replay_interbank(db, replay.transfer_id, user_id)
+            return SuccessResponse[TransferResponse](data=result, message=_transfer_message(result))
 
     try:
         transfer_requests.hit(str(user_id))
         if data.pin is not None or data.voice_approval_token is not None:
             pin_failures.check(str(user_id))
         client_ip = request.client.host if request.client else None
-        result = await transfer_service.transfer(db, data, current_user, client_ip)
+        result = await transfer_service.transfer(db, data, current_user, client_ip, replay_key)
     except ApiException as e:
         if e.code == "INVALID_PIN":
             pin_failures.record(str(user_id))
         if replay_key is not None:
             await idempotency.release(user_id, replay_key)
         raise
-    except BaseException:
+    except BaseException:  # 요청 취소(연결 끊김) 포함. 타행 출금이 커밋된 키는 release가 남긴다
         if replay_key is not None:
             await idempotency.release(user_id, replay_key)
         raise
 
     pin_failures.reset(str(user_id))
-    message = "이체가 완료되었습니다." if result.status == "COMPLETED" else "받는 은행에서 확인 중입니다. 잠시 후 결과를 알려 드려요."
-    body = SuccessResponse[TransferResponse](data=result, message=message)
+    body = SuccessResponse[TransferResponse](data=result, message=_transfer_message(result))
     if replay_key is not None:
         await idempotency.complete(user_id, replay_key, body.model_dump(mode="json"))
     return body
+
+
+def _transfer_message(result: TransferResponse) -> str:
+    return "이체가 완료되었습니다." if result.status == "COMPLETED" else "받는 은행에서 확인 중입니다. 잠시 후 결과를 알려 드려요."
 
 
 @router.post("/inquiry", response_model=SuccessResponse[HolderInquiryResponse])

@@ -564,3 +564,71 @@ async def test_reconcile_detects_drift(client, user, hub):
         problems = await reconcile(db)
     assert len(problems) == 2
     assert problems[0].startswith("INTERBANK_SETTLEMENT:902") and problems[1].startswith("INTERBANK_SUSPENSE")
+
+
+# ── 멱등성: 출금이 커밋된 뒤의 실패 ─────────────────────────────────
+
+async def test_retry_after_failure_post_debit_does_not_debit_twice(client, user, hub, monkeypatch):
+    """출금 커밋 뒤 허브를 부르기 전에 오류가 나도(요청 취소·DB 오류와 같은 경로) 키가 풀리지 않는다.
+    같은 키로 다시 보내면 새로 출금하지 않고 처음 이체의 상태를 돌려준다."""
+    from avengers_bank.domains.interbank import service as interbank_service
+
+    real_deliver = interbank_service.deliver
+
+    async def broken(db, transfer_id):
+        raise RuntimeError("허브 호출 전에 연결이 끊김")
+
+    monkeypatch.setattr(interbank_service, "deliver", broken)
+    source = await open_checking(client, user, balance=100_000)
+    headers = {**user, "Idempotency-Key": "interbank-key-0001"}
+
+    with pytest.raises(RuntimeError):  # 테스트 클라이언트는 처리 못 한 예외를 500 대신 그대로 올린다
+        await send(client, headers, source["account_id"], "110-123-0001")
+    assert await balance_of(client, user, source["account_id"]) == 70_000  # 출금은 커밋됐다
+    [row] = await interbank_list(client, user)
+    assert row["status"] == "PENDING" and hub.transfer_calls == []
+
+    again = await send(client, headers, source["account_id"], "110-123-0001")
+    assert again.status_code == 200, again.text
+    assert again.headers["idempotent-replayed"] == "true"
+    data = again.json()["data"]
+    assert (data["transfer_id"], data["status"], data["balance_after"]) == (row["transfer_id"], "PENDING", 70_000)
+    assert await balance_of(client, user, source["account_id"]) == 70_000  # 두 번 빠지지 않았다
+    assert len(await interbank_list(client, user)) == 1
+    assert await history_types(client, user, source["account_id"]) == [("TRANSFER_OUT", -30_000)]
+
+    # 워커가 허브에 물어보고(404) 같은 transfer_id로 다시 보내 확정하면, 같은 키 재시도도 완료로 답한다
+    monkeypatch.setattr(interbank_service, "deliver", real_deliver)
+    async with SessionLocal() as db:
+        assert await confirm_pending(db) == 1
+    third = await send(client, headers, source["account_id"], "110-123-0001")
+    assert third.status_code == 200 and third.json()["data"]["status"] == "COMPLETED"
+    assert len(hub.transfer_calls) == 1
+    assert await books() == {"INTERBANK_SUSPENSE": 0, "INTERBANK_SETTLEMENT:902": 30_000}
+
+
+async def test_retry_of_refunded_interbank_replays_failure(client, user, hub):
+    """받는 은행이 거절해 되돌린 이체에 같은 키로 다시 오면, 다시 출금·전송하지 않고 같은 실패를 돌려준다."""
+    source = await open_checking(client, user, balance=100_000)
+    headers = {**user, "Idempotency-Key": "interbank-key-0002"}
+
+    first = await send(client, headers, source["account_id"], "110-123-0007")
+    assert first.status_code == 400 and first.json()["error"]["code"] == "INTERBANK_FAILED"
+    again = await send(client, headers, source["account_id"], "110-123-0007")
+    assert again.status_code == 400
+    error = again.json()["error"]
+    assert error["code"] == "INTERBANK_FAILED" and error["extra"]["transfer_id"] == first.json()["error"]["extra"]["transfer_id"]
+    assert len(hub.transfer_calls) == 1 and len(await interbank_list(client, user)) == 1
+    assert await balance_of(client, user, source["account_id"]) == 100_000
+    assert await history_types(client, user, source["account_id"]) == [("TRANSFER_OUT", -30_000), ("TRANSFER_REFUND", 30_000)]
+
+
+async def test_interbank_success_with_key_replays_stored_response(client, user, hub):
+    source = await open_checking(client, user, balance=100_000)
+    headers = {**user, "Idempotency-Key": "interbank-key-0003"}
+    first = await send(client, headers, source["account_id"], "110-123-0001")
+    again = await send(client, headers, source["account_id"], "110-123-0001")
+    assert again.status_code == 200 and again.headers["idempotent-replayed"] == "true"
+    assert again.json() == first.json()
+    assert len(hub.transfer_calls) == 1
+    assert await balance_of(client, user, source["account_id"]) == 70_000
