@@ -14,7 +14,12 @@ transfer_id 하나하나로 맞춰 보고, 확정된 run이 맞으면 정산 계
 3. 비교. 우리 쪽 후보 = 정산 계정의 COMPLETE(+, SENT)·RECEIVE(−, RECEIVED) 줄 중 아직 어느 run에도 묶이지 않은 것
    (날짜로 자르지 않는다. 다시 볼 때를 위해 이 run에 이미 묶인 줄도 넣는다)
      허브 거래가 후보에 있고 방향·금액·상대 은행이 같음      → 일치
-     후보에 없지만 우리 interbank_transfers에서 PENDING      → 확인 중 (CHECKING). 결과를 확인(3.4)한 뒤 다시 본다
+     후보에 없지만 우리 interbank_transfers에서 PENDING (보낸 거래)
+       run이 DRAFT                                           → 확인 중 (CHECKING). 결과를 확인(3.4)한 뒤 다시 본다
+       run이 SETTLED이고 상대 은행·금액이 우리 기록과 같음   → 완료로 확정하고 일치로 센다 (resolved_by_settlement)
+         허브가 그 거래를 정산에 넣어 예치금까지 옮겼으므로, 실시간 결과를 끝내 못 받아도 이것이 완료의 근거다.
+         DRAFT는 취소될 수 있어 근거로 쓰지 않는다
+       run이 SETTLED인데 상대 은행·금액이 다름               → 불일치 (differs). 확정하지 않고 PENDING으로 둔다
      후보에 없음, 또는 방향·금액·상대 은행이 다름           → 불일치 (MISMATCH, hub_only / differs)
      후보에만 있음                                           → 불일치가 아니다. 다음 run으로 넘긴다
                                                                (cutoff_at − 1시간보다 먼저 끝났으면 ours_only_stale로 알림)
@@ -53,7 +58,7 @@ from avengers_bank.domains.interbank.models import (
     ReconResult,
     SettlementReconciliation,
 )
-from avengers_bank.domains.interbank.service import _post, confirm_pending
+from avengers_bank.domains.interbank.service import _post, complete, confirm_pending
 
 logger = logging.getLogger(__name__)
 
@@ -150,6 +155,8 @@ async def reconcile_run(db: AsyncSession, detail: dict) -> SettlementReconciliat
         hub_only: list[dict] = []
         differs: list[dict] = []
         checking: list[str] = []
+        resolved: list[str] = []  # 확정된 run을 근거로 PENDING에서 완료로 확정한 보낸 거래
+        settled = status == "SETTLED"
         for t in hub_transfers:
             tid = str(t["transfer_id"])
             hub = {"direction": t["direction"], "counterparty_bank": t["counterparty_bank"], "amount": int(t["amount"])}
@@ -160,11 +167,25 @@ async def reconcile_run(db: AsyncSession, detail: dict) -> SettlementReconciliat
                 else:
                     differs.append({"transfer_id": tid, "hub": hub, "ours": ours.view()})
                 continue
-            our_status = await db.scalar(select(InterbankTransfer.status).where(InterbankTransfer.transfer_id == tid))
-            if hub["direction"] == SENT and our_status == InterbankStatus.PENDING:
-                checking.append(tid)  # 허브는 COMPLETED인데 우리가 결과를 아직 못 받았다
+            transfer = await db.scalar(
+                select(InterbankTransfer).where(InterbankTransfer.transfer_id == tid).with_for_update()
+            )
+            if hub["direction"] == SENT and transfer is not None and transfer.status == InterbankStatus.PENDING:
+                # 허브는 COMPLETED인데 우리가 결과를 아직 못 받았다
+                if not settled:
+                    checking.append(tid)
+                    continue
+                pending = _Line(SENT, transfer.to_bank, transfer.amount, transfer.created_at)
+                if pending.view() != hub:
+                    differs.append({"transfer_id": tid, "hub": hub, "ours": {**pending.view(), "status": "PENDING"}})
+                    continue
+                complete(db, transfer)  # 확정된 run이 근거: 중간 계정 → 정산 계정, 이 run에서 바로 맞춘다
+                matched[tid] = pending
+                resolved.append(tid)
             else:
                 hub_only.append(await _hub_only(db, tid, hub))
+        if resolved:
+            await db.flush()  # 방금 남긴 COMPLETE 분개를 _settle의 UPDATE가 볼 수 있게
 
         listed = {str(t["transfer_id"]) for t in hub_transfers}
         ours_only = sorted(candidates.keys() - listed)
@@ -174,7 +195,7 @@ async def reconcile_run(db: AsyncSession, detail: dict) -> SettlementReconciliat
         hub_net = int(detail["position"]["net_amount"])
         our_net = sum(line.amount if line.direction == RECEIVED else -line.amount for line in matched.values())
         diff: dict = {"hub_only": hub_only, "differs": differs, "checking": checking,
-                      "ours_only": ours_only, "ours_only_stale": ours_only_stale}
+                      "ours_only": ours_only, "ours_only_stale": ours_only_stale, "resolved_by_settlement": resolved}
         if hub_only or differs:
             result = ReconResult.MISMATCH
         elif checking:
@@ -203,6 +224,10 @@ async def reconcile_run(db: AsyncSession, detail: dict) -> SettlementReconciliat
         logger.error("정산 run %d 대사 불일치: %s", run_id, row.diff_json)
     elif result == ReconResult.CHECKING:
         logger.info("정산 run %d 확인 중: 우리 쪽 PENDING %s", run_id, ", ".join(checking))
+    if resolved:
+        # 실시간 결과(SPEC 3.4)를 끝내 못 받은 거래다. 허브 응답 경로에 문제가 없는지 사람이 볼 만하다
+        logger.warning("정산 run %d: 결과를 못 받은 PENDING %d건을 확정된 run을 근거로 완료 처리 (%s)",
+                       run_id, len(resolved), ", ".join(resolved))
     if ours_only_stale:
         logger.warning("정산 run %d: cutoff보다 1시간 넘게 먼저 끝났는데 허브 run에 없는 거래 %s (허브 관리자 확인 필요)",
                        run_id, ", ".join(ours_only_stale))

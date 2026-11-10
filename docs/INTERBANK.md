@@ -102,7 +102,9 @@ settlement_sync_loop (시작 60초 뒤 한 번, 그 뒤 1시간마다)
 | 허브 거래 | 판정 | `diff_json` |
 |---|---|---|
 | 후보에 있고 방향·금액·상대 은행이 같음 | 일치 | |
-| 후보에 없지만 우리 `interbank_transfers`에서 `PENDING` | 확인 중 | `checking` |
+| 후보에 없지만 우리 `interbank_transfers`에서 `PENDING`, run이 `DRAFT` | 확인 중 | `checking` |
+| 후보에 없지만 우리 `PENDING`, run이 `SETTLED`이고 상대 은행·금액이 같음 | **완료로 확정**하고 일치로 셈 + `WARNING` | `resolved_by_settlement` |
+| 후보에 없지만 우리 `PENDING`, run이 `SETTLED`인데 상대 은행·금액이 다름 | 불일치 (확정하지 않고 `PENDING`으로 둠) | `differs` (`ours`에 `status: PENDING`) |
 | 후보에 없음 (다른 run에서 이미 맞춘 거래면 `settled_in`도) | 불일치 | `hub_only` |
 | 방향·금액·상대 은행이 다름 | 불일치 | `differs` (`hub`·`ours`) |
 | (후보에만 있음) | 불일치가 아님. 다음 run으로 | `ours_only`. `cutoff_at − 1시간`보다 먼저 끝났으면 `ours_only_stale` + `WARNING` |
@@ -112,6 +114,8 @@ settlement_sync_loop (시작 60초 뒤 한 번, 그 뒤 1시간마다)
 | `MATCHED` | 불일치·확인 중이 없고, 일치한 거래로 계산한 순액(`our_net_amount`)이 허브 `position.net_amount`와 같음 | `SETTLED`이면 한 번 |
 | `CHECKING` | 확인 중인 거래가 있음 | 안 함. 다음 주기에 다시 |
 | `MISMATCH` | 불일치가 있거나 순액이 다름 (`net`) | 안 함. `ERROR` 로그와 dispute, 다음 주기에 다시 보지만 자동으로 풀리지 않는다 |
+
+**결과를 끝내 못 받은 이체는 정산으로 확정한다.** 허브 응답이 끊겨 `PENDING`으로 남은 이체는 워커가 계속 묻지만(`confirm_pending`), 허브가 그 거래를 넣은 run을 확정(`SETTLED`)했다면 허브는 이미 그 돈을 은행 간에 옮긴 것이다. 그래서 `SETTLED` run에 우리 `PENDING` 송금이 같은 상대 은행·금액으로 들어 있으면, 그 run을 근거로 `interbank_service.complete`(중간 계정 → 정산 계정, 응답으로 완료할 때와 같은 분개)를 하고 같은 트랜잭션에서 일치로 세어 장부 정리까지 한다. 실제 은행 간 이체에서도 결과를 모르는 거래는 마감 뒤 정산 대사로 최종 확정한다. `DRAFT` run은 취소될 수 있어 근거로 쓰지 않고(확인 중), 상대 은행·금액이 다르면 확정하지 않는다(불일치). 이렇게 확정한 건은 실시간 결과를 못 받은 것이므로 `WARNING` 로그로 남겨 허브 응답 경로를 점검하게 한다. 돈을 돌려주는(환불) 쪽은 지금처럼 허브가 `FAILED`라고 할 때만 한다 (`tests/test_settlement_sync.py`의 `test_settled_run_completes_pending_transfer`, `test_settled_run_with_different_amount_keeps_pending`).
 
 **대사 결과를 허브에 보낸다 (SPEC 10.8, 허브 정산 9단계).** 허브는 포지션이 있는 은행이 모두 ack하면 그 자리에서 확정하고, 아니면 09:00 KST에 dispute가 없으면 확정한다. 그래서 `DRAFT` run을 맞춰 본 뒤 run마다 한 번 결과를 보낸다: `MATCHED`면 `hub_client.ack_settlement(run_id)`(본문 없음), `MISMATCH`면 `hub_client.dispute_settlement(run_id, transfer_ids, message)`(`hub_only`·`differs`의 `transfer_id`, 건수 설명). 허브 관리자에게 알림이 자동으로 가므로 따로 연락하지 않는다. `CHECKING`이나 `SETTLED`에는 보내지 않는다 (`SETTLED`면 허브가 409). 보낸 결과는 `settlement_reconciliations.acked_at`·`disputed_at`에 남는데, 지금 허브에 걸려 있는 쪽만 시각이 있다 (ack를 보내면 `disputed_at`을 비운다). 그래서 결과가 바뀌면(허브 쪽이 고쳐져 `MISMATCH` → `MATCHED`) 다시 보내고, 같으면 다시 보내지 않는다. ack 응답의 `status`가 `SETTLED`(우리 ack가 마지막이었다)거나 409 `SETTLEMENT_NOT_DRAFT`(그사이 다른 은행의 ack나 마감이 확정했다)면 1시간 뒤를 기다리지 않고 상세를 다시 받아 그 자리에서 장부 정리까지 한다. 보내지 못하면(허브 응답 없음·5xx) 시각을 남기지 않아 다음 주기에 다시 보낸다. 대사 주기(기본 1시간)가 09:00 마감 전에 여러 번 돌므로, 00:05 배치의 run은 마감 전에 결과가 간다. 마감 뒤에 처음 본 run은 이미 `SETTLED`라 불일치여도 dispute를 보낼 수 없다 — 그때는 `ERROR` 로그를 보고 허브 관리자에게 직접 알린다 (마이그레이션 `d1e2f3a4b5c6`, `tests/test_settlement_sync.py`의 대사 결과 보내기 6개).
 

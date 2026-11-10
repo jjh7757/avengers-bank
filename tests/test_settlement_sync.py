@@ -17,8 +17,8 @@ from sqlalchemy import select
 
 from avengers_bank.core.database import SessionLocal
 from avengers_bank.domains.interbank.hub_client import hub_client
-from avengers_bank.domains.interbank.models import InterbankLedgerEntry, SettlementReconciliation
-from avengers_bank.domains.interbank.service import ledger_balances, reconcile
+from avengers_bank.domains.interbank.models import InterbankLedgerEntry, InterbankTransfer, SettlementReconciliation
+from avengers_bank.domains.interbank.service import confirm_pending, ledger_balances, reconcile
 from avengers_bank.domains.interbank.settlement_sync import STALE_AFTER, reconcile_run, sync_settlements
 from avengers_bank.domains.interbank.signing import verify_ed25519
 from tests.conftest import open_checking
@@ -306,20 +306,67 @@ async def test_b5_hub_unavailable(client, user, hub):
 # ── 확인 중: 허브는 COMPLETED, 우리는 아직 PENDING ───────────────
 
 async def test_checking_until_pending_is_confirmed(client, user, hub):
+    """DRAFT run은 취소될 수 있어 완료의 근거로 쓰지 않는다: 확인 중으로 두고, 결과를 물어 마무리한 뒤 맞춘다."""
     source = await open_checking(client, user, balance=100_000)
     tid = await send_ok(client, user, source, 30_000, to_account="110-123-0003")  # 허브 202 → 우리 PENDING
-    detail = hub.put_run(12, "SETTLED", [sent(tid, 30_000)])
+    detail = hub.put_run(12, "DRAFT", [sent(tid, 30_000)])
 
     row = await run_once(detail)
     assert row.result == "CHECKING" and row.settled_at is None
     assert diff_of(row) == {"checking": [tid]}
     assert await books() == {"INTERBANK_SUSPENSE": 30_000}
 
-    # 허브에서는 이미 COMPLETED. 대사가 결과를 물어(SPEC 3.4) 마무리한 뒤 다시 맞춰 본다
+    # 허브에서는 이미 COMPLETED. 대사가 결과를 물어(SPEC 3.4) 마무리한 뒤 다시 맞춰 보고 ack한다
     hub.transfers[tid]["status"] = "COMPLETED"
     [row] = await sync()
-    assert row.result == "MATCHED" and row.settled_at is not None
+    assert row.result == "MATCHED" and row.settled_at is None and hub.reports == [(12, "ack", None)]
+    assert "resolved_by_settlement" not in diff_of(row)
+    assert await books() == {"INTERBANK_SETTLEMENT:902": 30_000}
+
+
+async def test_settled_run_completes_pending_transfer(client, user, hub, caplog):
+    """결과를 끝내 못 받은 PENDING도, 그 거래가 들어 있는 확정(SETTLED) run이 오면 그것을 근거로 완료로 확정하고
+    같은 대사에서 장부 정리까지 한다. 허브가 실시간 조회에는 계속 PENDING이라고 해도 마찬가지다."""
+    source = await open_checking(client, user, balance=100_000)
+    tid = await send_ok(client, user, source, 30_000, to_account="110-123-0003")  # 허브 202 → 우리 PENDING
+    async with SessionLocal() as db:
+        assert await confirm_pending(db) == 0  # 실시간 조회로는 여전히 결과를 모른다
+
+    row = await run_once(hub.put_run(12, "SETTLED", [sent(tid, 30_000)]))
+    assert (row.result, row.our_net_amount) == ("MATCHED", -30_000) and row.settled_at is not None
+    assert diff_of(row) == {"resolved_by_settlement": [tid]}
+    assert await books() == {"HUB_RESERVE": -30_000}  # 중간 계정 → 정산 계정 → 예치금
+    assert await stamped(12) == [
+        "COMPLETE:INTERBANK_SETTLEMENT:902:30000", "SETTLE:HUB_RESERVE:000:-30000", "SETTLE:INTERBANK_SETTLEMENT:902:-30000",
+    ]
+    async with SessionLocal() as db, db.begin():
+        transfer = await db.get(InterbankTransfer, tid)
+        assert transfer.status == "COMPLETED" and transfer.finished_at is not None
+    assert (await client.get(f"/accounts/checking/{source['account_id']}", headers=user)).json()["data"]["balance"] == 70_000
+    assert "확정된 run을 근거로 완료 처리" in caplog.text
+
+    # 다음 주기에 워커가 다시 물어도 이미 끝난 거래라 건드리지 않는다
+    hub.transfers[tid]["status"] = "COMPLETED"
+    async with SessionLocal() as db:
+        assert await confirm_pending(db) == 0
     assert await books() == {"HUB_RESERVE": -30_000}
+
+
+async def test_settled_run_with_different_amount_keeps_pending(client, user, hub):
+    """확정된 run이라도 금액·상대 은행이 우리 기록과 다르면 확정하지 않는다: 불일치로 멈추고 PENDING으로 둔다."""
+    source = await open_checking(client, user, balance=100_000)
+    tid = await send_ok(client, user, source, 30_000, to_account="110-123-0003")
+
+    row = await run_once(hub.put_run(12, "SETTLED", [sent(tid, 31_000)]))
+    assert row.result == "MISMATCH" and row.settled_at is None
+    assert diff_of(row)["differs"] == [{
+        "transfer_id": tid,
+        "hub": {"direction": "SENT", "counterparty_bank": "902", "amount": 31_000},
+        "ours": {"direction": "SENT", "counterparty_bank": "902", "amount": 30_000, "status": "PENDING"},
+    }]
+    async with SessionLocal() as db, db.begin():
+        assert (await db.get(InterbankTransfer, tid)).status == "PENDING"
+    assert await books() == {"INTERBANK_SUSPENSE": 30_000}
 
 
 # ── 우리에게만 있는 거래: 다음 run으로, 오래되면 경고 ────────────

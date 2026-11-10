@@ -199,17 +199,24 @@ async def _refund(db: AsyncSession, transfer: InterbankTransfer, code: str, mess
     logger.info("타행 이체 %s 실패, 출금 되돌림: %s", transfer.transfer_id, code)
 
 
+def complete(db: AsyncSession, transfer: InterbankTransfer, holder_name: str | None = None) -> None:
+    """PENDING 타행 이체를 완료로 확정한다: 중간 계정 → 정산 계정(받는 은행). 고객 잔액은 출금 때 이미 빠졌다.
+    근거는 허브의 COMPLETED 응답(_apply)이나, 그 이체가 들어 있는 확정된 정산 run(settlement_sync)이다.
+    잠근 transfer로, 호출하는 쪽의 트랜잭션 안에서 부른다."""
+    _post(db, transfer.transfer_id, LedgerEvent.COMPLETE, transfer.to_bank,
+          (LedgerAccount.SUSPENSE, -transfer.amount), (LedgerAccount.SETTLEMENT, transfer.amount))
+    transfer.status = InterbankStatus.COMPLETED
+    transfer.to_holder_name = holder_name or transfer.to_holder_name
+    transfer.finished_at = now_utc()
+
+
 async def _apply(db: AsyncSession, transfer: InterbankTransfer, reply: HubReply) -> None:
     """허브 응답을 반영한다. 이미 확정된 거래는 건드리지 않는다 (worker와 요청이 겹칠 때)."""
     if transfer.status != InterbankStatus.PENDING:
         return
     hub_status = reply.body.get("status")
     if reply.ok and hub_status == "COMPLETED":
-        _post(db, transfer.transfer_id, LedgerEvent.COMPLETE, transfer.to_bank,
-              (LedgerAccount.SUSPENSE, -transfer.amount), (LedgerAccount.SETTLEMENT, transfer.amount))
-        transfer.status = InterbankStatus.COMPLETED
-        transfer.to_holder_name = reply.body.get("holder_name") or transfer.to_holder_name
-        transfer.finished_at = now_utc()
+        complete(db, transfer, holder_name=reply.body.get("holder_name"))
     elif reply.rejected or (reply.ok and hub_status == "FAILED"):
         code = reply.error if reply.rejected else str(reply.body.get("fail_code") or "FAILED")
         message = reply.message if reply.rejected else str(reply.body.get("fail_message") or "")
