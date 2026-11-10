@@ -67,15 +67,17 @@ async def list_admins(db: AsyncSession) -> list[User]:
 
 
 def read_password() -> str:
+    # ADMIN_PASSWORD가 있으면 먼저 쓴다. Windows에서는 입력을 NUL로 돌려도 isatty()가 True라
+    # 터미널 검사만으로 고르면 getpass에서 입력을 기다리며 멈춘다
+    password = os.environ.get("ADMIN_PASSWORD", "")
+    if password:
+        return password
     if sys.stdin.isatty():
         password = getpass.getpass("비밀번호: ")
         if getpass.getpass("비밀번호 확인: ") != password:
             raise AdminCliError("비밀번호가 서로 다릅니다.")
         return password
-    password = os.environ.get("ADMIN_PASSWORD", "")
-    if not password:
-        raise AdminCliError("터미널이 아니면 환경변수 ADMIN_PASSWORD로 비밀번호를 넘겨 주세요 (docker exec -it로 실행하면 묻습니다).")
-    return password
+    raise AdminCliError("터미널이 아니면 환경변수 ADMIN_PASSWORD로 비밀번호를 넘겨 주세요 (docker exec -it로 실행하면 묻습니다).")
 
 
 async def main(argv: list[str]) -> int:

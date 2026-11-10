@@ -163,6 +163,22 @@ async def test_cli_main_reads_admin_password_env(client, monkeypatch, capsys):
     assert "ADMIN_PASSWORD" in capsys.readouterr().err
 
 
+def test_cli_password_env_wins_over_tty(monkeypatch):
+    """Windows에서는 입력을 NUL로 돌려도 isatty()가 True다: ADMIN_PASSWORD가 있으면 getpass를 부르지 않는다."""
+
+    class FakeTty(io.StringIO):
+        def isatty(self):
+            return True
+
+    def no_prompt(*_):
+        raise AssertionError("getpass를 부르면 안 된다")
+
+    monkeypatch.setattr(cli.sys, "stdin", FakeTty())
+    monkeypatch.setattr(cli.getpass, "getpass", no_prompt)
+    monkeypatch.setenv("ADMIN_PASSWORD", ADMIN_PASSWORD)
+    assert cli.read_password() == ADMIN_PASSWORD
+
+
 # ---- 현황 ----
 
 async def test_treasury_values(client, user, admin, hub):
