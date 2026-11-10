@@ -88,6 +88,15 @@ class InterbankBank(BaseModel):
     name: str
 
 
+class RecentRecipientResponse(BaseModel):
+    """최근 이체로 보낸 상대 (이체 화면에서 골라 바로 보내기)"""
+
+    to_bank: str | None  # 다른 은행 코드. None이면 우리 은행
+    account_num: str
+    holder_name: str | None
+    last_sent_at: datetime
+
+
 class InterbankTransferResponse(BaseModel):
     transfer_id: str
     to_bank: str

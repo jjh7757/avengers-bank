@@ -102,3 +102,8 @@ class AccountHistoryResponse(BaseModel):
     type: str
     from_account: str | None
     sending_account: str | None = None
+    # 이체(TRANSFER_IN·OUT·REFUND)일 때만: 상대방 계좌·이름·은행. 은행이 None이면 우리 은행
+    counterpart_account: str | None = None
+    counterpart_name: str | None = None
+    counterpart_bank: str | None = None
+    counterpart_bank_name: str | None = None

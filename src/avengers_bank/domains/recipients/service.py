@@ -44,7 +44,8 @@ class RecipientService:
             account = await account_repository.find_checking_by_account_num(db, data.account_num)
             if account is None:
                 raise NotFoundException(code="ACCOUNT_NOT_FOUND", message="계좌를 찾을 수 없습니다.")
-            if await recipient_repository.find_by_account_num(db, current_user.user_id, data.account_num):
+            # 하이픈 없이 입력했어도 저장·중복 검사는 실제 계좌번호 모양으로 한다
+            if await recipient_repository.find_by_account_num(db, current_user.user_id, account.account_num):
                 raise ConflictException(
                     code="RECIPIENT_ALREADY_EXISTS", message="이미 등록된 계좌입니다."
                 )
@@ -53,7 +54,7 @@ class RecipientService:
             holder = await user_repository.find_by_id(db, account.user_id)
             recipient = Recipient(
                 user_id=current_user.user_id,
-                account_num=data.account_num,
+                account_num=account.account_num,
                 holder_name=holder.name,
                 nickname=data.nickname,
             )

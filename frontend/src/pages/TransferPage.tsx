@@ -4,17 +4,27 @@ import { Link, useSearchParams } from 'react-router-dom'
 
 import { ApiError, newIdempotencyKey } from '../api/client'
 import { accountApi, transferApi } from '../api/endpoints'
-import type { AccountSummary, Bank, FdsExtra, HolderInquiryResult, InterbankTransfer, OwnAccount, TransferResult } from '../api/types'
+import type {
+  AccountSummary,
+  Bank,
+  FdsExtra,
+  HolderInquiryResult,
+  InterbankTransfer,
+  OwnAccount,
+  RecentRecipient,
+  TransferResult,
+} from '../api/types'
 import FdsAlert from '../components/FdsAlert'
 import OwnAccountsPanel from '../components/OwnAccountsPanel'
 import PinPad from '../components/PinPad'
 import { AccountIcon, EmptyState, ErrorState, SkeletonList } from '../components/ui'
 import { useLoad } from '../hooks/useLoad'
 import { deviceFingerprint } from '../lib/fingerprint'
-import { dateTime, koreanWon, won } from '../lib/format'
+import { dateTime, formatOwnAccountInput, koreanWon, won } from '../lib/format'
 
 const OWN_BANK = '' // 우리 은행 (to_bank를 보내지 않는다)
 const QUICK_AMOUNTS = [10_000, 50_000, 100_000]
+const RECENT_SHOWN = 5 // 처음에 보여 줄 최근 보낸 사람 수 (더 보기로 최대 10명)
 
 type Step =
   | { kind: 'form'; error?: string }
@@ -49,6 +59,10 @@ export default function TransferPage() {
   const [banksUnavailable, setBanksUnavailable] = useState(false)
   const [historyRound, setHistoryRound] = useState(0)
   const { data: history } = useLoad(useCallback(() => transferApi.interbank(), [historyRound])) // eslint-disable-line react-hooks/exhaustive-deps
+  // 최근 보낸 사람: 보낸 뒤에도 다시 불러 방금 보낸 사람이 맨 앞에 오게 한다 (못 불러오면 목록을 숨긴다)
+  const [recentRound, setRecentRound] = useState(0)
+  const { data: recent } = useLoad(useCallback(() => transferApi.recentRecipients(), [recentRound])) // eslint-disable-line react-hooks/exhaustive-deps
+  const [recentAll, setRecentAll] = useState(false)
 
   const checking = (accounts ?? []).filter((a) => a.account_type === 'checking')
   const [fromId, setFromId] = useState(params.get('from') ?? '')
@@ -128,6 +142,7 @@ export default function TransferPage() {
       }, idempotencyKey)
       setStep({ kind: 'done', holder, result })
       refreshAccounts()
+      setRecentRound((n) => n + 1)
       if (toBank) setHistoryRound((n) => n + 1)
     } catch (e) {
       handleError(holder, e)
@@ -164,6 +179,14 @@ export default function TransferPage() {
     setOwnPanelOpen(false)
   }
 
+  function pickRecent(r: RecentRecipient) {
+    setOwnAccount(null)
+    setToBank(r.to_bank ?? OWN_BANK)
+    setToAccount(r.account_num)
+    if (step.kind === 'form' && step.error) setStep({ kind: 'form' })
+    document.getElementById('tf-amount')?.focus()
+  }
+
   function clearOwnAccount() {
     setOwnAccount(null)
     setToAccount('')
@@ -178,6 +201,9 @@ export default function TransferPage() {
   }
 
   const bankName = (code: string) => banks?.find((b) => b.bank_code === code)?.name ?? code
+  // 다른 은행 상대는 허브 은행 목록에 있을 때만 고를 수 있다 (허브가 안 되면 우리 은행 상대만)
+  const canPick = (r: RecentRecipient) => !r.to_bank || !!banks?.some((b) => b.bank_code === r.to_bank)
+  const recentShown = (recent ?? []).slice(0, recentAll ? undefined : RECENT_SHOWN)
 
   const sentAt = step.kind === 'done' ? step.result.transferred_at : null
   const overBalance = !!source && amountValue > source.balance
@@ -236,6 +262,7 @@ export default function TransferPage() {
               onChange={(e) => {
                 setToBank(e.target.value)
                 if (ownAccount) clearOwnAccount()
+                else if (e.target.value === OWN_BANK) setToAccount((v) => formatOwnAccountInput(v))
               }}
               disabled={banks === null}
               aria-label="받는 은행"
@@ -251,12 +278,15 @@ export default function TransferPage() {
             <input
               inputMode="numeric"
               autoComplete="off"
-              placeholder="계좌번호 입력"
+              placeholder={toBank === OWN_BANK ? '계좌번호 (숫자만 입력)' : '계좌번호 입력'}
               aria-label="받는 계좌번호"
               maxLength={20}
               value={toAccount}
               readOnly={!!ownAccount}
-              onChange={(e) => setToAccount(e.target.value.replace(/[^\d-]/g, ''))}
+              // 우리 은행은 숫자만 치면 하이픈을 알아서 넣는다. 다른 은행은 번호 모양을 몰라 입력한 그대로 둔다
+              onChange={(e) =>
+                setToAccount(toBank === OWN_BANK ? formatOwnAccountInput(e.target.value) : e.target.value.replace(/[^\d-]/g, ''))
+              }
             />
             {ownAccount ? (
               <span className="muted small">
@@ -274,6 +304,43 @@ export default function TransferPage() {
               )
             )}
           </div>
+          {recentShown.length > 0 && (
+            <div className="tf-section recent-recipients">
+              <span className="tf-label">최근 보낸 사람</span>
+              <ul>
+                {recentShown.map((r) => {
+                  const selected = !ownAccount && (r.to_bank ?? OWN_BANK) === toBank && r.account_num === toAccount.trim()
+                  return (
+                    <li key={`${r.to_bank ?? ''}:${r.account_num}`}>
+                      <button
+                        type="button"
+                        className={`recent-recipient ${selected ? 'selected' : ''}`}
+                        onClick={() => pickRecent(r)}
+                        disabled={!canPick(r)}
+                        aria-pressed={selected}
+                      >
+                        <span className="receipt-avatar small" aria-hidden="true">
+                          {(r.holder_name ?? '?').slice(0, 1)}
+                        </span>
+                        <span className="recent-recipient-body">
+                          <strong>{r.holder_name ?? '이름 모름'}</strong>
+                          <span className="muted small">
+                            {r.to_bank ? bankName(r.to_bank) : 'AvengersBank'} {r.account_num}
+                          </span>
+                        </span>
+                        <span className="muted small">{dateTime(r.last_sent_at)}</span>
+                      </button>
+                    </li>
+                  )
+                })}
+              </ul>
+              {(recent ?? []).length > RECENT_SHOWN && (
+                <button type="button" className="button link small" onClick={() => setRecentAll((v) => !v)}>
+                  {recentAll ? '접기' : `더 보기 (${(recent ?? []).length - RECENT_SHOWN}명)`}
+                </button>
+              )}
+            </div>
+          )}
           {ownPanelOpen && <OwnAccountsPanel bankName={bankName} onPick={pickOwnAccount} onClose={() => setOwnPanelOpen(false)} />}
 
           <div className="tf-section">

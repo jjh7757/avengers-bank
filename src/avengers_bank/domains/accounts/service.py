@@ -12,6 +12,7 @@ from avengers_bank.core.exceptions import (
     ForbiddenException,
     NotFoundException,
 )
+from avengers_bank.domains.accounts import counterparts
 from avengers_bank.domains.accounts.models import (
     CheckingAccount,
     CheckingAccountHistory,
@@ -168,7 +169,14 @@ class AccountService:
         async with db.begin():
             await self.get_owned_account(db, account_type, account_id, current_user.user_id)
             histories = await account_repository.find_histories(db, account_type, account_id)
-            return [to_history(account_type, history) for history in histories]
+            items = [to_history(account_type, history) for history in histories]
+            if account_type == "checking":
+                found = await counterparts.resolve(db, histories)
+                for item in items:
+                    if (cp := found.get(item.history_id)) is not None:
+                        item.counterpart_account, item.counterpart_name = cp.account, cp.name
+                        item.counterpart_bank, item.counterpart_bank_name = cp.bank, cp.bank_name
+            return items
 
     async def update_account(
         self,

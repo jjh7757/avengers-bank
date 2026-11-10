@@ -53,6 +53,19 @@ export interface AccountHistory {
   type: string
   from_account: string | null
   sending_account: string | null
+  /** 이체일 때만: 상대방 계좌·이름·은행 코드(null이면 우리 은행)·은행 이름(알 때만) */
+  counterpart_account?: string | null
+  counterpart_name?: string | null
+  counterpart_bank?: string | null
+  counterpart_bank_name?: string | null
+}
+
+/** 최근 이체로 보낸 상대 (GET /transfers/recent-recipients) */
+export interface RecentRecipient {
+  to_bank: string | null
+  account_num: string
+  holder_name: string | null
+  last_sent_at: string
 }
 
 export interface CardSummary {

@@ -5,10 +5,12 @@ import { Link, useParams } from 'react-router-dom'
 import { accountApi } from '../api/endpoints'
 import type { AccountDetail, AccountHistory, AccountType } from '../api/types'
 import CashDepositForm from '../components/CashDepositForm'
+import HistoryItem from '../components/HistoryItem'
 import TransferLimitForm from '../components/TransferLimitForm'
 import { AccountIcon, EmptyState, ErrorState, SkeletonList } from '../components/ui'
 import { useLoad } from '../hooks/useLoad'
-import { ACCOUNT_TYPE_LABEL, HISTORY_TYPE_LABEL, dateTime, signedWon, won } from '../lib/format'
+import { useBankNames } from '../lib/bankNames'
+import { ACCOUNT_TYPE_LABEL, won } from '../lib/format'
 
 export default function AccountDetailPage() {
   const params = useParams()
@@ -25,6 +27,7 @@ export default function AccountDetailPage() {
   const current = refreshed?.account.account_id === id && type === 'checking' ? refreshed : null
   const [loaded, histories] = current ? [current.account, current.histories] : (data ?? [null, null])
   const account = updated?.account_id === id && type === 'checking' ? updated : loaded
+  const bankName = useBankNames(histories)
 
   async function afterDeposit(before: number) {
     setDepositing(false)
@@ -111,13 +114,7 @@ export default function AccountDetailPage() {
           {histories.length === 0 && <EmptyState icon={ReceiptText} title="아직 거래내역이 없어요" />}
           <ul className="list">
             {histories.map((h) => (
-              <li key={h.history_id} className="list-item static">
-                <span>
-                  <strong>{HISTORY_TYPE_LABEL[h.type] ?? h.type}</strong>
-                  <span className="muted small">{dateTime(h.date)}</span>
-                </span>
-                <span className={`amount ${h.amount < 0 ? 'minus' : 'plus'}`}>{signedWon(h.amount)}</span>
-              </li>
+              <HistoryItem key={h.history_id} h={h} bankName={bankName} />
             ))}
           </ul>
         </>

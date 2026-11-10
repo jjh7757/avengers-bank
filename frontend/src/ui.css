@@ -1540,3 +1540,78 @@ a.list-item:active {
   padding-top: 0.75rem;
   border-top: 1px solid var(--border);
 }
+
+/* ---------- 거래내역: 상대방 ---------- */
+.history-item .history-account {
+  color: var(--text);
+  opacity: 0.8;
+}
+
+/* ---------- 이체: 최근 보낸 사람 ---------- */
+.recent-recipients ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.recent-recipient {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.6rem 0.75rem;
+  background: var(--surface);
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.recent-recipient:hover:not(:disabled) {
+  border-color: var(--primary);
+}
+
+.recent-recipient.selected {
+  border-color: var(--primary);
+  background: var(--primary-soft);
+}
+
+.recent-recipient:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.recent-recipient-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.recent-recipient-body > span {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.receipt-avatar.small {
+  width: 36px;
+  height: 36px;
+  font-size: 1rem;
+  flex-shrink: 0;
+}
+
+.recent-recipients > .button.link {
+  align-self: flex-start;
+}
+
+@media (max-width: 420px) {
+  /* 좁은 화면에서는 계좌번호가 잘리지 않게 보낸 시각을 숨긴다 */
+  .recent-recipient > .muted {
+    display: none;
+  }
+}

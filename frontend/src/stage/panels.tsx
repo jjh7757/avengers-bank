@@ -4,17 +4,17 @@ import { Link } from 'react-router-dom'
 
 import { accountApi, cardApi, fdsApi, productApi } from '../api/endpoints'
 import type { AccountDetail, AccountType, CardType, ProductKind, SignupPrefill, UiSelected } from '../api/types'
+import HistoryItem from '../components/HistoryItem'
 import ProductSignup, { type SignupResult } from '../components/ProductSignup'
 import TransferLimitForm from '../components/TransferLimitForm'
 import { AccountIcon, CardVisual, ErrorState, SkeletonList } from '../components/ui'
 import { useLoad } from '../hooks/useLoad'
+import { useBankNames } from '../lib/bankNames'
 import {
   ACCOUNT_TYPE_LABEL,
   CARD_TYPE_LABEL,
   dateTime,
   FDS_DECISION_LABEL,
-  HISTORY_TYPE_LABEL,
-  signedWon,
   won,
 } from '../lib/format'
 import { selectionKey, type Pick } from './selection'
@@ -147,6 +147,7 @@ export function AccountPanel({ type, id }: { type: AccountType; id: number }) {
   const [updated, setUpdated] = useState<AccountDetail | null>(null)
   const [loaded, histories] = data ?? [null, null]
   const account = updated ?? loaded
+  const bankName = useBankNames(histories)
   return (
     <>
       <Loading loading={loading} error={error} />
@@ -170,13 +171,7 @@ export function AccountPanel({ type, id }: { type: AccountType; id: number }) {
           {histories.length === 0 && <p className="muted">거래내역이 없어요.</p>}
           <ul className="list">
             {histories.slice(0, RECENT).map((h) => (
-              <li key={h.history_id} className="list-item static">
-                <span>
-                  <strong>{HISTORY_TYPE_LABEL[h.type] ?? h.type}</strong>
-                  <span className="muted small">{dateTime(h.date)}</span>
-                </span>
-                <span className={`amount ${h.amount < 0 ? 'minus' : 'plus'}`}>{signedWon(h.amount)}</span>
-              </li>
+              <HistoryItem key={h.history_id} h={h} bankName={bankName} />
             ))}
           </ul>
           <Link to={`/accounts/${type}/${id}`}>전체 거래내역 보기</Link>

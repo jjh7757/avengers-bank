@@ -9,6 +9,7 @@ from avengers_bank.core.responses import SuccessResponse, error_responses
 from avengers_bank.core.config import get_settings
 from avengers_bank.core.exceptions import ApiException, NotFoundException
 from avengers_bank.core.rate_limit import pin_failures, transfer_requests
+from avengers_bank.domains.accounts import counterparts
 from avengers_bank.domains.interbank import service as interbank_service
 from avengers_bank.domains.transfers import idempotency
 from avengers_bank.domains.transfers.schemas import (
@@ -21,6 +22,7 @@ from avengers_bank.domains.transfers.schemas import (
     OwnAccountBankResult,
     OwnAccountsRequest,
     OwnAccountsResponse,
+    RecentRecipientResponse,
     SavingsPaymentCreate,
     TransferCreate,
     TransferResponse,
@@ -138,6 +140,18 @@ async def own_accounts(data: OwnAccountsRequest, db: Db, current_user: CurrentUs
         banks=[OwnAccountBankResult(bank_code=str(b.get("bank_code")), result=str(b.get("result")), count=b.get("count"))
                for b in banks],
     ))
+
+
+@router.get("/recent-recipients", response_model=SuccessResponse[list[RecentRecipientResponse]])
+async def recent_recipients(db: Db, current_user: CurrentUser):
+    """최근 이체로 보낸 상대 (은행·계좌별 한 번, 최근 순, 최대 10명). 다른 은행 내 계좌로 보낸 것은 빠진다."""
+    async with db.begin():
+        rows = await counterparts.recent_recipients(db, current_user.user_id)
+    return SuccessResponse[list[RecentRecipientResponse]](data=[
+        RecentRecipientResponse(to_bank=r.counterpart.bank, account_num=r.counterpart.account,
+                                holder_name=r.counterpart.name, last_sent_at=r.last_sent_at)
+        for r in rows
+    ])
 
 
 @router.get("/interbank", response_model=SuccessResponse[list[InterbankTransferResponse]])

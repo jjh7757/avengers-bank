@@ -19,6 +19,7 @@ import type {
   FdsLog,
   HolderInquiryResult,
   InterbankTransfer,
+  RecentRecipient,
   Product,
   UiContext,
   OwnAccountsResult,
@@ -114,6 +115,8 @@ export const transferApi = {
   /** 다른 은행 이체로 보낼 수 있는 은행 (허브 설정이 없으면 503 INTERBANK_UNAVAILABLE) */
   banks: () => api<Bank[]>('/transfers/banks'),
   interbank: () => api<InterbankTransfer[]>('/transfers/interbank'),
+  /** 최근 이체로 보낸 상대 (최근 순, 은행·계좌별 한 번) */
+  recentRecipients: () => api<RecentRecipient[]>('/transfers/recent-recipients'),
   /** 다른 은행 내 계좌 불러오기 (동의 후). 생년월일이 없으면 BIRTH_DATE_REQUIRED */
   ownAccounts: () => api<OwnAccountsResult>('/transfers/own-accounts', { method: 'POST', body: { consent: true } }),
   /** 내 입출금 → 내 적금 (amount를 비우면 월 납입액) */
