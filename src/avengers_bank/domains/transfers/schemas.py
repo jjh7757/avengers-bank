@@ -1,7 +1,12 @@
 from datetime import datetime
-from typing import Literal
+from typing import Annotated, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import AfterValidator, BaseModel, Field
+
+from avengers_bank.core.account_num import normalize_account_num
+
+# 하이픈 없이 쳐도 3-3-6으로 (우리 은행·다른 은행 모두). 확인 카드·멱등성 해시도 이 모양으로 비교한다
+AccountNum = Annotated[str, AfterValidator(normalize_account_num)]
 
 
 class TransferCreate(BaseModel):
@@ -12,7 +17,7 @@ class TransferCreate(BaseModel):
         default=None, pattern=r"^\d{3}$",
         description="받는 은행 코드. 비우거나 우리 은행 코드면 자행 이체, 다른 코드면 ClearingHub를 거친 타행 이체",
     )
-    to_account_num: str = Field(
+    to_account_num: AccountNum = Field(
         min_length=1, max_length=50,
         description="받는 계좌번호. to_account_ref로 보낼 때는 화면에 보인 가린 번호를 그대로 넣는다 (서버는 참조값의 번호를 쓴다)",
     )
@@ -68,7 +73,7 @@ class HolderInquiry(BaseModel):
     """POST /transfers/inquiry — 보내기 전에 받는 분 이름 확인"""
 
     to_bank: str | None = Field(default=None, pattern=r"^\d{3}$")
-    to_account_num: str = Field(min_length=1, max_length=20)
+    to_account_num: AccountNum = Field(min_length=1, max_length=20)
 
 
 class HolderInquiryResponse(BaseModel):

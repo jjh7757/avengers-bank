@@ -57,8 +57,8 @@ export const HISTORY_TYPE_LABEL: Record<string, string> = {
   CASH_DEPOSIT: '입금(시연)',
 }
 
-/** 우리 은행 계좌번호를 입력하는 대로 3-3-6으로 끊어 준다: "1109000" → "110-900-0". 숫자만 남긴다 */
-export const formatOwnAccountInput = (input: string) => {
+/** 계좌번호를 입력하는 대로 3-3-6으로 끊어 준다: "1109000" → "110-900-0". 숫자만 남긴다 (우리 은행·연동된 다른 은행 공통) */
+export const formatAccountInput = (input: string) => {
   const d = input.replace(/\D/g, '').slice(0, 12)
   return [d.slice(0, 3), d.slice(3, 6), d.slice(6)].filter(Boolean).join('-')
 }

@@ -351,7 +351,32 @@ async def test_send_respects_limits_and_balance(client, user, hub):
     assert hub.transfer_calls == []
 
 
+
+async def test_other_bank_account_num_without_hyphens(client, user, hub):
+    """다른 은행 계좌번호도 3-3-6이라 숫자만 쳐도 하이픈을 넣어 허브에 보낸다 (조회·이체 모두)"""
+    source = await open_checking(client, user, balance=100_000)
+    ext = await client.post("/transfers/inquiry", headers=user, json={"to_bank": "902", "to_account_num": "902 123 000001"})
+    assert ext.json()["data"]["to_account_num"] == "902-123-000001"
+    res = await send(client, user, source["account_id"], "902123000001")
+    assert res.status_code == 200, res.text
+    assert res.json()["data"]["to_account_num"] == "902-123-000001"
+    [call] = hub.transfer_calls
+    assert call["to_account"] == "902-123-000001"
+
+
 # ── 모아 대화 (확인 카드) ───────────────────────────────────────
+
+async def test_chat_card_account_num_without_hyphens(client, user, hub, classify):
+    """모아에게 하이픈 없이 말해도 카드에는 3-3-6, 그 카드로 승인하면 그대로 보낸다"""
+    await open_checking(client, user, balance=100_000)
+    session_id = await new_chat_session(client, user)
+    classify.next(intent="transfer", bank_name="SimBank", to_account_num="902123000001", amount=50_000)
+    card = (await say(client, user, session_id, "SimBank 902123000001로 5만원 보내줘"))["card"]
+    assert card["to_account_num"] == "902-123-000001"
+    res = await client.post("/transfers", headers=user, json=approve(card, session_id, to_bank="902"))
+    assert res.status_code == 200, res.text
+    assert hub.transfer_calls[0]["to_account"] == "902-123-000001"
+
 
 async def test_chat_interbank_card_and_approve(client, user, hub, classify):
     """"SimBank 110-123-0001로 5만원 보내줘" → 받는 분 확인(허브) → 확인 카드(은행 포함) → 승인 → 완료"""

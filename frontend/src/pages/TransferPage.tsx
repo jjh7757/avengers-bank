@@ -20,7 +20,7 @@ import PinPad from '../components/PinPad'
 import { AccountIcon, EmptyState, ErrorState, SkeletonList } from '../components/ui'
 import { useLoad } from '../hooks/useLoad'
 import { deviceFingerprint } from '../lib/fingerprint'
-import { dateTime, formatOwnAccountInput, koreanWon, won } from '../lib/format'
+import { dateTime, formatAccountInput, koreanWon, won } from '../lib/format'
 
 const OWN_BANK = '' // 우리 은행 (to_bank를 보내지 않는다)
 const QUICK_AMOUNTS = [10_000, 50_000, 100_000]
@@ -262,7 +262,6 @@ export default function TransferPage() {
               onChange={(e) => {
                 setToBank(e.target.value)
                 if (ownAccount) clearOwnAccount()
-                else if (e.target.value === OWN_BANK) setToAccount((v) => formatOwnAccountInput(v))
               }}
               disabled={banks === null}
               aria-label="받는 은행"
@@ -278,15 +277,13 @@ export default function TransferPage() {
             <input
               inputMode="numeric"
               autoComplete="off"
-              placeholder={toBank === OWN_BANK ? '계좌번호 (숫자만 입력)' : '계좌번호 입력'}
+              placeholder="계좌번호 (숫자만 입력)"
               aria-label="받는 계좌번호"
               maxLength={20}
               value={toAccount}
               readOnly={!!ownAccount}
-              // 우리 은행은 숫자만 치면 하이픈을 알아서 넣는다. 다른 은행은 번호 모양을 몰라 입력한 그대로 둔다
-              onChange={(e) =>
-                setToAccount(toBank === OWN_BANK ? formatOwnAccountInput(e.target.value) : e.target.value.replace(/[^\d-]/g, ''))
-              }
+              // 숫자만 치면 하이픈을 알아서 넣는다 (우리 은행·다른 은행 모두 3-3-6)
+              onChange={(e) => setToAccount(formatAccountInput(e.target.value))}
             />
             {ownAccount ? (
               <span className="muted small">

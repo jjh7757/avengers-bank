@@ -15,10 +15,10 @@ execute_transfer는 확인 카드 토큰만으로는 실행하지 않고 항상 
 import uuid
 from typing import Literal
 
-
 from mcp.types import ToolAnnotations
 from pydantic import Field
 
+from avengers_bank.core.account_num import normalize_account_num
 from avengers_bank.core.exceptions import BadRequestException, NotFoundException
 from avengers_bank.domains.accounts.service import account_service
 from avengers_bank.domains.chat.amount import format_korean_amount
@@ -68,6 +68,7 @@ async def find_account_holder(
     bank_code: str | None = Field(default=None, pattern=r"^\d{3}$", description="다른 은행이면 그 은행 코드 (find_bank)"),
 ) -> dict:
     """입출금 계좌번호의 예금주 이름 (사용자가 계좌번호를 직접 말했을 때 확인용). 다른 은행이면 ClearingHub에 묻는다"""
+    account_num = normalize_account_num(account_num)
     if interbank_service.is_external(bank_code):
         return {"account_num": mask(account_num), "bank_code": bank_code,
                 "holder_name": await interbank_service.inquiry(bank_code, account_num)}
@@ -121,6 +122,8 @@ async def prepare_transfer(
     카드의 confirmation_token은 이 대화(session_id)의 최신 카드 1장만 유효하다.
     session_id를 비우면 새 대화를 만들고 카드의 session_id로 돌려준다 (외부 MCP 클라이언트용)."""
     # 1. 받는 사람 (내 계좌면 서버가 번호를 찾는다. 에이전트는 계좌번호를 뒤 4자리만 안다)
+    # 하이픈 없이 말한 번호도 3-3-6으로: 카드와 승인 때 POST /transfers(같은 정규화)의 값이 같아야 한다
+    to_account_num = normalize_account_num(to_account_num) if to_account_num else to_account_num
     own = None
     external_bank = to_bank if interbank_service.is_external(to_bank) else None
     bank_name = None

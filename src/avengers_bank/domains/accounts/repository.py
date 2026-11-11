@@ -1,9 +1,9 @@
-import re
 from datetime import datetime
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from avengers_bank.core.account_num import normalize_account_num
 from avengers_bank.domains.accounts.models import (
     CheckingAccount,
     CheckingAccountHistory,
@@ -34,14 +34,6 @@ def account_id_of(account_type: str, obj: Account | AccountHistory) -> int:
     return getattr(obj, f"{account_type}_account_id")
 
 
-
-def normalize_account_num(account_num: str) -> str:
-    """우리 계좌번호(3-3-6, 숫자 12자리)는 하이픈 없이 쓰거나 띄어 써도 찾을 수 있게 표준 모양으로 바꾼다.
-    "110900000001" · "110 900 000001" → "110-900-000001". 12자리 숫자가 아니면 앞뒤 공백만 뺀다."""
-    digits = re.sub(r"[\s-]", "", account_num)
-    if len(digits) == 12 and digits.isdigit():
-        return f"{digits[:3]}-{digits[3:6]}-{digits[6:]}"
-    return account_num.strip()
 
 class AccountRepository:
     async def save(self, db: AsyncSession, obj: Account | AccountHistory) -> None:
