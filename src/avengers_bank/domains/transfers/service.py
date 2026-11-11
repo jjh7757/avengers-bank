@@ -24,8 +24,6 @@ from avengers_bank.domains.fds.service import FdsResult, fds_service
 from avengers_bank.domains.interbank import service as interbank_service
 from avengers_bank.domains.interbank.models import InterbankStatus, InterbankTransfer
 from avengers_bank.domains.recipients.repository import recipient_repository
-from avengers_bank.domains.speech.approval import verify_voice_approval_token
-from avengers_bank.domains.speech.repository import voice_repository
 from avengers_bank.domains.transfers import idempotency
 from avengers_bank.domains.transfers.schemas import (
     DepositPaymentCreate,
@@ -74,10 +72,8 @@ class TransferService:
         rejection: FdsDecision | None = None
         conversation_risk = await self._assess_conversation(db, data.session_id, current_user.user_id)
         async with db.begin():
-            # 0. 채팅에서 온 이체면 확인 카드 승인 토큰 검사, 목소리 등록 사용자는 음성 승인 또는 PIN
+            # 0. 채팅에서 온 이체면 확인 카드 승인 토큰 검사
             chat_session, confirmation = await self._check_confirmation(db, data, current_user.user_id)
-            if confirmation is not None:
-                await self._check_voice_or_pin(db, data, confirmation, current_user.user_id)
 
             # 1. 보내는 계좌가 본인 것인지 확인
             source = await account_service.get_owned_account(
@@ -112,7 +108,6 @@ class TransferService:
                 sent_today=sent_today,
                 session_id=data.session_id,
                 device_fingerprint=data.device_fingerprint,
-                input_mode=data.input_mode,
                 session_texts=(
                     await chat_repository.find_user_texts(db, chat_session.session_id) if chat_session else []
                 ),
@@ -125,7 +120,6 @@ class TransferService:
                 "from_account": source.account_num,
                 "to_account": target.account_num,
                 "amount": data.amount,
-                "input_mode": data.input_mode,
                 "result": fds,
                 "decision": decision,
             }
@@ -190,7 +184,7 @@ class TransferService:
         self, db: AsyncSession, data: TransferCreate, current_user: UserResponse, client_ip: str | None,
         idempotency_key: str | None = None,
     ) -> TransferResponse:
-        """다른 은행으로 이체 (ClearingHub). 확인 카드·음성 승인·한도·FDS는 자행 이체와 같고,
+        """다른 은행으로 이체 (ClearingHub). 확인 카드·한도·FDS는 자행 이체와 같고,
         출금을 커밋한 뒤 허브를 부른다. Idempotency-Key가 있으면 출금과 같은 트랜잭션에서 키에 transfer_id를 적는다."""
         to_bank = data.to_bank
         own_ref = None
@@ -208,10 +202,8 @@ class TransferService:
         rejection: FdsDecision | None = None
         fds_key = interbank_service.fds_account_key(to_bank, to_account)
         async with db.begin():
-            # 채팅(모아)에서 온 이체면 확인 카드 토큰(받는 은행 포함), 목소리 등록 사용자는 음성 승인 또는 PIN
+            # 채팅(모아)에서 온 이체면 확인 카드 토큰(받는 은행 포함)
             chat_session, confirmation = await self._check_confirmation(db, data, current_user.user_id)
-            if confirmation is not None:
-                await self._check_voice_or_pin(db, data, confirmation, current_user.user_id)
             source = await account_service.get_owned_account(
                 db, "checking", data.from_checking_account_id, current_user.user_id, for_update=True
             )
@@ -220,14 +212,13 @@ class TransferService:
             fds = await fds_service.evaluate(
                 db, user=user, source=source, to_account_num=fds_key, amount=data.amount,
                 sent_today=sent_today, session_id=data.session_id, device_fingerprint=data.device_fingerprint,
-                input_mode=data.input_mode,
                 session_texts=await chat_repository.find_user_texts(db, chat_session.session_id) if chat_session else [],
                 conversation=conversation_risk, to_own_account=own_ref is not None,
             )
             decision = await self._decide(fds, user, data.pin)
             log_fields = {
                 "user_id": user.user_id, "session_id": data.session_id, "from_account": source.account_num,
-                "to_account": fds_key, "amount": data.amount, "input_mode": data.input_mode,
+                "to_account": fds_key, "amount": data.amount,
                 "result": fds, "decision": decision,
             }
             if decision in REJECTED:
@@ -358,25 +349,6 @@ class TransferService:
                 code="CONFIRMATION_USED", message="이미 처리했거나 바뀐 확인 카드입니다. 다시 요청해 주세요."
             )
         return session, confirmation
-
-    async def _check_voice_or_pin(
-        self, db: AsyncSession, data: TransferCreate, confirmation: Confirmation, user_id: int
-    ) -> None:
-        """목소리를 등록한 사용자: 음성 승인 토큰이 있거나, 없으면(버튼 승인) PIN이 맞아야 한다.
-        버튼만으로 통과시키면 남이 폰을 들고 승인 버튼을 누르는 것을 막을 수 없기 때문이다."""
-        if await voice_repository.find(db, user_id) is None:
-            return
-        if data.voice_approval_token is not None:
-            verify_voice_approval_token(data.voice_approval_token, user_id=user_id, confirmation_jti=confirmation.jti)
-            return
-        user = await user_repository.find_by_id(db, user_id)
-        if data.pin is None:
-            raise BadRequestException(
-                code="PIN_REQUIRED", message="목소리로 승인하지 않으면 이체 PIN이 필요해요.",
-                extra={"has_pin": user.has_pin},
-            )
-        if not await user_service.verify_pin(user, data.pin):
-            raise BadRequestException(code="INVALID_PIN", message="이체 PIN이 올바르지 않습니다.")
 
     async def _decide(self, fds: FdsResult, user: User, pin: str | None) -> FdsDecision:
         if fds.risk_level == RiskLevel.HIGH:

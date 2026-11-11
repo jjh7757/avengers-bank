@@ -151,9 +151,8 @@ PIN이 없으면 `400 PIN_NOT_SET`, 안 보내면 `400 PIN_REQUIRED`, 틀리면 
 `POST /transfers`: `amount` 뒤의 필드는 선택입니다. 채팅에서 온 이체는 `session_id`와 확인 카드의 `confirmation_token`이 필요합니다.
 ```json
 { "from_checking_account_id": 1, "to_account_num": "110-555-000111", "amount": 10000,
-  "pin": null, "device_fingerprint": "a1b2c3", "session_id": "9f2c...", "confirmation_token": "eyJ...", "input_mode": "voice" }
+  "pin": null, "device_fingerprint": "a1b2c3", "session_id": "9f2c...", "confirmation_token": "eyJ..." }
 ```
-목소리를 등록한 사용자는 `voice_approval_token`(아래 voice 참고)을 넣거나, 없으면 `pin`이 필요합니다 (`400 PIN_REQUIRED`, `400 INVALID_VOICE_APPROVAL`).
 확인 카드 관련 실패: `400 CONFIRMATION_REQUIRED`, `400 CONFIRMATION_MISMATCH`(카드와 금액·계좌가 다름), `400 CONFIRMATION_USED`(이미 썼거나 새 카드로 바뀜), `400 CONFIRMATION_EXPIRED`(5분), `404 CHAT_SESSION_NOT_FOUND`
 → `200`
 ```json
@@ -174,7 +173,7 @@ PIN이 없으면 `400 PIN_NOT_SET`, 안 보내면 `400 PIN_REQUIRED`, 틀리면 
 | LOW | `200`, `risk_level: "LOW"` | |
 | MEDIUM | `400 ADDITIONAL_AUTH_REQUIRED` | PIN 입력창을 띄우고 같은 요청에 `pin`을 넣어 다시 보냄. `extra.has_pin`이 false면 PIN 등록 안내 |
 | MEDIUM + 틀린 PIN | `400 INVALID_PIN` | |
-| HIGH | `400 FDS_BLOCKED` | `extra.rule_hits`의 이름과 `extra.warning`을 보여 주고 TTS로 읽음 |
+| HIGH | `400 FDS_BLOCKED` | `extra.rule_hits`의 이름과 `extra.warning`을 보여 줌 |
 
 ```json
 { "error": { "code": "FDS_BLOCKED", "message": "이상거래가 의심되어 이체를 차단했습니다.", "details": [],
@@ -263,27 +262,26 @@ PIN이 없으면 `400 PIN_NOT_SET`, 안 보내면 `400 PIN_REQUIRED`, 틀리면 
 | 상태 | 메서드 | 경로 | 인증 | 설명 |
 |---|---|---|---|---|
 | ✅ | POST | `/chat/sessions` | 🔒 | 대화 시작 → `session_id` |
-| ✅ | POST | `/chat/sessions/{session_id}/messages` | 🔒 | 에이전트에게 말하기 `{ "text", "input_mode": "text" \| "voice" }` → 사용자 메시지 + 답변 |
+| ✅ | POST | `/chat/sessions/{session_id}/messages` | 🔒 | 에이전트에게 말하기 `{ "text" }` → 사용자 메시지 + 답변 |
 | ✅ | GET | `/chat/sessions/{session_id}/messages` | 🔒 | 대화 기록 (오래된 순) |
 
 <details>
 <summary>응답 예시와 카드 종류</summary>
 
-`POST /chat/sessions/{id}/messages` `{ "text": "엄마한테 오만원 보내줘", "input_mode": "voice" }` → `200`
+`POST /chat/sessions/{id}/messages` `{ "text": "엄마한테 오만원 보내줘" }` → `200`
 ```json
 { "data": {
-  "user_message": { "msg_id": 1, "role": "user", "content": "엄마한테 오만원 보내줘", "intent": "transfer", "input_mode": "voice", "card": null, "screen": null, "screen_params": null, "created_at": "..." },
+  "user_message": { "msg_id": 1, "role": "user", "content": "엄마한테 오만원 보내줘", "intent": "transfer", "card": null, "screen": null, "screen_params": null, "created_at": "..." },
   "assistant_message": { "msg_id": 2, "role": "assistant", "content": "엄마(김영희)님께 5만원을 보낼까요? 화면의 확인 카드에서 승인을 눌러 주세요.",
     "card": { "type": "transfer_confirmation", "from_checking_account_id": 1, "from_account_num": "110-...", "from_nickname": "생활비", "from_balance": 1200000,
       "to_account_num": "110-...", "holder_name": "김영희", "recipient_nickname": "엄마", "amount": 50000, "amount_text": "5만원",
-      "insufficient_balance": false, "confirmation_token": "eyJ...", "expires_at": "...",
-      "tts_text": "엄마님께 5만원을 보냅니다. 승인하시겠어요?" },
+      "insufficient_balance": false, "confirmation_token": "eyJ...", "expires_at": "..." },
     "screen": "transfer", "screen_params": null } } }
 ```
 
 | `card.type` | 언제 | 프론트가 할 일 |
 |---|---|---|
-| `transfer_confirmation` | 이체 정보가 다 모였을 때 | 승인/취소 버튼. 승인하면 카드 값 + `session_id` + `confirmation_token`으로 `POST /transfers`. `tts_text`를 읽음 |
+| `transfer_confirmation` | 이체 정보가 다 모였을 때 | 승인/취소 버튼. 승인하면 카드 값 + `session_id` + `confirmation_token`으로 `POST /transfers` |
 | `account_summary` | 잔액·계좌 조회 | `accounts` 목록 표시 (계좌번호는 뒤 4자리) |
 
 요청의 `ui_context`(선택, 모아 화면만 보냄): 지금 사용자가 보고 있는 화면. 에이전트가 "이거", "이 계좌", "두 번째 거"를 풀 때 쓴다.
@@ -312,21 +310,6 @@ PIN이 없으면 `400 PIN_NOT_SET`, 안 보내면 `400 PIN_REQUIRED`, 틀리면 
 
 실패: `503 LLM_UNAVAILABLE`(Gemini 키 없음·호출 실패), `403 CHAT_SESSION_FORBIDDEN`, `404 CHAT_SESSION_NOT_FOUND`
 </details>
-
-## voice: 목소리 등록·음성 승인 (`domains/speech`)
-
-설계·확인 결과·한계: [VOICE_AUTH.md](VOICE_AUTH.md). 녹음은 모두 16kHz 모노 16bit WAV (multipart).
-
-| 상태 | 메서드 | 경로 | 인증 | 설명 |
-|---|---|---|---|---|
-| ✅ | GET | `/voice/profile` | 🔒 | `{ enrolled, available, created_at, updated_at }`. `available`=false면 서버가 음성 승인을 못 함 |
-| ✅ | POST | `/voice/profile` | 🔒 | 등록·재등록. form: `password`, `consent=true`, `recordings` × 3 |
-| ✅ | DELETE | `/voice/profile` | 🔒 | 삭제 `{ "password" }` → `204` |
-| ✅ | POST | `/voice/approvals` | 🔒 | form: `session_id`, `confirmation_token`, `recording` → `{ voice_approval_token }` (2분, 그 카드에만 유효) |
-
-확인 카드(`transfer_confirmation`)에 `voice_enrolled`, `voice_challenge`("895"), `voice_challenge_text`("팔 구 오")가 추가됩니다.
-
-실패: `400 VOICE_DIGITS_MISMATCH` / `400 VOICE_NOT_MATCHED` (`extra.remaining_attempts`), `400 VOICE_LOCKED`(카드당 2번 실패), `400 INVALID_AUDIO`, `400 CONSENT_REQUIRED`, `401 INVALID_CREDENTIALS`, `404 VOICE_NOT_ENROLLED`, `503 VOICE_UNAVAILABLE`(모델·키 없음, 15초 초과)
 
 ## admin: 관리자 자금 관리 (`domains/admin`)
 
@@ -393,7 +376,7 @@ AUI 에이전트와 외부 MCP 클라이언트가 쓰는 도구 서버입니다 
 | `/mcp/transfers/mcp` | 이체·수취인 | 7 |
 | `/mcp/products/mcp` | 상품 | 2 |
 | `/mcp/cards/mcp` | 카드 | 4 |
-| `/mcp/security/mcp` | FDS 기록·음성 승인 상태 | 2 |
+| `/mcp/security/mcp` | FDS 기록 | 1 |
 
 ## 새 API를 추가하는 순서
 

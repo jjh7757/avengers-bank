@@ -79,7 +79,7 @@ async def transfer(
 
     try:
         transfer_requests.hit(str(user_id))
-        if data.pin is not None or data.voice_approval_token is not None:
+        if data.pin is not None:
             pin_failures.check(str(user_id))
         client_ip = request.client.host if request.client else None
         result = await transfer_service.transfer(db, data, current_user, client_ip, replay_key)

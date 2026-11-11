@@ -43,8 +43,7 @@ avengers-bank/
         ├── cards/          # 신용·체크카드, 사용내역, 결제
         ├── recipients/     # 자주 보내는 수취인 (별칭 → 계좌번호)
         ├── fds/            # 이상거래 탐지: features(학습과 공용) → rules + scorer(LightGBM) → service
-        ├── chat/           # 대화 API, 금액 정규화(amount.py), 이체 확인 토큰(confirmation.py)
-        └── speech/         # 목소리 등록·음성 승인: speaker(화자 임베딩), digits(숫자 인식), crypto, approval
+        └── chat/           # 대화 API, 금액 정규화(amount.py), 이체 확인 토큰(confirmation.py)
 ```
 
 ## 도메인 안의 5개 파일

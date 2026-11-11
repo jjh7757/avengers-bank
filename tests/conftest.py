@@ -5,7 +5,6 @@ import os
 # TEST_DATABASE_URL로 바꿀 수 있다 (같은 폴더에서 테스트를 동시에 돌리면 파일이 겹치므로)
 os.environ["DATABASE_URL"] = os.environ.get("TEST_DATABASE_URL", "sqlite+aiosqlite:///./test.db")
 os.environ["JWT_SECRET_KEY"] = "test-secret-key-test-secret-key-0000"
-os.environ["VOICE_ENCRYPTION_KEY"] = "0nqMmCGBZz4Ii2tmmjnlxxzI5d7Z0r6MWQqv2qD3fWs="  # 테스트 전용 Fernet 키
 os.environ["GEMINI_API_KEY"] = ""  # 테스트는 실제 Gemini를 부르지 않는다
 os.environ["DEMO_MODE"] = "false"  # 시연 모드는 test_demo.py에서만 켠다
 # 타행 이체: 허브 호출은 test_interbank.py의 가짜 허브로 보낸다. 확인 태스크는 테스트가 직접 부른다.
@@ -36,7 +35,6 @@ import avengers_bank.domains.fds.models  # noqa: F401
 import avengers_bank.domains.interbank.models  # noqa: F401
 import avengers_bank.domains.products.models  # noqa: F401
 import avengers_bank.domains.recipients.models  # noqa: F401
-import avengers_bank.domains.speech.models  # noqa: F401
 import avengers_bank.domains.transfers.models  # noqa: F401
 from avengers_bank.core.database import Base, SessionLocal, engine
 from avengers_bank.core.rate_limit import ALL_LIMITERS

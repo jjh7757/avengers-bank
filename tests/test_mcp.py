@@ -98,7 +98,6 @@ async def test_products_and_security(client, user):
     products = (await mcp.call("products", "search_products", {"kind": "account", "keyword": "적금"}))["products"]
     assert {p["type"] for p in products} == {"SAVINGS"}
     assert (await mcp.call("security", "get_fds_logs", {}))["logs"] == []
-    assert (await mcp.call("security", "get_voice_profile_status", {}))["enrolled"] is False
 
 
 async def test_prepare_transfer_card_can_be_approved(client, user, other_user):

@@ -21,7 +21,7 @@ React ── REST ──▶ FastAPI ─┬─ /users /accounts /transfers ... (R
 - 계좌·카드번호는 뒤 4자리만 돌려준다 (`****6789`). 예외: `prepare_transfer`의 확인 카드(이체 요청에 그대로 써야 함). `execute_transfer` 결과는 다시 가린다.
 - Host 검사(DNS rebinding 방지): `127.0.0.1`, `localhost`만 허용. 배포할 때 `mcp_servers/common.py`의 `ALLOWED_HOSTS`에 실제 호스트를 더한다.
 
-## 서버와 도구 (28개)
+## 서버와 도구 (27개)
 
 | 서버 | 도구 | 종류 | LLM |
 |---|---|---|---|
@@ -31,13 +31,13 @@ React ── REST ──▶ FastAPI ─┬─ /users /accounts /transfers ... (R
 | | `lower_transfer_limits` | 변경. **낮추기만** 가능 (`LIMIT_RAISE_NOT_ALLOWED`) | ✅ |
 | **transfers** 이체 | `list_recipients`, `find_recipient`, `find_account_holder`(`bank_code`면 ClearingHub로 예금주), `find_bank`(은행 이름 → 코드) | 조회 | ✅ |
 | | `prepare_transfer` | 확인 카드 + 승인 토큰 (**실행 아님**). `to_bank`면 다른 은행 계좌(카드·토큰에 은행이 들어감). `session_id`를 비우면 새 대화를 만든다 | ❌ 이체 노드만 |
-| | `execute_transfer` | 이체 실행. 카드 값 + 승인 토큰 + **이체 PIN 또는 음성 승인 토큰 필수** | ❌ 외부 클라이언트만 |
+| | `execute_transfer` | 이체 실행. 카드 값 + 승인 토큰 + **이체 PIN 필수** | ❌ 외부 클라이언트만 |
 | | `register_recipient`, `rename_recipient`, `delete_recipient` | 변경 | ❌ 앱 화면·외부 클라이언트만 |
 | **products** 상품 | `search_products`, `get_product` | 조회 | ✅ |
 | | `prepare_signup` | 가입 화면 준비: 이용약관 + 대화에서 들은 조건(미리 채움). **개설·발급은 하지 않는다** | ✅ |
 | **cards** 카드 | `get_my_cards`, `get_card_histories` | 조회 | ✅ |
 | | `issue_debit_card`, `issue_credit_card` | 발급. **`terms_version` 필수** | ❌ 외부 클라이언트만 |
-| **security** 보안 | `get_fds_logs`, `get_voice_profile_status` | 조회 | ✅ |
+| **security** 보안 | `get_fds_logs` | 조회 | ✅ |
 | **knowledge** 상담 지식 | `search_terms`, `list_documents` | 조회 (약관·FAQ 검색, RAG) | ✅ |
 
 ## knowledge 서버: 약관·FAQ 검색 (RAG)
@@ -56,13 +56,12 @@ React ── REST ──▶ FastAPI ─┬─ /users /accounts /transfers ... (R
 
 | 기능 | 이유 |
 |---|---|
-| `execute_transfer`를 LLM에게 | 돈이 움직인다. 우리 에이전트는 확인 카드 → 사용자 승인(버튼·음성·PIN) → 앱이 `POST /transfers`로 실행 |
+| `execute_transfer`를 LLM에게 | 돈이 움직인다. 우리 에이전트는 확인 카드 → 사용자 승인(버튼, FDS가 요구하면 PIN) → 앱이 `POST /transfers`로 실행 |
 | 적금 납입·예금 입금 | 돈이 움직인다. 앱 화면에서만 |
 | `prepare_transfer`를 LLM에게 | 이체 카드는 금액 재검증(정규식)과 수취인 조회를 거친 이체 노드만 만든다 |
 | 수취인 등록·변경·삭제를 LLM에게 | 등록된 수취인은 FDS "처음 보내는 계좌" 검사를 건너뛴다. 붙여넣은 문자에 속아 사기 계좌를 "엄마"로 등록하는 것을 막는다 |
 | 이체 한도 높이기 | 계정 탈취·보이스피싱 때 한도를 올려 빼 가는 경로. 앱 화면에서만 |
 | 카드 결제 | 가맹점 쪽 기능 |
-| 목소리 등록·삭제 | 녹음 파일과 비밀번호가 필요한 앱 화면 기능 |
 
 변경 도구(별칭 변경, 한도 낮추기)는 시스템 프롬프트에서 "무엇을 할지 말하고 사용자가 '네'라고 한 뒤에만 부른다"고 정했다. 프롬프트 규칙이라 LLM이 어길 가능성은 남는다. 돈이 움직이는 도구는 이 규칙에 기대지 않고 아예 주지 않는다.
 
@@ -84,7 +83,7 @@ React ── REST ──▶ FastAPI ─┬─ /users /accounts /transfers ... (R
 1. `prepare_transfer` (session_id 없이) → 확인 카드. 카드의 `session_id`, `confirmation_token`과 받는 사람·금액·출금 계좌를 받는다.
 2. 클라이언트는 카드 내용을 **사용자에게 보여 주고**, 사용자가 직접 입력한 이체 PIN을 받는다.
 3. `execute_transfer`에 카드 값 + 토큰 + PIN → `POST /transfers`와 같은 `transfer_service.transfer()`를 거친다
-   (카드 내용과 같은지, 카드 1회 사용, 잔액·한도, FDS, 목소리 등록자의 음성 승인/PIN).
+   (카드 내용과 같은지, 카드 1회 사용, 잔액·한도, FDS).
 
 - **확인 카드 토큰만으로는 실행하지 않는다** (`PIN_REQUIRED`). 외부 AI가 두 도구를 사람 없이 연달아 부르지 못하게 하려는 것이다.
 - FDS가 막으면 `{"error": "FDS_BLOCKED", "extra": {"rule_hits", "warning", ...}}`. 클라이언트는 경고 문구를 사용자에게 보여 줘야 한다.

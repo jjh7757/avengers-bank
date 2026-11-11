@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
-import { CreditCard, Landmark, MessageCircle, Mic, Settings, ShieldAlert, ShoppingBag, Volume2, VolumeX } from 'lucide-react'
+import { CreditCard, Landmark, MessageCircle, Settings, ShieldAlert, ShoppingBag } from 'lucide-react'
 import { Link } from 'react-router-dom'
 
 import { ApiError } from '../api/client'
@@ -9,8 +9,6 @@ import { useAuth } from '../auth/useAuth'
 import Logo from '../components/Logo'
 import TransferCard, { type Status } from '../components/TransferCard'
 import { useChatSession } from '../hooks/useChatSession'
-import { usePushToTalk } from '../hooks/usePushToTalk'
-import { useSpeech } from '../hooks/useSpeech'
 import Mascot, { type Mood } from './Mascot'
 import {
   AccountPanel,
@@ -87,17 +85,14 @@ function restoredView(messages: ChatMessage[]): View {
 
 export default function StagePage() {
   const { user } = useAuth()
-  const speech = useSpeech()
   const { sessionId, messages, setMessages, error, setError, startNewSession } = useChatSession()
   const [input, setInput] = useState('')
   const [busy, setBusy] = useState(false)
-  const [voicePrompt, setVoicePrompt] = useState<string | null>(null)
   const [mood, setMood] = useState<Mood>('idle')
   const [view, setView] = useState<View | null>(null) // null이면 대화 기록에서 복원
   const [arriving, setArriving] = useState(false)
   const [bubble, setBubble] = useState<string | null>(null) // null이면 마지막 답변
   const [pendingText, setPendingText] = useState<string | null>(null)
-  const [autoVoiceFor, setAutoVoiceFor] = useState<number | null>(null)
   const [showLog, setShowLog] = useState(false)
   const [showMenu, setShowMenu] = useState(false)
   const [selected, setSelected] = useState<UiSelected | null>(null) // 눌러서 고른 항목 ("이거")
@@ -145,38 +140,16 @@ export default function StagePage() {
     }
   }
 
-  /** 답변을 말한다. 음성 안내가 꺼져 있어도 말하는 표정은 글 길이만큼 보여 준다 */
+  /** 답변을 말풍선에 띄운다. 말하는 표정은 글 길이만큼 보여 준다 */
   function talk(message: ChatMessage, request: number) {
     setBubble(null)
     setMood('speaking')
-    // 음성이 끝나고 최소 표시 시간도 지나야 말하는 표정을 거둔다
-    let spoke = false
-    let waited = false
-    const finish = () => {
-      if (spoke && waited && requestRef.current === request) setMood((m) => (m === 'speaking' ? 'idle' : m))
-    }
     later(Math.min(3500, Math.max(1200, message.content.length * 60)), () => {
-      waited = true
-      finish()
+      if (requestRef.current === request) setMood((m) => (m === 'speaking' ? 'idle' : m))
     })
-    const done = () => {
-      spoke = true
-      finish()
-    }
-    const card = message.card
-    if (card?.type === 'transfer_confirmation') {
-      const reads = speech.ttsAvailable && speech.ttsEnabled
-      speech.speak(card.tts_text).then(() => {
-        // "확인 사 칠 이 라고 말씀해 주세요"를 들려준 뒤에만 자동으로 녹음한다
-        if (reads && card.voice_challenge && requestRef.current === request) setAutoVoiceFor(message.msg_id)
-        done()
-      })
-    } else {
-      speech.speak(message.content).then(done)
-    }
   }
 
-  async function send(text: string, inputMode: 'text' | 'voice') {
+  async function send(text: string) {
     const trimmed = text.trim()
     if (!trimmed || !sessionId || busy) return
     const request = ++requestRef.current
@@ -186,14 +159,12 @@ export default function StagePage() {
     setBusy(true)
     setError(null)
     setInput('')
-    setVoicePrompt(null)
     setPendingText(trimmed)
     setArriving(true) // 답을 기다리는 동안 지금 화면(예: 지난 확인 카드)을 잠근다
     setBubble('')
     setMood('thinking')
-    speech.cancelSpeech()
     try {
-      const { user_message, assistant_message } = await chatApi.send(sessionId, trimmed, inputMode, ui)
+      const { user_message, assistant_message } = await chatApi.send(sessionId, trimmed, ui)
       if (requestRef.current !== request) return
       setMessages((prev) => [...prev, user_message, assistant_message])
       setPendingText(null)
@@ -220,16 +191,11 @@ export default function StagePage() {
       setBusy(false)
     }
   }
-  const ptt = usePushToTalk({ speech, busy, send, setInput, setVoicePrompt })
 
   /** 이체 확인 카드의 진행 상황에 따라 모아의 표정과 말을 바꾼다 */
   const onTransferStatus = useCallback((kind: Status['kind']) => {
     switch (kind) {
-      case 'voice_listening':
-        setMood('listening')
-        break
       case 'sending':
-      case 'voice_checking':
         setMood('thinking')
         break
       case 'need_pin':
@@ -260,38 +226,26 @@ export default function StagePage() {
   async function newConversation() {
     requestRef.current++
     timers.current.forEach(clearTimeout)
-    speech.cancelSpeech()
     await startNewSession()
     setView(null)
     setBubble(null)
     setSelected(null)
     setMood('idle')
-    setAutoVoiceFor(null)
   }
 
   function submit(event: FormEvent) {
     event.preventDefault()
-    send(input, 'text')
+    send(input)
   }
 
   const userLine = pendingText ?? lastUser?.content
-  const shownMood: Mood = speech.listening ? 'listening' : mood
+  const shownMood: Mood = mood
 
   return (
     <div className="stage-app">
       <header className="stage-header">
         <Logo className="stage-brand" size={26} />
         <span className="stage-header-actions">
-          <button
-            className={`button small toggle ${speech.ttsEnabled && speech.ttsAvailable ? 'on' : ''}`}
-            onClick={() => speech.setTtsEnabled(!speech.ttsEnabled)}
-            disabled={!speech.ttsAvailable}
-            aria-pressed={speech.ttsEnabled}
-            aria-label="음성 안내"
-            title={speech.ttsAvailable ? '답변을 소리로 읽어 줍니다' : '이 브라우저에는 한국어 음성이 없어요'}
-          >
-            {speech.ttsAvailable && speech.ttsEnabled ? <Volume2 size={18} aria-hidden="true" /> : <VolumeX size={18} aria-hidden="true" />}
-          </button>
           <button className="button small" onClick={newConversation} disabled={busy}>
             새 대화
           </button>
@@ -359,11 +313,8 @@ export default function StagePage() {
               <TransferCard
                 card={transferMessage.card}
                 sessionId={sessionId}
-                inputMode={messages[messages.indexOf(transferMessage) - 1]?.input_mode ?? 'text'}
                 active={transferMessage.msg_id === lastCardId}
-                autoVoice={autoVoiceFor === transferMessage.msg_id}
-                speech={speech}
-                onCancel={() => send('이체 취소', 'text')}
+                onCancel={() => send('이체 취소')}
                 onStatusChange={onTransferStatus}
               />
             ) : (
@@ -383,40 +334,22 @@ export default function StagePage() {
           {messages.length === 0 && <p className="muted small">아직 대화가 없어요.</p>}
           {messages.map((m) => (
             <p key={m.msg_id} className={`stage-log-line ${m.role}`}>
-              <strong>{m.role === 'user' ? '나' : '모아'}</strong> {m.input_mode === 'voice' && <Mic size={14} aria-hidden="true" className="inline-icon" />}
+              <strong>{m.role === 'user' ? '나' : '모아'}</strong> 
               {m.content}
             </p>
           ))}
         </div>
       )}
 
-      {(voicePrompt || speech.listening) && (
-        <p className="voice-prompt" role="status">
-          {speech.listening ? `듣는 중… ${speech.interim}` : voicePrompt}
-        </p>
-      )}
-
       <footer className="stage-footer">
         <div className="chips">
           {SUGGESTIONS.map((s) => (
-            <button key={s} className="chip" onClick={() => send(s, 'text')} disabled={busy || !sessionId}>
+            <button key={s} className="chip" onClick={() => send(s)} disabled={busy || !sessionId}>
               {s}
             </button>
           ))}
         </div>
         <form className="stage-composer" onSubmit={submit}>
-          <button
-            type="button"
-            className={`mic ${speech.listening ? 'listening' : ''}`}
-            onPointerDown={ptt.onMicDown}
-            onPointerUp={ptt.onMicUp}
-            onPointerLeave={ptt.onMicUp}
-            disabled={!speech.sttSupported || busy}
-            aria-label={speech.sttSupported ? '누르고 있는 동안 말하기' : '이 브라우저는 음성 입력을 지원하지 않아요'}
-            title={speech.sttSupported ? '누르고 있는 동안 말하기' : '음성 입력은 Chrome·Edge에서 쓸 수 있어요'}
-          >
-            <Mic size={24} aria-hidden="true" />
-          </button>
           <input
             className="stage-input"
             value={input}
@@ -441,7 +374,7 @@ const MENU = [
   { to: '/cards', label: '내 카드', icon: CreditCard },
   { to: '/products', label: '상품 보기·가입', icon: ShoppingBag },
   { to: '/fds', label: '이상거래 기록', icon: ShieldAlert },
-  { to: '/settings', label: '설정 (PIN·목소리 등록)', icon: Settings },
+  { to: '/settings', label: '설정 (PIN 등록)', icon: Settings },
 ]
 
 const MOOD_LABEL: Record<Mood, string> = {

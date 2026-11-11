@@ -15,7 +15,6 @@ class FdsLogResponse(BaseModel):
     top_factors: list[dict]
     risk_level: str
     decision: str
-    input_mode: str
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)

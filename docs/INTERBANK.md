@@ -276,7 +276,7 @@ uv run python -m avengers_bank.domains.interbank.reserve_requests reserve   # �
 3. "보내기" → `POST /transfers`. FDS가 PIN을 요구하면 PIN 입력, 차단하면 경고(`FdsAlert`). 결과는 완료 / "확인 중"(PENDING, 출금됐고 받는 은행 확인 중) / 되돌림(`INTERBANK_FAILED`)
 4. 아래 "다른 은행 이체" 목록: 확인 중·완료·돌려받음, 새로고침
 
-허브를 쓸 수 없으면(설정 없음·응답 없음) 받는 은행에 우리 은행만 나오고 안내 문구를 보여 준다. 화면 이체는 확인 카드(채팅)를 거치지 않으므로 목소리 등록 사용자의 음성 승인·PIN 요구는 없고, FDS 판정(MEDIUM이면 PIN)만 적용된다 (자행 이체 화면과 같은 규칙).
+허브를 쓸 수 없으면(설정 없음·응답 없음) 받는 은행에 우리 은행만 나오고 안내 문구를 보여 준다. 화면 이체는 확인 카드(채팅)를 거치지 않고, FDS 판정(MEDIUM이면 PIN)만 적용된다 (자행 이체 화면과 같은 규칙).
 
 로컬에서 확인: `.claude/launch.json`의 `hub-8010`(ClearingHub, `local_hub.db`), `banksim-8100`(가짜 은행), `backend-8001-hub`(허브 설정을 넣은 백엔드), `frontend-8001`. 허브 DB는 901·902를 고정 테스트 키로 등록한 시드로 만든다.
 
@@ -287,7 +287,7 @@ uv run python -m avengers_bank.domains.interbank.reserve_requests reserve   # �
 1. 의도 분류기(Gemini)가 `bank_name`("SimBank")을 뽑는다. 이체 노드가 MCP `find_bank`로 은행 코드를 찾는다 (대소문자·띄어쓰기·"은행"은 무시, 우리 은행 이름이면 자행). 없으면 보낼 수 있는 은행 목록과 함께 되묻는다
 2. 다른 은행은 **계좌번호로만** 보낸다 (등록 수취인·내 계좌는 우리 은행에만 있다). 번호가 없으면 금액은 기억하고 "SimBank 계좌번호를 알려 주세요". 예금주는 `find_account_holder(bank_code=...)`로 허브에 확인한다
 3. `prepare_transfer(to_bank=...)` → 확인 카드에 `to_bank`, `to_bank_name`, 받는 분 "SimBank 김철수". **승인 토큰에도 은행 코드(`bk`)가 들어간다**
-4. 카드 승인 → 앱이 카드의 `to_bank`를 그대로 실어 `POST /transfers`. 서버는 토큰의 은행과 요청의 은행이 다르면 `CONFIRMATION_MISMATCH` (같은 번호의 우리 은행 계좌로 바꿔치기 방지). 음성 승인·PIN, 대화 위험 판별(FDS), 카드 1회 사용은 자행 이체와 같다
+4. 카드 승인 → 앱이 카드의 `to_bank`를 그대로 실어 `POST /transfers`. 서버는 토큰의 은행과 요청의 은행이 다르면 `CONFIRMATION_MISMATCH` (같은 번호의 우리 은행 계좌로 바꿔치기 방지). FDS가 요구하면 PIN, 대화 위험 판별(FDS), 카드 1회 사용은 자행 이체와 같다
 5. 결과가 PENDING이면 카드에 "확인 중"과 이체 화면 링크를 보여 준다
 
 실제 Gemini 확인 (로컬, 실제 허브·가짜 은행): "SimBank 110-123-0001로 3만원 보내줘" → "생활비 통장에서 SimBank 김철수님께 3만원을 보낼까요?" → 승인 → 완료. "SimBank로 2만원 보내고 싶어" → "SimBank 계좌번호를 알려 주세요." → "110-123-0005" → 2만원 카드 → 승인 → "확인 중".

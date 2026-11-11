@@ -221,7 +221,7 @@ def main() -> None:
 ## 해석할 때 주의할 점
 
 - `weekday`(요일)가 상위에 있지만 생성기는 요일별 차이를 만들지 않았습니다. 사기 표본이 적어서 생긴 우연한 패턴(과적합)으로 봅니다.
-- `session_attempt_count`, `is_voice`는 생성기에서 사기 시나리오에 일부러 높게 넣은 값이라 중요도가 높게 나옵니다. 실제 데이터에서는 달라질 수 있습니다.
+- `session_attempt_count`는 생성기에서 사기 시나리오에 일부러 높게 넣은 값이라 중요도가 높게 나옵니다. 실제 데이터에서는 달라질 수 있습니다.
 """
     (ROOT / "results.md").write_text(report, encoding="utf-8")
     print(report)

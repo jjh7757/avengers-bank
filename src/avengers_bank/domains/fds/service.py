@@ -68,7 +68,6 @@ class FdsService:
         sent_today: int,
         session_id: str | None,
         device_fingerprint: str | None,
-        input_mode: str,
         session_texts: list[str],
         conversation: ConversationRisk | None = None,
         to_own_account: bool = False,
@@ -108,7 +107,6 @@ class FdsService:
             | ({to_account_num} if to_own_account else set()),
             # 처음 쓰는 사용자(등록 기기 0개)는 새 기기로 보지 않는다. 기기 정보를 안 보내면 모르는 기기로 본다.
             is_new_device=bool(known_devices) and device_fingerprint not in known_devices,
-            input_mode=input_mode,
             session_attempt_count=attempts,
             session_rejected_count=rejected,
             session_keyword_count=count_keywords(session_texts),
@@ -145,7 +143,6 @@ class FdsService:
         from_account: str,
         to_account: str,
         amount: int,
-        input_mode: str,
         result: FdsResult,
         decision: FdsDecision,
     ) -> FdsLog:
@@ -161,7 +158,6 @@ class FdsService:
             top_factors=result.top_factors_json(),
             risk_level=result.risk_level.name,
             decision=decision,
-            input_mode=input_mode,
             created_at=now_utc(),
         )
         await fds_repository.save_log(db, log)
@@ -175,7 +171,7 @@ class FdsService:
             await fds_repository.touch_device(db, user_id, device_fingerprint, ip, now_utc())
 
     def error_extra(self, log: FdsLog, result: FdsResult, *, has_pin: bool | None = None) -> dict:
-        """차단·추가 인증 응답의 error.extra. 프론트가 사유를 보여 주고 TTS로 경고를 읽는다."""
+        """차단·추가 인증 응답의 error.extra. 프론트가 사유와 경고를 보여 준다."""
         extra = {
             "fds_log_id": log.fds_log_id,
             "risk_level": result.risk_level.name,

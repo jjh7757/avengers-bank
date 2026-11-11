@@ -155,7 +155,7 @@ def test_real_model_scores_scenarios():
     phishing = scorer.score(compute_features(context(
         at=datetime(2026, 11, 4, 2, 0, tzinfo=KST).astimezone(timezone.utc),
         amount=950_000, to_account=STRANGER, past_transfers=past,
-        input_mode="voice", session_keyword_count=2, session_attempt_count=2,
+        session_keyword_count=2, session_attempt_count=2,
     )))
     assert normal.value < scorer.medium_threshold
     assert phishing.value >= scorer.high_threshold

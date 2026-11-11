@@ -1,4 +1,4 @@
-import { ChevronRight, FileText, Headphones, Info, KeyRound, LogOut, Mic, ShieldCheck } from 'lucide-react'
+import { ChevronRight, FileText, Headphones, Info, KeyRound, LogOut, ShieldCheck } from 'lucide-react'
 import { useState, type FormEvent } from 'react'
 import { Link } from 'react-router-dom'
 
@@ -6,7 +6,6 @@ import { ApiError } from '../api/client'
 import { authApi } from '../api/endpoints'
 import { useAuth } from '../auth/useAuth'
 import PinPad from '../components/PinPad'
-import VoiceEnrollment from '../components/VoiceEnrollment'
 import { dateTime } from '../lib/format'
 
 const INFO_LINKS = [
@@ -88,16 +87,6 @@ export default function SettingsPage() {
             {user?.has_pin ? 'PIN 변경' : 'PIN 등록'}
           </button>
         </form>
-      </div>
-
-      <div className="section-card">
-        <p className="section-title">
-          <Mic size={20} aria-hidden="true" /> 목소리로 이체 승인
-        </p>
-        <p className="muted small">
-          목소리를 등록하면 이체 확인 카드를 "확인 + 숫자"로 말해서 승인해요. 등록한 목소리와 다르면 승인되지 않아요.
-        </p>
-        <VoiceEnrollment />
       </div>
 
       <ul className="list">

@@ -60,7 +60,7 @@ export function HomePanel({ name }: { name: string | undefined }) {
   return (
     <div className="stage-welcome">
       <p className="stage-panel-title">{name ? `${name}님, 무엇을 도와드릴까요?` : '무엇을 도와드릴까요?'}</p>
-      <p className="muted">메뉴를 찾지 않아도 돼요. 마이크를 누른 채로 말하거나 글로 쓰면 모아가 화면을 가져와요.</p>
+      <p className="muted">메뉴를 찾지 않아도 돼요. 하고 싶은 일을 글로 쓰면 모아가 화면을 가져와요.</p>
     </div>
   )
 }
@@ -111,7 +111,7 @@ export function AccountsPanel({ pick }: { pick: Pick }) {
 const RECENT = 8 // 무대에는 최근 거래만. 전체는 상세 화면에서
 
 /** 내 계좌번호: 전체를 보여 주고 복사할 수 있게 한다 (돈을 받으려고 번호를 알려 줄 때).
- * 가리는 건 모아의 말·음성 쪽이다 (MCP 도구가 뒤 4자리만 준다) */
+ * 가리는 건 모아의 말 쪽이다 (MCP 도구가 뒤 4자리만 준다) */
 function AccountNumber({ num }: { num: string }) {
   const [note, setNote] = useState<string | null>(null)
 

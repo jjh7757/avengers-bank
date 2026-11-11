@@ -32,7 +32,6 @@ class FdsLog(Base):
     top_factors: Mapped[list] = mapped_column(JSON, nullable=False)  # [{"feature", "label", "contribution"}]
     risk_level: Mapped[str] = mapped_column(String(10), nullable=False)  # LOW / MEDIUM / HIGH
     decision: Mapped[str] = mapped_column(String(20), nullable=False)  # FdsDecision
-    input_mode: Mapped[str] = mapped_column(String(10), nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

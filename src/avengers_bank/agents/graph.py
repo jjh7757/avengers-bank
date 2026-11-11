@@ -251,12 +251,7 @@ async def _finish_transfer(ctx: AgentContext, state: AgentState, ex, text: str, 
 
     name = (f"{slots.recipient_nickname}({slots.holder_name})" if slots.recipient_nickname
             else f"{slots.to_bank_name} {slots.holder_name}" if slots.to_bank else slots.holder_name)
-    if card["voice_challenge"]:
-        how = f"맞으면 \"확인 {card['voice_challenge_text']}\"이라고 말씀해 주세요."
-    elif card["voice_enrolled"]:
-        how = "화면의 확인 카드에서 PIN으로 승인해 주세요."
-    else:
-        how = "화면의 확인 카드에서 승인을 눌러 주세요."
+    how = "화면의 확인 카드에서 승인을 눌러 주세요."
     source = f"{card['from_nickname']} 통장에서 " if len(checking) > 1 and card["from_nickname"] else ""
     if card["to_own"]:
         source = f"{card['from_nickname']} 통장에서 " if card["from_nickname"] else ""

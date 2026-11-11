@@ -1,8 +1,8 @@
 {
   "medium": 0.3,
   "high": 0.7,
-  "tuned_medium": 0.8921,
-  "tuned_high": 0.9051,
+  "tuned_medium": 0.9332,
+  "tuned_high": 0.9712,
   "feature_names": [
     "amount",
     "log_amount",
@@ -19,7 +19,6 @@
     "account_age_days",
     "session_attempt_count",
     "session_rejected_count",
-    "is_voice",
     "session_keyword_count",
     "count_1h",
     "sum_1h",

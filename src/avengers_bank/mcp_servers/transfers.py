@@ -2,9 +2,9 @@
 
 이체는 두 단계다. prepare_transfer가 확인 카드와 승인 토큰을 만들고, 사람이 내용을 확인한 뒤
 execute_transfer(또는 앱의 POST /transfers)로 실행한다. 실행은 POST /transfers와 같은 서비스를 거친다
-(확인 카드 토큰 검사, 잔액·한도, FDS, 음성 승인).
+(확인 카드 토큰 검사, 잔액·한도, FDS).
 
-execute_transfer는 확인 카드 토큰만으로는 실행하지 않고 항상 이체 PIN이나 음성 승인 토큰을 요구한다.
+execute_transfer는 확인 카드 토큰만으로는 실행하지 않고 항상 이체 PIN을 요구한다.
 외부 AI 클라이언트가 prepare_transfer → execute_transfer를 사람 없이 연달아 부르지 못하게 하기 위해서다.
 
 에이전트는 prepare_transfer, execute_transfer, 수취인 등록·변경·삭제를 LLM에게 주지 않는다 (agents/mcp_client.py).
@@ -28,8 +28,6 @@ from avengers_bank.domains.chat.repository import chat_repository
 from avengers_bank.domains.interbank import service as interbank_service
 from avengers_bank.domains.recipients.schemas import RecipientCreate, RecipientUpdate
 from avengers_bank.domains.recipients.service import recipient_service
-from avengers_bank.domains.speech import digits
-from avengers_bank.domains.speech.service import voice_available, voice_service
 from avengers_bank.domains.transfers.schemas import TransferCreate
 from avengers_bank.domains.transfers.service import transfer_service
 from avengers_bank.domains.users.repository import user_repository
@@ -153,14 +151,9 @@ async def prepare_transfer(
     new_session = session_id is None
     session_id = session_id or uuid.uuid4().hex
 
-    # 음성 승인: 목소리를 등록했으면 "확인 + 무작위 숫자" (서버가 화자 인증을 못 하면 버튼 + PIN)
-    # 내 적금·예금으로 넣는 건 남에게 보내는 게 아니므로 버튼 승인만 받는다 (납입 API에는 FDS·음성 승인이 없다)
-    to_own_saving = own is not None and to_own_account_type != "checking"
-    voice_enrolled = not to_own_saving and await voice_service.is_enrolled(db, user.user_id)
-    challenge = digits.new_challenge() if voice_enrolled and voice_available() else None
     token, jti, expires_at = create_confirmation_token(
         user_id=user.user_id, session_id=session_id, from_checking_account_id=account.account_id,
-        to_account_num=to_num, amount=amount, voice_challenge=challenge, to_bank=external_bank,
+        to_account_num=to_num, amount=amount, to_bank=external_bank,
     )
 
     # 4. 이 대화의 최신 카드로 등록 (이전 카드는 무효)
@@ -178,8 +171,6 @@ async def prepare_transfer(
     if own is not None:
         kind = {"checking": "통장", "savings": "적금", "deposit": "예금"}[to_own_account_type]
         own_label = f"내 {own.nickname} {kind}" if own.nickname and kind not in own.nickname else f"내 {own.nickname or kind}"
-    who = own_label or recipient_nickname or (f"{bank_name} {holder}" if bank_name else holder)
-    spoken = format_korean_amount(amount)
     return {
         "type": "transfer_confirmation",
         "session_id": session_id,
@@ -198,19 +189,11 @@ async def prepare_transfer(
         "holder_name": holder,
         "recipient_nickname": recipient_nickname,
         "amount": amount,
-        "amount_text": spoken,
+        "amount_text": format_korean_amount(amount),
         "insufficient_balance": account.balance < amount,
         "confirmation_token": token,
         "confirmation_jti": jti,
         "expires_at": expires_at.isoformat(),
-        "voice_enrolled": voice_enrolled,  # true면 버튼으로 승인할 때 PIN이 필요하다
-        "voice_challenge": challenge,  # "472"
-        "voice_challenge_text": digits.spoken(challenge) if challenge else None,  # "사 칠 이"
-        # 확인 카드는 핵심만 읽는다. 계좌번호는 읽지 않는다.
-        "tts_text": (
-            # "통장·적금·예금"은 모두 받침으로 끝나 "으로"
-            f"{who}으로 {spoken}을 옮깁니다. " if own_label else f"{who}님께 {spoken}을 보냅니다. "
-        ) + (f"승인하시려면 확인, {digits.spoken(challenge)}, 라고 말씀해 주세요." if challenge else "승인하시겠어요?"),
     }
 
 
@@ -224,30 +207,26 @@ async def execute_transfer(
     to_account_num: str = Field(min_length=1, max_length=20),
     amount: int = Field(gt=0),
     pin: str | None = Field(default=None, pattern=r"^\d{6}$", description="사용자가 직접 입력한 이체 PIN 6자리"),
-    voice_approval_token: str | None = Field(default=None, max_length=2000, description="POST /voice/approvals에서 받은 토큰"),
     device_fingerprint: str | None = Field(default=None, max_length=128),
     to_bank: str | None = Field(default=None, pattern=r"^\d{3}$", description="카드의 to_bank (다른 은행 이체)"),
 ) -> dict:
     """이체 실행 (돈이 실제로 움직인다). prepare_transfer 카드의 값과 confirmation_token을 그대로 넣는다.
-    사용자가 카드 내용(받는 사람·금액·출금 계좌)을 확인하고 직접 입력한 이체 PIN이나 음성 승인 토큰이 반드시 필요하다.
+    사용자가 카드 내용(받는 사람·금액·출금 계좌)을 확인하고 직접 입력한 이체 PIN이 반드시 필요하다.
     FDS가 막으면 error FDS_BLOCKED와 extra(위험 신호·경고 문구)를 돌려준다. 같은 카드로 두 번 실행할 수 없다."""
-    if pin is None and voice_approval_token is None:
-        raise BadRequestException(
-            code="PIN_REQUIRED", message="MCP로 이체하려면 사용자가 직접 입력한 이체 PIN이나 음성 승인이 필요해요."
-        )
-    if pin is not None:
-        async with db.begin():
-            account_owner = await user_repository.find_by_id(db, user.user_id)
-            if not account_owner.has_pin:
-                raise BadRequestException(code="PIN_NOT_SET", message="먼저 앱의 설정에서 이체 PIN을 등록해 주세요.")
-            if not await user_service.verify_pin(account_owner, pin):
-                raise BadRequestException(code="INVALID_PIN", message="이체 PIN이 올바르지 않습니다.")
+    if pin is None:
+        raise BadRequestException(code="PIN_REQUIRED", message="MCP로 이체하려면 사용자가 직접 입력한 이체 PIN이 필요해요.")
+    async with db.begin():
+        account_owner = await user_repository.find_by_id(db, user.user_id)
+        if not account_owner.has_pin:
+            raise BadRequestException(code="PIN_NOT_SET", message="먼저 앱의 설정에서 이체 PIN을 등록해 주세요.")
+        if not await user_service.verify_pin(account_owner, pin):
+            raise BadRequestException(code="INVALID_PIN", message="이체 PIN이 올바르지 않습니다.")
     result = await transfer_service.transfer(
         db,
         TransferCreate(
             from_checking_account_id=from_checking_account_id, to_bank=to_bank, to_account_num=to_account_num, amount=amount,
             pin=pin, session_id=session_id, confirmation_token=confirmation_token,
-            voice_approval_token=voice_approval_token, device_fingerprint=device_fingerprint,
+            device_fingerprint=device_fingerprint,
         ),
         user,
     )

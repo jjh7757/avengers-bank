@@ -1,6 +1,5 @@
 # 운영 이미지: React 빌드 + FastAPI를 한 컨테이너로 (avengers_bank.prod:app)
 # GitHub Actions의 arm64 러너에서 빌드한다 (.github/workflows/deploy.yml). 서버에서는 빌드하지 않는다.
-# 목소리 승인(voice 그룹: torch·speechbrain)은 넣지 않는다. 없으면 화자 인증만 꺼지고 버튼·PIN 승인으로 동작한다.
 
 FROM node:22-alpine AS frontend
 WORKDIR /frontend

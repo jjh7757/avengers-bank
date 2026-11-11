@@ -59,7 +59,6 @@ class Event:
     label: int = 0
     scenario: str = "normal"
     new_device: bool = False
-    voice: bool = False
     attempts: int = 0
     rejected: int = 0
     keywords: int = 0
@@ -71,7 +70,6 @@ class User:
     user_id: int
     created_at: datetime
     usual_hour: float
-    voice_prob: float
     salary: int
     payday: int
     balance: int
@@ -94,7 +92,6 @@ def make_user(user_id: int) -> User:
         user_id=user_id,
         created_at=created,
         usual_hour=float(usual_hour),
-        voice_prob=0.6 if elderly else 0.05,
         salary=salary,
         payday=int(rng.choice([10, 15, 25])),
         balance=round_won(salary * rng.uniform(0.3, 3.0), 10_000),
@@ -131,7 +128,6 @@ def add_normal_events(user: User) -> None:
                 to = new_account_num()  # 가끔 처음 보내는 계좌 (중고거래, 더치페이)
             user.events.append(
                 Event(at_kst(day, normal_hour(user)), "transfer", amount, to,
-                      voice=rng.random() < user.voice_prob,
                       attempts=int(rng.random() < 0.05),
                       keywords=int(rng.random() < 0.003))  # 일상 대화에 우연히 키워드
             )
@@ -166,7 +162,7 @@ def add_fraud_case(user: User) -> None:
         hour = rng.choice([rng.uniform(22, 29), rng.uniform(9, 18)], p=[0.6, 0.4])
         keywords = int(rng.poisson(1.5)) if rng.random() < 0.7 else 0
         user.events.append(Event(at_kst(day, hour), "transfer", 0, target, 1, "voice_phishing",
-                                 voice=rng.random() < 0.6, attempts=int(rng.integers(0, 4)),
+                                 attempts=int(rng.integers(0, 4)),
                                  rejected=int(rng.random() < 0.2), keywords=keywords,
                                  drain_ratio=float(rng.uniform(0.5, 1.0))))
     else:
@@ -204,7 +200,6 @@ def simulate(user: User) -> list[dict]:
             past_transfers=[p for p in past if p.at >= at - timedelta(days=30)],
             registered_recipients=registered,
             is_new_device=event.new_device,
-            input_mode="voice" if event.voice else "text",
             session_attempt_count=event.attempts,
             session_rejected_count=event.rejected,
             session_keyword_count=event.keywords,

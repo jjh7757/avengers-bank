@@ -59,13 +59,6 @@ p.success,
   gap: 0.35rem;
 }
 
-.mic {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--primary);
-}
-
 .page-title-row {
   display: flex;
   align-items: center;

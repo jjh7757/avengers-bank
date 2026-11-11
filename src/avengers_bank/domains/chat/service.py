@@ -54,8 +54,7 @@ class ChatService:
             history = [to_langchain(m) for m in await chat_repository.find_messages(db, session_id, HISTORY_LIMIT)]
             pending_raw = (session.state or {}).get("pending_transfer")
             user_message = ChatMessage(
-                session_id=session_id, role="user", content=data.text,
-                input_mode=data.input_mode, created_at=now_utc(),
+                session_id=session_id, role="user", content=data.text, created_at=now_utc(),
             )
             await chat_repository.save(db, user_message)
 
@@ -87,7 +86,7 @@ class ChatService:
             user_message.intent = result["extraction"].intent
             assistant_message = ChatMessage(
                 session_id=session_id, role="assistant", content=result["reply"],
-                input_mode="text", card=result.get("card"), screen=result.get("screen"),
+                card=result.get("card"), screen=result.get("screen"),
                 screen_params=result.get("screen_params"), created_at=now_utc(),
             )
             await chat_repository.save(db, assistant_message)

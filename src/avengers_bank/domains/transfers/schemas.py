@@ -33,11 +33,6 @@ class TransferCreate(BaseModel):
     confirmation_token: str | None = Field(
         default=None, max_length=2000, repr=False, description="에이전트 확인 카드의 승인 토큰"
     )
-    voice_approval_token: str | None = Field(
-        default=None, max_length=2000, repr=False,
-        description="POST /voice/approvals에서 받은 토큰. 목소리를 등록한 사용자가 이것 없이 승인하면 pin이 필요하다",
-    )
-    input_mode: Literal["text", "voice"] = "text"
 
 
 class SavingsPaymentCreate(BaseModel):

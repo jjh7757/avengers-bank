@@ -8,7 +8,7 @@
 ## 0. 계획·환경 (1일)
 
 - [ ] 프로젝트 시작일·발표일 확정 → PROJECT_PLAN.md 4절에 날짜 기입
-- [x] PROJECT_PLAN.md 8절 "정해야 할 것" 결정 (거래 type 값, 계좌번호 형식, 한도 기본값, FDS 임계값, Gemini 모델, STT 전송 방식, TTS 기본값)
+- [x] PROJECT_PLAN.md 8절 "정해야 할 것" 결정 (거래 type 값, 계좌번호 형식, 한도 기본값, FDS 임계값, Gemini 모델)
   - 프로젝트 날짜만 남음
 - [x] PostgreSQL 설치, `avengers_bank` DB 생성 (PostgreSQL 17)
 - [x] `cp .env.example .env` 후 `DATABASE_URL`, `JWT_SECRET_KEY` 채우기
@@ -66,7 +66,7 @@
 - [x] `fds_training/` 폴더, `pyproject.toml`에 `lightgbm`, `pandas`, `scikit-learn`, `shap` 추가 (dev 또는 별도 그룹)
 - [x] `fds_training/generate_data.py`: 정상 사용자 500명 × 3개월 거래 (급여일 입금, 월세, 소액 결제, 평소 시간대·수취인 패턴)
 - [x] 사기 시나리오 3종 주입 (계정 탈취, 보이스피싱, 테스트 송금 후 고액), 비율 1~2%
-- [x] 각 거래에 `input_mode`, `session_keyword_count` 같은 세션 피처도 생성
+- [x] 각 거래에 `session_keyword_count` 같은 세션 피처도 생성
 - [x] 시간 기준 분할 (앞 2개월 train, 뒤 1개월 valid) → `fds_training/data/*.parquet`
 
 ### 2-2. 피처·모델
@@ -94,7 +94,7 @@
 ### 3-1. 기반
 - [x] `pyproject.toml`에 `langgraph`, `langchain-google-genai` 추가
 - [x] `core/config.py`에 `GEMINI_API_KEY`, 모델명 설정
-- [x] `domains/chat/models.py`: `chat_sessions`, `chat_messages`(`input_mode` 포함) + 마이그레이션
+- [x] `domains/chat/models.py`: `chat_sessions`, `chat_messages` + 마이그레이션
 - [x] `src/avengers_bank/agents/` 폴더: `graph.py`, `tools.py`, `prompts.py`, `state.py`, `llm.py`
 
 ### 3-2. 도구
@@ -102,7 +102,7 @@
 - [x] `find_recipient` (별칭 → 계좌번호, 없으면 "등록된 사람이 없어요")
 - [x] `prepare_transfer` (확인 카드 JSON 생성, 실행 아님)
 - ~~`execute_transfer`~~ LLM 도구로 두지 않기로 함. 실행은 프론트가 승인 토큰을 실어 `POST /transfers` 호출
-  - 이후 외부 MCP 클라이언트용 `execute_transfer`를 transfers 서버에 추가 (LLM 제외, 확인 카드 토큰 + PIN/음성 승인 필수, 같은 FDS)
+  - 이후 외부 MCP 클라이언트용 `execute_transfer`를 transfers 서버에 추가 (LLM 제외, 확인 카드 토큰 + PIN 필수, 같은 FDS)
 - [x] `search_products`
 - [x] `get_my_cards`
 - [x] 도구 입력은 모두 Pydantic 스키마로 검증
@@ -117,7 +117,7 @@
 - [x] 세션 내 거절 횟수·키워드 수 → FDS 피처로 전달 (state에 따로 쌓지 않고 FDS가 `fds_logs`·`chat_messages`에서 직접 셈)
 
 ### 3-4. API
-- [x] `POST /chat/sessions`, `POST /chat/sessions/{id}/messages` (text, input_mode) → 응답 + 카드(있으면)
+- [x] `POST /chat/sessions`, `POST /chat/sessions/{id}/messages` (text) → 응답 + 카드(있으면)
 - [x] `GET /chat/sessions/{id}/messages`
 - [x] `POST /transfers`에 확인 카드 승인 토큰 검증 추가
 - [x] `tests/test_chat.py` (LLM 호출은 mock)
@@ -151,49 +151,19 @@
 - [x] 내 계좌 / 내 카드 목록, 거래내역
 - [x] device fingerprint 생성(간단한 브라우저 정보 해시) → 이체 요청에 포함
 
-### 4-3. 음성 (STT/TTS, 2일)
-- [x] `src/hooks/useSpeech.ts`: `SpeechRecognition`(ko-KR) push-to-talk, `SpeechSynthesis` 래퍼
-- [x] 마이크 버튼: 누르는 동안 녹음, 인식 결과를 입력창에 표시
-- [x] 음성 확인: 인식 결과를 TTS로 되읽고 "확인"이라고 답하면 전송, "아니"·"취소"면 다시 듣기, 무응답이면 입력창에 남김
-- [x] 메시지 전송 시 `input_mode: "voice"` 전달
-- [x] TTS 토글 (기본 켜짐): 에이전트 응답 읽기, 확인 카드는 "OOO님께 5만원을 보냅니다. 승인하시겠어요?"만 읽기, 계좌번호 제외
-- [x] FDS MEDIUM·HIGH 메시지는 토글과 무관하게 TTS 재생
-- [x] 마이크 버튼 누르면 재생 중인 TTS 중단
-- [x] ko-KR 보이스 없을 때 토글 비활성화 + 안내
-- [ ] Chrome에서 "엄마한테 오만원 보내줘" 음성 → 확인 카드 도달 확인 (실제 마이크·스피커로 직접 확인 필요)
-
 브라우저로 확인한 것 (텍스트 입력): 정상 이체 → 완료, 잔액 90% 이체 → PIN 요구 → 틀린 PIN 거부 → 맞는 PIN 후 완료, 보이스피싱 대화 + 처음 보는 계좌 + 잔액 소진 → 차단 안내(규칙 3개 + AI 근거), 375px 폭, 라이트·다크 모드
 
-### 4-4. 음성 승인 (화자 인증, 3일)
-설계: [PROJECT_PLAN.md](PROJECT_PLAN.md) 3.5절 "음성 승인 (화자 인증)"
+### 4-3. 음성 (STT/TTS) — 제거
+음성 기능(TTS·STT·음성 승인)은 2026-11-11 제거했다. 여기서 만든 코드·테이블(`voice_profiles`)·`input_mode`·`voice` 의존성 그룹은 모두 지웠다 (마이그레이션 `b5c6d7e8f9a0`).
 
-백엔드
-- [x] `pyproject.toml`에 `voice` 의존성 그룹: `speechbrain`, `torch`(CPU), `torchaudio`. Windows 설치 확인, webm은 브라우저에서 WAV로 바꿔 ffmpeg 불필요
-- [x] `domains/speech/models.py`: `voice_profiles` (user_id PK, 암호화한 embedding, model_version, consented_at) + 마이그레이션
-- [x] 임베딩 암호화 키 설정 (`.env`의 `VOICE_ENCRYPTION_KEY`, Fernet)
-- [x] `speech/speaker.py`: ECAPA 모델 로드(앱 시작 시 1회), 녹음 → 임베딩, 코사인 유사도. 모델이 없으면 화자 인증만 비활성
-- [x] `POST /voice/profile` (동의 + 녹음 3개 → 평균 임베딩 저장), `GET`, `DELETE`
-- [x] 확인 카드에 무작위 숫자 3개 추가: `prepare_transfer`가 만들고 확인 토큰 payload에 넣음, `tts_text` 변경
-- [x] `speech/digits.py`: Gemini 오디오 입력으로 승인 녹음 속 숫자 인식 ("사칠이" → 472)
-- [x] `POST /voice/approvals`: 숫자 일치 + 유사도 ≥ 기준값 → 음성 승인 토큰(확인 카드 jti에 묶음, 짧은 유효기간). 카드당 2회 실패하면 잠금
-- [x] `POST /transfers`: `voice_approval_token` 검증. 목소리 등록 사용자가 음성 2회 실패한 카드는 버튼 승인 시 PIN 필수
-- [x] 판정에 쓴 녹음은 저장하지 않고 바로 버림
-- [x] `tests/test_voice.py` (화자 모델·Gemini는 mock): 등록/삭제, 숫자 불일치, 타인 목소리, 2회 실패 후 PIN 요구, 토큰 재사용 거부
-- [x] 보정 스크립트 `scripts/voice_calibration.py`, 합성 목소리 4종으로 1차 측정 → [VOICE_AUTH.md](VOICE_AUTH.md) (기준 0.45, 타인 통과 16.7%)
-- [ ] **기준값 보정: 팀원 3명 이상 실제 녹음으로 측정 → `VOICE_SIMILARITY_THRESHOLD` 확정** (합성 목소리 결과는 임시값)
-
-프론트
-- [x] `src/hooks/useRecorder.ts`: `MediaRecorder` 녹음 (webm)
-- [x] 목소리 등록 화면: 생체정보 수집·이용 동의 → 문장 3개 녹음 → 등록, 등록 상태·삭제
-- [x] 확인 카드: 등록 사용자는 TTS로 "확인 OOO" 안내 후 자동 녹음 → `/voice/approvals` → 이체. 실패 안내와 남은 횟수, 2회 실패 시 버튼 + PIN
-- [ ] 실제 마이크로 Chrome에서 목소리 등록·음성 승인 확인 (브라우저 확인은 마이크 입력을 합성 음성으로 바꿔서 함)
-- [x] 미등록 사용자는 기존 승인 버튼 유지
+### 4-4. 음성 승인 (화자 인증) — 제거
+위와 같이 2026-11-11 제거. 채팅 이체는 확인 카드의 승인 버튼으로 승인하고, FDS가 MEDIUM이면 PIN을 받는다.
 
 ## 5. 통합·시연 준비 (3일)
 
 시연 대본: [DEMO.md](DEMO.md) · 발표 자료 초안: [PRESENTATION.md](PRESENTATION.md)
 
-- [x] 시연용 시드 `scripts/demo_seed.py`: 사용자 1명, 입출금 계좌 2개(고정 번호), 수취인 엄마·집주인, 지난 30일 평소 이체 30건, PIN, 체크카드. 다시 실행하면 초기화 (목소리 등록은 유지)
+- [x] 시연용 시드 `scripts/demo_seed.py`: 사용자 1명, 입출금 계좌 2개(고정 번호), 수취인 엄마·집주인, 지난 30일 평소 이체 30건, PIN, 체크카드. 다시 실행하면 초기화
 - [x] 시나리오 3의 "심야" 재현: `DEMO_MODE=true`일 때 `POST /demo/clock`으로 업무 시각을 옮김 (JWT 만료는 실제 시각 유지), 화면 위에 "시연 시각" 표시
 - [x] 출금 계좌를 말하지 않으면 주 계좌(가장 먼저 만든 계좌)에서, 답변에 계좌를 밝힘 (시연 중 되묻기 방지)
 - [x] 시나리오 자동 점검 `scripts/demo_check.py` (실제 Gemini, 글자 입력): 1 정상 / 2 PIN / 3 차단(규칙 4개 + ML 0.9997) / 4 SHAP 근거 / 6 MCP 동의 후 발급 → 7/7 통과
@@ -203,9 +173,7 @@
 - [x] 텍스트 입력으로 같은 시나리오 진행 가능 (자동 점검이 글자 입력으로 함)
 - [x] README 갱신: 실행 방법, 환경변수, 시연 순서
 - [x] 발표 자료 초안 (슬라이드별 내용)
-- [ ] 실제 마이크·스피커로 시나리오 1(음성 전송·음성 승인)·5(다른 사람 목소리) 리허설
-- [ ] 음성 시연 녹화 영상 (발표장 마이크 문제 대비)
-- [ ] 목소리 기준값 보정 (4-4 참고) 후 시나리오 5 확인
+- [ ] 시나리오 1 리허설·녹화 영상 (발표장 문제 대비)
 - [ ] 발표 자료를 슬라이드 파일로 만들기
 - [ ] 프로젝트 시작일·발표일 확정
 
@@ -222,12 +190,10 @@
   - 이체 트랜잭션 전에 Gemini 호출(계좌 잠금 중 대기 방지), 8초 넘거나 실패하면 키워드 규칙만. LLM이 위험으로 보면 키워드 규칙은 빼서 중복으로 세지 않음
   - 실제 Gemini: 키워드 없는 가족 사칭·대출 선입금 → scam, "경찰서 앞 식당" → none, 1.4~4.7초. `demo_check.py` 시나리오 3-2 추가 → 8/8 통과
 - [x] FDS 대시보드 화면 (`fds_logs` 표) → 4단계에서 `/fds`로 구현
-- [ ] `domains/speech`: `POST /speech/stt` (MediaRecorder webm → Gemini), `POST /speech/tts` (Google Cloud TTS)
-- [ ] 브라우저 미지원 시 서버 STT 폴백 연결
-- [ ] 서버 STT와 브라우저 STT 인식 정확도 비교표
+- ~~서버 STT/TTS (`domains/speech`), 브라우저 미지원 시 서버 STT 폴백, 인식 정확도 비교표~~ 음성 기능(TTS·STT·음성 승인)을 2026-11-11 제거하면서 뺌
 - [x] 도우미 화면 `/stage`: 채팅 목록 대신 캐릭터 "모아"가 필요한 화면(계좌·카드·상품·FDS·이체 확인)을 무대로 끌어옴
   - 백엔드: 답변에 `screen`(마지막으로 쓴 도구로 결정, `chat_messages.screen` 마이그레이션 `eb4ae6c87077`)
-  - 프론트: 채팅 화면과 같은 세션·음성 입력(`useChatSession`, `usePushToTalk`), 확인 카드는 기존 `TransferCard`(PIN·음성 승인) 그대로
+  - 프론트: 채팅 화면과 같은 세션(`useChatSession`), 확인 카드는 기존 `TransferCard`(PIN) 그대로
   - 실제 Gemini로 확인: 잔액 → 계좌 화면, 엄마 5만원 → 확인 카드 → 승인 완료, 가족 사칭 → 차단(AI 근거), 카드, 적금 추천(추천 상품 위로)
 - [x] 이체 한도 높이기는 이체 PIN 확인 후에만 (`PATCH /accounts/checking/{id}`의 `pin`), 계좌 상세 화면에 한도 변경 폼
   - 대화로는 낮추기만, 높이기는 앱 화면 + PIN. 로그인 탈취·보이스피싱범의 "한도 올리세요" 지시 대비
@@ -240,4 +206,4 @@
   - 실제 Gemini: 카드 상품에서 체크카드 고르고 "이거 가입하고 싶어" → 연결 계좌 되묻기(계좌 목록) → 생활비 고르고 "이 계좌로 해줘" → 동의 묻기 → "네" → 발급, 새 카드 화면
 - [x] 내 계좌 간 이체: 대화로 "월급 통장으로 옮겨줘"(입출금↔입출금, POST /transfers), "적금·예금에 넣어줘"(납입 API). 확인 카드 → 승인
   - FDS: 내 계좌는 "처음 보내는 계좌"·"심야 고액"·"잔액 소진"에서 제외 (한도·대화 판별은 유지)
-  - 화면에 내 계좌번호 전체 + 복사 (가리는 건 모아의 말·음성 쪽)
+  - 화면에 내 계좌번호 전체 + 복사 (가리는 건 모아의 말 쪽)

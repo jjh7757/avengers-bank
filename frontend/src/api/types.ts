@@ -132,10 +132,6 @@ export interface TransferConfirmationCard {
   insufficient_balance: boolean
   confirmation_token: string
   expires_at: string
-  voice_enrolled: boolean // true면 버튼으로 승인할 때 PIN이 필요
-  voice_challenge: string | null // 음성 승인 때 말할 숫자 "472" (서버가 음성 승인을 못 하면 null)
-  voice_challenge_text: string | null // "사 칠 이"
-  tts_text: string
   destination_type: 'checking' | 'savings' | 'deposit' // savings·deposit이면 승인 때 납입 API
   to_own: boolean // 내 다른 계좌로 옮기기
   to_account_id: number | null // to_own일 때 받는 내 계좌 id
@@ -179,7 +175,6 @@ export interface ChatMessage {
   role: 'user' | 'assistant'
   content: string
   intent: string | null
-  input_mode: 'text' | 'voice'
   card: ChatCard | null
   screen: Screen | null
   /** 화면의 대상·조건. account {account_type, account_id}, card {card_type, card_id}, products {kind, keyword, product_id} */
@@ -251,13 +246,6 @@ export interface FdsExtra {
   has_pin?: boolean
 }
 
-export interface VoiceProfile {
-  enrolled: boolean
-  available: boolean
-  created_at: string | null
-  updated_at: string | null
-}
-
 export interface FdsLog {
   fds_log_id: number
   session_id: string | null
@@ -269,7 +257,6 @@ export interface FdsLog {
   top_factors: Factor[]
   risk_level: string
   decision: string
-  input_mode: string
   created_at: string
 }
 

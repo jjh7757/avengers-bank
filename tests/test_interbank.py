@@ -363,7 +363,6 @@ async def test_chat_interbank_card_and_approve(client, user, hub, classify):
     assert (card["to_bank"], card["to_bank_name"], card["holder_name"], card["to_account_num"]) == (
         "902", "SimBank", "김철수", "110-123-0001")
     assert "SimBank 김철수님께 5만원을 보낼까요?" in reply["content"]
-    assert card["tts_text"].startswith("SimBank 김철수님께 5만원을 보냅니다.")
     assert hub.transfer_calls == []  # 카드까지는 돈이 안 움직인다
 
     # 카드와 다른 은행으로 바꿔 보내면 거절 (같은 번호의 우리 은행 계좌로 바꿔치기 방지)

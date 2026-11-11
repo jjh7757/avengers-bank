@@ -41,7 +41,6 @@ class UiContext(BaseModel):
 
 class ChatMessageCreate(BaseModel):
     text: str = Field(min_length=1, max_length=1000)
-    input_mode: Literal["text", "voice"] = "text"
     ui_context: UiContext | None = None
 
 
@@ -50,7 +49,6 @@ class ChatMessageResponse(BaseModel):
     role: str
     content: str
     intent: str | None
-    input_mode: str
     card: dict | None
     screen: str | None = None
     screen_params: dict | None = None

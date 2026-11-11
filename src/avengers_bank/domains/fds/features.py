@@ -53,7 +53,6 @@ class TransferContext:
     past_transfers: list[PastTransfer] = field(default_factory=list)  # 최근 30일, at 이전, 사용자 전체 계좌
     registered_recipients: set[str] = field(default_factory=set)
     is_new_device: bool = False
-    input_mode: str = "text"  # text / voice
     session_attempt_count: int = 0  # 이 세션에서 이번 요청 전에 시도한 이체 수
     session_rejected_count: int = 0  # 이 세션에서 차단된 이체 수
     session_keyword_count: int = 0
@@ -83,7 +82,6 @@ FEATURE_NAMES = [
     "account_age_days",
     "session_attempt_count",
     "session_rejected_count",
-    "is_voice",
     "session_keyword_count",
     "count_1h",
     "sum_1h",
@@ -108,7 +106,6 @@ FEATURE_LABELS = {
     "account_age_days": "가입 후 경과일",
     "session_attempt_count": "대화 중 이체 시도 횟수",
     "session_rejected_count": "대화 중 거절된 이체 횟수",
-    "is_voice": "음성 입력",
     "session_keyword_count": "대화 속 보이스피싱 의심 표현",
     "count_1h": "최근 1시간 이체 횟수",
     "sum_1h": "최근 1시간 이체 합계",
@@ -163,7 +160,6 @@ def compute_features(ctx: TransferContext) -> dict[str, float]:
         "account_age_days": max((ctx.at - ctx.user_created_at).total_seconds() / 86400, 0.0),
         "session_attempt_count": float(ctx.session_attempt_count),
         "session_rejected_count": float(ctx.session_rejected_count),
-        "is_voice": float(ctx.input_mode == "voice"),
         "session_keyword_count": float(ctx.session_keyword_count),
         "count_1h": float(len(last_1h)),
         "sum_1h": float(sum(p.amount for p in last_1h)),

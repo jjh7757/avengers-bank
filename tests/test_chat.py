@@ -93,13 +93,11 @@ def approve(card: dict, session_id: str, **extra) -> dict:
 async def test_send_to_mom_scenario(client, user, other_user, bank, classify):
     """엄마한테 5만원 보내줘 → 확인 카드 → 승인 → 이체 완료"""
     classify.next(intent="transfer", recipient="엄마", amount=50_000, amount_text="오만원")
-    reply = await say(client, user, bank["session_id"], "엄마한테 오만원 보내줘", input_mode="voice")
+    reply = await say(client, user, bank["session_id"], "엄마한테 오만원 보내줘")
 
     card = reply["card"]
     assert card["type"] == "transfer_confirmation"
     assert (card["to_account_num"], card["amount"], card["holder_name"]) == (bank["mom"]["account_num"], 50_000, "브루스 배너")
-    assert card["tts_text"] == "엄마님께 5만원을 보냅니다. 승인하시겠어요?"
-    assert "110-" not in card["tts_text"]  # 계좌번호는 읽지 않는다
     assert "5만원" in reply["content"]
     assert reply["screen"] == "transfer"
 
@@ -112,8 +110,8 @@ async def test_send_to_mom_scenario(client, user, other_user, bank, classify):
     assert response.json()["error"]["code"] == "CONFIRMATION_USED"
 
     messages = (await client.get(f"/chat/sessions/{bank['session_id']}/messages", headers=user)).json()["data"]
-    assert [(m["role"], m["intent"], m["input_mode"], m["screen"]) for m in messages] == [
-        ("user", "transfer", "voice", None), ("assistant", None, "text", "transfer")
+    assert [(m["role"], m["intent"], m["screen"]) for m in messages] == [
+        ("user", "transfer", None), ("assistant", None, "transfer")
     ]
 
 
@@ -127,7 +125,6 @@ async def test_move_to_my_other_checking_account(client, user, bank, classify):
     assert card["to_account_num"] == salary["account_num"]
     assert card["from_checking_account_id"] == bank["mine"]["account_id"]
     assert "내 월급 통장으로 95만원을 옮길까요?" in reply["content"]
-    assert card["tts_text"].startswith("내 월급 통장으로 95만원을 옮깁니다.")
 
     response = await client.post("/transfers", headers=user, json=approve(card, bank["session_id"]))
     assert response.status_code == 200, response.text  # 잔액 95%지만 내 계좌라 BALANCE_DRAIN 없음
@@ -144,7 +141,6 @@ async def test_put_money_into_my_savings(client, user, bank, classify):
     reply = await say(client, user, bank["session_id"], "적금에 10만원 넣어줘")
     card = reply["card"]
     assert (card["to_own"], card["destination_type"], card["to_account_id"]) == (True, "savings", savings["account_id"])
-    assert card["voice_enrolled"] is False and card["voice_challenge"] is None  # 내 적금이라 버튼 승인만
 
     response = await client.post("/transfers/savings", headers=user, json={
         "from_checking_account_id": card["from_checking_account_id"],

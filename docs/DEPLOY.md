@@ -7,7 +7,6 @@
 - 서버: EC2 `t4g.small`(2GB, 공용), `/srv/avengers-bank`, 공용 PostgreSQL(`avengers_bank` db·role), Caddy가 HTTPS
 - 한 컨테이너: `avengers_bank.prod:app`이 React 빌드와 API(`/api`)를 같은 출처로 서빙 (개발 때의 Vite `/api` 프록시와 같은 경로)
 - 메모리 상한 512MB (측정: 띄운 직후 약 270MB). 공용 서버라 다른 앱을 밀어내지 않게 한다
-- 목소리 승인(torch·speechbrain)은 넣지 않았다. 화자 인증만 꺼지고 버튼·PIN 승인으로 동작한다
 
 | 파일 | 역할 |
 |---|---|
@@ -45,7 +44,6 @@
 |---|---|
 | `DATABASE_URL` | `postgresql+psycopg://avengers_bank:<생성>@postgres:5432/avengers_bank` |
 | `JWT_SECRET_KEY` | 생성 (hex 64자) |
-| `VOICE_ENCRYPTION_KEY` | 생성 (Fernet). 목소리 승인은 꺼져 있지만 설정 검증용 |
 | `GEMINI_API_KEY` | 직접 입력. 없으면 대화만 503, 나머지는 동작 |
 | `DEMO_MODE` | `false`. 발표 때 심야 시나리오(`/demo/clock`)가 필요하면 `true`로 바꾸고 `docker compose up -d` (로그인 없이 시각이 바뀌므로 발표 후 되돌린다) |
 

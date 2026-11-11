@@ -7,10 +7,9 @@
 | 문서 | 내용 |
 |---|---|
 | [docs/PROJECT_PLAN.md](docs/PROJECT_PLAN.md) | 프로젝트 계획서: 목표, 아키텍처, AUI·FDS 설계, 일정, 리스크 |
-| [docs/DEMO.md](docs/DEMO.md) | **시연 대본**: 준비, 시나리오 6개, 비상 대응 |
+| [docs/DEMO.md](docs/DEMO.md) | **시연 대본**: 준비, 시나리오 5개, 비상 대응 |
 | [docs/PRESENTATION.md](docs/PRESENTATION.md) | 발표 자료 초안 (슬라이드별) |
-| [docs/MCP_SERVERS.md](docs/MCP_SERVERS.md) | MCP 서버 6개, 도구 28개, 안전 규칙, 약관·FAQ 검색(RAG), 가입 시 이용약관 동의 |
-| [docs/VOICE_AUTH.md](docs/VOICE_AUTH.md) | 음성 승인(화자 인증) 설계, 측정 결과, 한계 |
+| [docs/MCP_SERVERS.md](docs/MCP_SERVERS.md) | MCP 서버 6개, 도구 27개, 안전 규칙, 약관·FAQ 검색(RAG), 가입 시 이용약관 동의 |
 | [docs/SECURITY.md](docs/SECURITY.md) | 로그인 유지(refresh 쿠키·회전), 요청 제한, 이체 멱등성, 보안 키패드, 자동 로그아웃 |
 | [docs/INTERBANK.md](docs/INTERBANK.md) | 다른 은행 이체: ClearingHub 연동, 돈 흐름, 실패·응답 없음 처리 |
 | [docs/TODO.md](docs/TODO.md) | 계획서를 작업 단위로 쪼갠 체크리스트 |
@@ -45,7 +44,7 @@ npm install
 npm run dev
 ```
 
-화면: http://localhost:5173 (음성 입력은 Chrome·Edge). 첫 화면은 도우미 "모아"가 필요한 화면을 가져오는 화면이고, 채팅 목록은 `/chat`
+화면: http://localhost:5173. 첫 화면은 도우미 "모아"가 필요한 화면을 가져오는 화면이고, 채팅 목록은 `/chat`
 
 ## 시연
 
@@ -67,10 +66,8 @@ uv run python scripts/demo_check.py    # 시나리오 자동 점검 (실제 Gemi
 | `DATABASE_URL`, `JWT_SECRET_KEY` | ✅ | PostgreSQL 주소, JWT 서명 키(32자 이상) |
 | `JWT_EXPIRE_MINUTES`, `REFRESH_TOKEN_DAYS` | | access 토큰 유효 시간(기본 15분), 로그인 유지 기간(기본 14일) |
 | `REFRESH_COOKIE_SECURE`, `REFRESH_REUSE_GRACE_SECONDS` | | refresh 쿠키 `Secure`(기본 true, HTTPS 운영에서는 꼭 켬), 동시 갱신 유예(기본 20초) ([SECURITY.md](docs/SECURITY.md)) |
-| `GEMINI_API_KEY` | 채팅 | 없으면 채팅·음성 숫자 인식만 503 |
+| `GEMINI_API_KEY` | 채팅 | 없으면 채팅만 503 |
 | `GEMINI_FAST_MODEL`, `GEMINI_CHAT_MODEL` | | 의도 분류용 / 조회·상담 답변용 모델 |
-| `VOICE_ENCRYPTION_KEY` | 음성 승인 | 목소리 특징 암호화 Fernet 키. 바꾸면 다시 등록해야 함 |
-| `VOICE_SIMILARITY_THRESHOLD` | | 화자 인증 기준 (기본 0.45, 보정 필요) |
 | `DEMO_MODE` | | true면 `/demo/clock`으로 업무 시각 옮기기 (발표용 로컬에서만) |
 | `BANK_CODE`, `HUB_URL`, `HUB_API_KEY`, `INTERBANK_SIGNING_KEY`, `HUB_PUBLIC_KEY` | 타행 이체 | [ClearingHub](https://github.com/jjh7757/clearing-hub) 중계 서버 연결: 허브가 배정한 은행 코드·API 키(식별용), 우리 Ed25519 개인키, 허브 공개키. 넷 중 하나라도 없으면 타행 이체가 꺼진다 ([INTERBANK.md](docs/INTERBANK.md)) |
 | `LOG_LEVEL` | | 로그 수준 (기본 `INFO`) |
@@ -103,13 +100,6 @@ uv run pytest
 
 [`.github/workflows/ci.yml`](.github/workflows/ci.yml)이 백엔드 `pytest`, 프론트 `tsc -b`·`oxlint`·`build`, E2E를 돌립니다. PR과 다른 브랜치 push에는 검사만, `feature/backend-api` push에는 [`deploy.yml`](.github/workflows/deploy.yml)이 이 검사를 먼저 부르고 **모두 통과해야** 이미지 빌드·배포로 넘어갑니다.
 
-음성 승인(화자 인증)을 쓰려면 PyTorch가 든 `voice` 그룹을 함께 설치·실행합니다 (약 1GB). 없으면 승인 버튼 + PIN으로만 동작합니다.
-
-```bash
-uv sync --group voice
-uv run --group voice fastapi dev
-```
-
 > Windows에서는 `uv run fastapi run`이 psycopg 비동기 모드와 맞지 않아 DB 연결에 실패합니다. 개발 중에는 `fastapi dev`를 쓰세요.
 
 ## FDS 모델 다시 학습하기
@@ -128,9 +118,8 @@ uv run --group fds python fds_training/train.py           # 모델·임계값·r
 | users, products, accounts, transfers, cards, recipients | ✅ 1단계 백엔드 API 완료 ([API_ENDPOINTS.md](docs/API_ENDPOINTS.md)) |
 | fds | ✅ 2단계 규칙 엔진 + LightGBM, 이체에 연결 ([results.md](fds_training/results.md)) |
 | chat(에이전트) | ✅ 3단계 LangGraph + Gemini, 확인 카드 승인 후 이체 |
-| frontend | ✅ 4단계 채팅·확인 카드·FDS 안내·계좌·카드·음성 입력/안내 ([frontend/README.md](frontend/README.md)) |
-| MCP 서버 | ✅ 은행 기능·상담 지식 도구 28개를 서버 6개로, 에이전트는 MCP로만 사용 ([MCP_SERVERS.md](docs/MCP_SERVERS.md)) |
+| frontend | ✅ 4단계 채팅·확인 카드·FDS 안내·계좌·카드 ([frontend/README.md](frontend/README.md)) |
+| MCP 서버 | ✅ 은행 기능·상담 지식 도구 27개를 서버 6개로, 에이전트는 MCP로만 사용 ([MCP_SERVERS.md](docs/MCP_SERVERS.md)) |
 | 상품 가입·이용약관 | ✅ 앱(`/products`)이나 모아가 가져온 가입 화면에서 약관 동의 후 가입. 서버가 약관 버전을 확인하고 동의 기록을 남김 |
 | 약관·FAQ 상담 (RAG) | ✅ knowledge MCP 서버, Gemini 임베딩 검색 + 키워드 대체 (`data/knowledge/`) |
-| 음성 승인(화자 인증) | ✅ 4-4 구현, 기준값은 실제 목소리로 보정 필요 ([VOICE_AUTH.md](docs/VOICE_AUTH.md)) |
 | 타행 이체 (ClearingHub) | ✅ 보내기(`POST /transfers`의 `to_bank`)·받기(`/interbank/*`)·처리 중 확인, 이체 화면(`/transfer`: 받는 은행 선택, 받는 분 확인, 확인 중 표시), 모아 대화("SimBank 110-123-0001로 5만원") ([INTERBANK.md](docs/INTERBANK.md)) |

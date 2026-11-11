@@ -1,9 +1,8 @@
 """발표 전 시연 시나리오 자동 점검 (실제 서버 + 실제 Gemini, 글자 입력).
 
-    uv run python scripts/demo_check.py            # 서버: uv run --group voice fastapi dev, .env에 DEMO_MODE=true
+    uv run python scripts/demo_check.py            # 서버: uv run fastapi dev, .env에 DEMO_MODE=true
 
 시작할 때와 끝날 때 scripts/demo_seed.py로 시연 데이터를 초기화한다.
-음성(마이크·스피커)과 다른 사람 목소리(시나리오 5)는 사람이 직접 확인해야 한다 (docs/DEMO.md).
 """
 
 import asyncio
@@ -72,13 +71,12 @@ def main() -> None:
         raise SystemExit(".env에 DEMO_MODE=true를 넣고 서버를 다시 켜 주세요.")
     seed()
     d = Demo()
-    voice = d.c.get("/voice/profile", headers=d.h).json()["data"]["enrolled"]
 
     print("\n[시나리오 1] 엄마한테 오만원 → 확인 카드 → 승인 → LOW 통과")
     d.new_session()
     card = d.say("엄마한테 오만원 보내줘")["card"]
     ok = card and card["amount"] == 50_000 and card["recipient_nickname"] == "엄마"
-    r = d.approve(card, pin=demo_seed.PIN if voice else None)  # 목소리 등록자는 버튼 승인에 PIN (음성 승인은 사람이 확인)
+    r = d.approve(card)
     body = r.json()
     check("1 정상 이체", bool(ok) and r.status_code == 200 and body["data"]["risk_level"] == "LOW",
           f"{r.status_code} {body.get('data', {}).get('risk_level') or body['error']['code']}")
@@ -106,7 +104,7 @@ def main() -> None:
         expected = {"NIGHT_HIGH_AMOUNT", "NEW_RECIPIENT_HIGH_AMOUNT", "BALANCE_DRAIN"}
         check("3 차단", error.get("code") == "FDS_BLOCKED" and expected <= rules and bool(rules & CONVERSATION_RULES),
               f"{error.get('code')} 규칙 {sorted(rules)} ML {extra.get('ml_score')}")
-        check("3 경고 문구", "송금을 요구하지 않습니다" in (extra.get("warning") or ""), "TTS로 강제 재생할 경고")
+        check("3 경고 문구", "송금을 요구하지 않습니다" in (extra.get("warning") or ""), "화면에 보여 줄 경고")
         factors = [f["label"] for f in extra.get("top_factors", [])]
         check("4 판단 근거(SHAP)", bool(factors), ", ".join(factors) or "없음")
     finally:
@@ -151,7 +149,6 @@ def main() -> None:
     seed()
     passed = sum(ok for _, ok, _ in results)
     print(f"\n결과: {passed}/{len(results)} 통과")
-    print("사람이 확인할 것: 실제 마이크로 시나리오 1(음성 전송·음성 승인), 시나리오 5(다른 사람 목소리)")
     sys.exit(0 if passed == len(results) else 1)
 
 

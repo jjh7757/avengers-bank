@@ -5,7 +5,6 @@
 배포 서버에서는 컨테이너 안에서: docker exec avengers-bank python scripts/demo_seed.py (docs/DEPLOY.md)
 
 여러 번 실행해도 같은 상태로 돌아간다. 시연 사용자(demo)의 계좌·거래·대화·FDS 기록·카드·수취인을 지우고 다시 만든다.
-등록한 목소리(voice_profiles)는 남긴다 (설정 화면에서 한 번만 등록하면 된다).
 
 만드는 것
 - demo(홍길동): 입출금 "생활비" 320만원, "월급" 150만원, 체크카드, 이체 PIN, 가입 3년 전

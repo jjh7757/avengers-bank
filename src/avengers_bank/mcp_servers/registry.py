@@ -1,7 +1,7 @@
 """MCP 서버 등록: FastAPI의 /mcp/{이름}/mcp 에 streamable HTTP로 붙인다.
 
     /mcp/accounts/mcp   계좌      /mcp/transfers/mcp  이체·수취인    /mcp/products/mcp  상품
-    /mcp/cards/mcp      카드      /mcp/security/mcp   FDS·음성 승인 상태
+    /mcp/cards/mcp      카드      /mcp/security/mcp   FDS 판정 기록
     /mcp/knowledge/mcp  상품 약관·FAQ 검색 (RAG)
 
 외부 MCP 클라이언트(Claude Desktop 등)도 같은 주소에 `Authorization: Bearer <JWT>`로 붙을 수 있다.
